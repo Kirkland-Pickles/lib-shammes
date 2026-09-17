@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data:; img-src https: data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+<title>Lib Shammes v0.9.0</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="titlebar-drag"></div>
+<aside id="sidebar">
+  <div class="brand">LIB SHAMMES</div>
+  <button class="nav" data-page="library">Steam library</button>
+  <button class="nav" data-page="xbox">Xbox library</button>
+  <button class="nav" data-page="desktop">Desktop shortcuts library</button>
+  <button class="nav" data-page="settings">Settings</button>
+  <div class="side-steam">
+    <button class="btn sm" id="side-kill" title="Force-close Steam (Steam games will stop)">Kill Steam</button>
+    <button class="btn sm" id="side-restart" title="Restart Steam (launches it if it isn't running)">Restart Steam</button>
+  </div>
+  <div class="side-foot">v0.9.0</div>
+</aside>
+
+<div id="center">
+<main id="pages">
+  <!-- LIBRARY -->
+  <section class="page" id="page-library">
+    <header class="library-head">
+      <h1>Steam library</h1>
+      <div class="library-head-actions">
+        <button class="btn" id="btn-scan">Scan folders</button>
+        <button class="btn primary" id="btn-add">Add selected to Steam</button>
+      </div>
+    </header>
+    <div class="checklist" hidden>
+      <span class="cl-title">Get set up</span>
+      <button class="cl-item" data-cl="steam"><span class="cl-n">1</span><span>Connect Steam</span><span class="cl-state"></span></button>
+      <button class="cl-item" data-cl="key"><span class="cl-n">2</span><span>Add API key</span><span class="cl-state"></span></button>
+      <button class="cl-item" data-cl="folders"><span class="cl-n">3</span><span>Add folders</span><span class="cl-state"></span></button>
+      <button class="cl-x" data-cl="x" title="Dismiss for this session">×</button>
+    </div>
+    <div id="lib-banner" class="banner" hidden></div>
+    <div class="commandbar">
+      <div class="command-group" role="group" aria-label="Library actions">
+        <button class="btn sm" id="btn-deep">Find missed games</button>
+        <button class="btn sm" id="btn-match">Match selected</button>
+        <button class="btn sm" id="btn-download">Download artwork</button>
+      </div>
+      <div class="command-group manage-actions" role="group" aria-label="Steam shortcut actions">
+        <button class="btn sm" id="btn-remove">Remove from Steam</button>
+        <button class="btn sm danger" id="btn-prune" title="Remove shortcuts we added whose games no longer exist">Prune missing</button>
+      </div>
+    </div>
+    <div class="list-tools">
+      <div class="selection-tools">
+        <span id="selection-count">0 selected</span>
+        <button class="text-btn" id="sel-all">Select all</button>
+        <button class="text-btn" id="sel-none">Clear</button>
+      </div>
+      <div class="view-tools">
+        <label class="check"><input type="checkbox" id="unresolved-only"> Needs review</label>
+        <button class="btn sm" id="hide-owned" aria-pressed="false" title="Hide games installed through Steam">Hide games installed in Steam</button>
+        <input class="search-field" id="filter" type="text" placeholder="Filter games" aria-label="Filter games" autocomplete="off">
+      </div>
+    </div>
+    <div class="library-workspace">
+      <div class="list-panel">
+        <div class="panel-head">
+          <span>Games</span>
+          <span class="muted" id="library-count">0 games</span>
+        </div>
+        <div class="list-wrap">
+          <table id="games">
+            <thead><tr>
+              <th class="c-add" aria-label="Selected"></th>
+              <th>Game</th><th class="c-match">Match</th><th class="c-st">Steam</th><th class="c-exe">Launcher</th>
+            </tr></thead>
+            <tbody id="games-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="detail" id="detail">
+        <div class="detail-empty" id="detail-empty">
+          <h2>Select a game</h2>
+          <p>Choose a row to review its name, launcher, match, and artwork.</p>
+        </div>
+        <div id="detail-content" hidden>
+          <div class="det-head">
+            <img id="d-preview" alt="" hidden>
+            <div class="det-titles">
+              <h2 id="d-title"></h2>
+              <div class="muted" id="d-identity"></div>
+            </div>
+          </div>
+          <section class="detail-section">
+            <div class="section-head">
+              <h3>Game</h3>
+              <button class="text-btn" id="d-open">Open folder</button>
+            </div>
+            <label class="fld"><span>Name in Steam</span><input id="d-name" type="text"></label>
+            <label class="field-label" for="d-exe-pick">Launcher</label>
+            <div class="control-combo">
+              <select id="d-exe-pick"></select>
+              <button class="btn sm" id="d-browse">Browse</button>
+            </div>
+            <button class="btn sm primary section-action" id="d-apply">Save changes</button>
+          </section>
+          <section class="detail-section">
+            <div class="section-head match-head">
+              <h3>Game match</h3>
+              <span class="match-status" id="s-status" role="status">Not matched</span>
+            </div>
+            <div class="control-combo">
+              <input id="s-search" type="text" placeholder="Search SteamGridDB" aria-label="Search SteamGridDB" autocomplete="off">
+              <button class="btn sm" id="s-go">Search</button>
+            </div>
+            <div class="control-combo match-results">
+              <select id="s-results" aria-label="SteamGridDB search results">
+                <option value="">Search for a game first</option>
+              </select>
+              <button class="btn sm" id="s-set">Use match</button>
+            </div>
+            <button class="text-btn auto-match" id="s-auto">Match automatically</button>
+          </section>
+          <section class="detail-section artwork-section">
+            <div class="section-head">
+              <h3>Artwork</h3>
+              <button class="text-btn" id="detail-choose-art">Choose artwork</button>
+            </div>
+            <div id="art-rows"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- XBOX (blank entry for later) -->
+  <section class="page" id="page-xbox">
+    <p class="sub">coming soon</p>
+  </section>
+
+  <!-- DESKTOP SHORTCUTS (stub for later) -->
+  <section class="page" id="page-desktop">
+    <p class="sub">coming soon</p>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="page" id="page-settings">
+    <h1>Settings</h1>
+    <p class="sub">Saved instantly as you change them.</p>
+    <div class="checklist" hidden>
+      <span class="cl-title">Get set up</span>
+      <button class="cl-item" data-cl="steam"><span class="cl-n">1</span><span>Connect Steam</span><span class="cl-state"></span></button>
+      <button class="cl-item" data-cl="key"><span class="cl-n">2</span><span>Add API key</span><span class="cl-state"></span></button>
+      <button class="cl-item" data-cl="folders"><span class="cl-n">3</span><span>Add folders</span><span class="cl-state"></span></button>
+      <button class="cl-x" data-cl="x" title="Dismiss for this session">×</button>
+    </div>
+    <div class="cards2" id="settings-cards"></div>
+  </section>
+</main>
+
+<div id="bottomdock">
+  <div id="dockhead"><span class="caption">Logs</span></div>
+  <div class="progress" id="progwrap" hidden><div id="fill"></div></div>
+  <div id="log"></div>
+</div>
+
+<footer id="statusbar">
+  <span id="status"></span>
+</footer>
+</div>
+
+<!-- ARTWORK PICKER -->
+<div id="art-overlay" hidden>
+  <div id="art-modal" role="dialog" aria-modal="true" aria-label="Choose artwork">
+    <div class="modal-head">
+      <h2 id="art-title">Artwork</h2>
+      <div class="muted small" id="art-status">Pick an SGDB match, then choose art per tab.</div>
+    </div>
+    <div class="modal-search">
+      <input id="art-q" type="text" placeholder="SGDB game search…" autocomplete="off">
+      <button class="btn sm" id="art-search">Search</button>
+      <select id="art-games"></select>
+      <label class="muted">ID:</label>
+      <input id="art-id" type="text" class="w-id">
+      <button class="btn sm" id="art-load">Load</button>
+    </div>
+    <div class="tabs" id="art-tabs"></div>
+    <div class="thumbScroll"><div id="art-grid"></div></div>
+    <div class="modal-foot">
+      <span class="muted small">Click an image to select it.</span>
+      <span class="spacer"></span>
+      <button class="btn sm" id="art-url">From URL…</button>
+      <button class="btn sm" id="art-file">From file…</button>
+      <button class="btn sm" id="art-clear">Clear</button>
+      <button class="btn sm" id="art-cancel">Cancel</button>
+      <button class="btn primary sm" id="art-apply">Apply selection</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

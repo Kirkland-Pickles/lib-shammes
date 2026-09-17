@@ -1,0 +1,28 @@
+{
+  "name": "lib-shammes",
+  "version": "0.9.0",
+  "description": "Scan game folders, add them to Steam as non-Steam shortcuts, fetch SteamGridDB art",
+  "license": "GPL-3.0-only",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
+    "build": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.libshammes.app",
+    "productName": "Lib Shammes",
+    "files": ["src/**/*", "package.json"],
+    "extraFiles": ["LICENSE"],
+    "directories": { "output": "dist" },
+    "win": {
+      "icon": "src/assets/app-icon.ico",
+      "target": ["nsis"]
+    },
+    "publish": null
+  }
+}
