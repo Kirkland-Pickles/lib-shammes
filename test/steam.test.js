@@ -122,7 +122,7 @@ describe('steam detection (hint fallthrough)', () => {
       const good = path.join(td, 'Steam');
       fs.mkdirSync(good, { recursive: true });
       fs.writeFileSync(path.join(good, 'steam.exe'), 'fake');
-      assert.equal(await steam.findSteamPath(good), good);
+      assert.equal(await steam.findSteamPath(good), fs.realpathSync.native(good));
       const res = await steam.findSteamPath(path.join(td, 'nope'));
       assert.ok(res === null || steam.hasSteamExe(res), 'unverified paths must never be returned');
     } finally {
