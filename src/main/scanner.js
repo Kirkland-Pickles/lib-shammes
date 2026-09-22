@@ -137,77 +137,7 @@ function childDirs(folder) {
   } catch { return []; }
 }
 
-// ------------------------------------------------------------------ .lnk
-// Resolve standard desktop .lnk files to local executable targets.
-function parseLnkTarget(lnkPath) {
-  let buf;
-  try {
-    buf = fs.readFileSync(lnkPath);
-  } catch { return null; }
-  // The Shell Link header is 76 bytes. LinkInfo offsets are relative to its start.
-  if (buf.length < 76 || buf.readUInt32LE(0) !== 0x0000004c) return null;
-  const flags = buf.readUInt32LE(20);
-  const HAS_IDLIST = 0x01;
-  const HAS_LINKINFO = 0x02;
-  let off = 76;
-  if (flags & HAS_IDLIST) {
-    if (off + 2 > buf.length) return null;
-    off += 2 + buf.readUInt16LE(off);
-  }
-  if (!(flags & HAS_LINKINFO) || off + 28 > buf.length) return null;
-  const base = off;
-  const headerSize = buf.readUInt32LE(base + 4);
-  const infoFlags = buf.readUInt32LE(base + 8);
-  const HAS_VOLUME_LOCAL = 0x01;
-  if (!(infoFlags & HAS_VOLUME_LOCAL)) return null;
-  if (headerSize >= 36) {
-    const uOff = buf.readUInt32LE(base + 28);
-    if (uOff) {
-      const end = findUtf16Nul(buf, base + uOff);
-      if (end > 0) {
-        const p = buf.toString('utf16le', base + uOff, end);
-        if (p) return p;
-      }
-    }
-  }
-  const aOff = buf.readUInt32LE(base + 16);
-  if (!aOff) return null;
-  const end = buf.indexOf(0, base + aOff);
-  if (end < 0) return null;
-  return buf.toString('latin1', base + aOff, end) || null;
-}
-
-function findUtf16Nul(buf, off) {
-  for (let i = off; i + 1 < buf.length; i += 2) {
-    if (buf[i] === 0 && buf[i + 1] === 0) return i;
-  }
-  return -1;
-}
-
-/** Map lowercased game folders to executable targets from desktop shortcuts. */
-function loadDesktopLinks(dirs) {
-  const roots = dirs || [
-    path.join(process.env.USERPROFILE || '', 'Desktop'),
-    path.join(process.env.PUBLIC || '', 'Desktop'),
-  ].filter(Boolean);
-  const map = new Map();
-  for (const root of roots) {
-    let entries;
-    try {
-      entries = fs.readdirSync(root, { withFileTypes: true });
-    } catch { continue; }
-    for (const e of entries) {
-      if (!e.isFile() || !e.name.toLowerCase().endsWith('.lnk')) continue;
-      const target = parseLnkTarget(path.join(root, e.name));
-      if (target && target.toLowerCase().endsWith('.exe')) {
-        map.set(path.dirname(target).toLowerCase(), target);
-      }
-    }
-  }
-  return map;
-}
-
-function scanGames(root, { maxDepth = 1, innerDepth = 3, linkMap = null, onProgress } = {}) {
+function scanGames(root, { maxDepth = 1, innerDepth = 3, onProgress } = {}) {
   if (!root) return [];
   try {
     if (!fs.statSync(root).isDirectory()) return [];
@@ -225,18 +155,6 @@ function scanGames(root, { maxDepth = 1, innerDepth = 3, linkMap = null, onProgr
     const { exe, candidates: cands, reason } = pickExe(folder, display, innerDepth);
     let { method, confidence, steamAppid } = ident;
     let finalReason = exe ? reason : 'no .exe found';
-    let lnkBoosted = false;
-    if (linkMap && exe) {
-      // Desktop shortcut pointing into this folder outranks every heuristic.
-      const target = linkMap.get(folder.toLowerCase());
-      const hit = target && cands.find((c) => c.path.toLowerCase() === String(target).toLowerCase());
-      if (hit) {
-        hit.score += 200;
-        cands.sort((a, b) => b.score - a.score);
-        lnkBoosted = cands[0] === hit;
-        if (lnkBoosted) finalReason = `${hit.reason || 'desktop shortcut'} + desktop shortcut points here`;
-      }
-    }
     const best = cands.length ? cands[0].path : exe;
     if (method === 'folder' && best) {
       const exeId = resolve.resolveExeStem(path.basename(best, path.extname(best)));
@@ -261,7 +179,7 @@ function scanGames(root, { maxDepth = 1, innerDepth = 3, linkMap = null, onProgr
       folder, displayName: display, exePath: best,
       startDir: best ? path.dirname(best) : folder,
       candidates: cands, score: cands.length ? cands[0].score : 0,
-      reason: finalReason, query: display, lnkBoosted,
+      reason: finalReason, query: display,
       steamAppid, idMethod: method, confidence: confidence,
     });
   });
@@ -344,5 +262,4 @@ function safeSize(p) {
 module.exports = {
   DIR_BLACKLIST, EXE_BLACKLIST_SUBSTRINGS,
   cleanFolderName, pickExe, scanGames, scanOrphans,
-  parseLnkTarget, loadDesktopLinks,
 };

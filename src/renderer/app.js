@@ -358,7 +358,7 @@ function renderSettingsCards() {
     if (k === 'include_nsfw' && e.target.checked) {
       const yes = await confirmDlg('Enable NSFW artwork?',
         'Results can change how you look at the games characters forever.',
-        { danger: true, small: true, confirmText: 'I dont care' });
+        { danger: true, small: true, confirmText: "I don't care" });
       if (!yes) { e.target.checked = false; return; }
       savePatch({ include_nsfw: true });
       return;
@@ -783,10 +783,8 @@ async function doScan() {
   renderRows();
   const ok = S.rows.filter((r) => r.exe).length;
   const parsed = S.rows.filter((r) => r.idMethod !== 'folder').length;
-  const viaShortcut = games.filter((g) => g.lnkBoosted).length;
   log(`Found ${S.rows.length} games, ${ok} with a .exe, ${parsed} auto-identified (${S.rows.length - parsed} need review).`);
   if (droppedNoExe) log(`  Skipped ${droppedNoExe} folder(s) with no .exe - not games.`);
-  if (viaShortcut) log(`  ${viaShortcut} launcher(s) picked via desktop shortcut.`);
   status(`Found ${S.rows.length} games.`);
   await refreshSteamState();
   await syncSteamLibrary();

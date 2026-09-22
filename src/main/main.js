@@ -280,11 +280,9 @@ ipcMain.handle('scan:start', async (_e, req) => {
   if (!roots.length) throw new Error('Scan needs at least one folder.');
   const seen = new Set();
   const games = [];
-  const linkMap = scanner.loadDesktopLinks();
   for (let ri = 0; ri < roots.length; ri++) {
     const part = scanner.scanGames(roots[ri], {
       maxDepth: Math.max(0, Math.min(6, Math.floor(Number(cfg.folder_depths[store.folderKey(roots[ri])] ?? 1)) || 0)),
-      linkMap,
       onProgress: (i, t, name) => progress(i, t, `[${ri + 1}/${roots.length}] ${i}/${t}: ${name}`),
     });
     for (const g of part) {
