@@ -8,6 +8,7 @@ const path = require('path');
 const DEFAULTS = {
   games_root: '',
   games_roots: [],
+  folder_depths: {},
   steam_path: '',
   steam_user_id: '',
   api_key: '',
@@ -76,6 +77,10 @@ function load() {
     cfg.games_roots = [cfg.games_root];
   }
   cfg.games_roots = dedupe(cfg.games_roots);
+  cfg.folder_depths = { ...cfg.folder_depths };
+  for (const root of cfg.games_roots) {
+    cfg.folder_depths[folderKey(root)] ??= cfg.scan_depth;
+  }
   return cfg;
 }
 

@@ -42,9 +42,10 @@ D:\Games\
     launcher.exe
 ```
 
-The game folders do not need to be on the same drive. If your folders are
-nested more deeply, change the scan depth in Settings. The default depth is 1,
-as shown above.
+The game folders do not need to be on the same drive. Set the depth separately
+for each added folder. Use 0 if you selected a single game's folder, 1 if it
+contains your game folders directly, or 2 if they are another level down.
+New folders default to 1.
 
 The scan keeps the executables it finds as launcher choices. It ranks them
 using the folder name, executable name, location, and file size, then chooses

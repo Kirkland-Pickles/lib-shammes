@@ -124,7 +124,7 @@ describe('scanner', () => {
     try {
       touch(path.join(td, 'Sample Title', 'sampletitle.exe'), 60_000_000);
       touch(path.join(td, 'Sample Title', 'uninstall.exe'), 1_000_000);
-      const games = scanner.scanGames(td, { maxDepth: 2 });
+      const games = scanner.scanGames(td, { maxDepth: 1 });
       assert.equal(games.length, 1);
       assert.equal(path.basename(games[0].exePath), 'sampletitle.exe');
       assert.equal(games[0].displayName, 'Sample Title');
@@ -139,7 +139,7 @@ describe('scanner', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'scan-'));
     try {
       touch(path.join(td, '98274923749879', 'Sample.Game.Title-RUNE.exe'), 60_000_000);
-      const games = scanner.scanGames(td, { maxDepth: 2 });
+      const games = scanner.scanGames(td, { maxDepth: 1 });
       assert.equal(games.length, 1);
       assert.equal(games[0].displayName, 'Sample Game Title');
       assert.equal(games[0].query, 'Sample Game Title');
@@ -158,7 +158,7 @@ describe('scanner', () => {
   it('handles publisher layout and rescues buried exes via orphans', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'scan-'));
     try {
-      touch(path.join(td, 'GameA', 'gamea.exe'), 10_000_000);
+      touch(path.join(td, 'Publisher', 'GameA', 'gamea.exe'), 10_000_000);
       touch(path.join(td, 'Publisher', 'GameB', 'gameb.exe'), 20_000_000);
       touch(path.join(td, 'Pub', 'Deep', 'd1', 'd2', 'd3', 'd4', 'deep.exe'), 20_000_000);
       const games = scanner.scanGames(td, { maxDepth: 2 });

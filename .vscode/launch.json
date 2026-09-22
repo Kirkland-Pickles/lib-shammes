@@ -1,6 +1,4 @@
 {
-  // F5 runs the app with breakpoints in main + renderer.
-  // Tests run in the terminal instead: npm test
   "version": "0.2.0",
   "configurations": [
     {

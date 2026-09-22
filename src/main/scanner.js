@@ -21,13 +21,6 @@ const EXE_BLACKLIST_SUBSTRINGS = [
   'eac_', 'battleye', 'anticheat',
 ];
 
-const GENERIC_SUBDIRS = new Set([
-  'bin', 'binaries', 'bin64', 'bin32', 'x64', 'x86', 'win64', 'win32',
-  'win', 'game', 'build', 'builds', 'app', 'apps', 'dist', 'release',
-  'releases', 'retail', 'final', 'engine', 'content', 'data', 'program',
-  'system', 'system32', 'client', 'launch', 'launcher', 'master',
-]);
-
 function cleanFolderName(name) {
   let s = String(name).trim();
   for (const pat of TAG_PATTERNS) s = s.replace(pat, '').trim();
@@ -135,13 +128,6 @@ function pickExe(gameRoot, displayName, maxInnerDepth = 3) {
   return { exe: best.path, candidates, reason: best.reason };
 }
 
-function hasDirectExe(folder) {
-  try {
-    return fs.readdirSync(folder, { withFileTypes: true })
-      .some((e) => e.isFile() && e.name.toLowerCase().endsWith('.exe'));
-  } catch { return false; }
-}
-
 function childDirs(folder) {
   try {
     return fs.readdirSync(folder, { withFileTypes: true })
@@ -149,32 +135,6 @@ function childDirs(folder) {
       .map((e) => path.join(folder, e.name))
       .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   } catch { return []; }
-}
-
-/** Decide whether a folder without an exe is a container or the game root. */
-function subGames(folder) {
-  const subs = childDirs(folder).filter((d) => !DIR_BLACKLIST.has(path.basename(d).toLowerCase()));
-  if (!subs.length) return [folder];
-  const nonGeneric = subs.filter((d) => !GENERIC_SUBDIRS.has(path.basename(d).toLowerCase()));
-  if (subs.length === 1 && GENERIC_SUBDIRS.has(path.basename(subs[0]).toLowerCase())) {
-    // A generic child can be an engine folder or a nested game. Use exe-name
-    // similarity to break the tie.
-    const parentNorm = norm(path.basename(folder));
-    const childNorm = norm(path.basename(subs[0]));
-    if (parentNorm !== childNorm) {
-      const stems = iterExes(subs[0], 1)
-        .map(([p]) => norm(path.basename(p, path.extname(p))));
-      const match = (s, name) => s && (s === name || s.includes(name) || name.includes(s));
-      const childHit = stems.some((s) => match(s, childNorm));
-      const parentHit = stems.some((s) => match(s, parentNorm));
-      if (childHit && !parentHit) return subs;
-    }
-    return [folder]; // the exe name does not make it clear if the child folder is the game. keep the parent folder
-  }
-  if (nonGeneric.length >= 2 || subs.length === 1) {
-    return nonGeneric.length ? nonGeneric : subs;
-  }
-  return [folder]; // mixed child folders are too ambiguous to treat them as separate games. keep the parent folder
 }
 
 // ------------------------------------------------------------------ .lnk
@@ -247,36 +207,14 @@ function loadDesktopLinks(dirs) {
   return map;
 }
 
-function scanGames(root, { maxDepth = 2, innerDepth = 3, linkMap = null, onProgress } = {}) {
+function scanGames(root, { maxDepth = 1, innerDepth = 3, linkMap = null, onProgress } = {}) {
   if (!root) return [];
   try {
     if (!fs.statSync(root).isDirectory()) return [];
   } catch { return []; }
-  const candidates = [];
-  const children = childDirs(root);
-  try {
-    const files = fs.readdirSync(root, { withFileTypes: true });
-    if (files.some((e) => e.isFile() && e.name.toLowerCase().endsWith('.exe'))) candidates.push(root);
-  } catch { /* ignore */ }
-
-  for (const child of children) {
-    if (DIR_BLACKLIST.has(path.basename(child).toLowerCase())) continue;
-    candidates.push(child);
-  }
-  // Descend while folders have no direct exe: depth 1 = children only,
-  // depth 2 = +grandchildren, depth 3 = +great-grandchildren, ...
-  for (let level = 1; level < Math.max(1, maxDepth); level++) {
-    const next = [];
-    const seen = new Set();
-    for (const c of candidates) {
-      const repl = hasDirectExe(c) ? [c] : subGames(c);
-      for (const r of repl) {
-        const k = r.toLowerCase();
-        if (!seen.has(k)) { seen.add(k); next.push(r); }
-      }
-    }
-    candidates.length = 0;
-    candidates.push(...next);
+  let candidates = [root];
+  for (let level = 0; level < maxDepth; level++) {
+    candidates = candidates.flatMap(childDirs);
   }
 
   const results = [];
@@ -334,7 +272,7 @@ function scanGames(root, { maxDepth = 2, innerDepth = 3, linkMap = null, onProgr
 }
 
 /** Fallback scan for unassigned executables. Reports when a scan limit was hit. */
-function scanOrphans(root, claimedSet, { maxDepth = Infinity, limit = 200, maxDirs = 50000, maxFiles = 10000 } = {}) {
+function scanOrphans(root, claimedSet, { maxDepth = 10, limit = 200, maxDirs = 50000, maxFiles = 10000 } = {}) {
   const claimed = new Set([...(claimedSet || [])].map((p) => String(p).toLowerCase()));
   const orphans = [];
   let capped = false;
@@ -404,7 +342,7 @@ function safeSize(p) {
 }
 
 module.exports = {
-  DIR_BLACKLIST, EXE_BLACKLIST_SUBSTRINGS, GENERIC_SUBDIRS,
+  DIR_BLACKLIST, EXE_BLACKLIST_SUBSTRINGS,
   cleanFolderName, pickExe, scanGames, scanOrphans,
   parseLnkTarget, loadDesktopLinks,
 };

@@ -82,18 +82,30 @@ describe('lnk exe signal', () => {
   });
 });
 
-describe('depth 3 chains', () => {
-  it('keeps a title/Game layout at the parent even at depth 3', () => {
+describe('game folder depth', () => {
+  it('uses the selected folder at depth zero and searches inside it for launchers', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'depth-'));
     try {
       touch(path.join(td, 'Sample Title', 'Game', 'sampletitle.exe'), 60_000_000);
-      for (const d of [2, 3]) {
-        const games = scanner.scanGames(td, { maxDepth: d });
+      for (const [root, depth] of [[path.join(td, 'Sample Title'), 0], [td, 1]]) {
+        const games = scanner.scanGames(root, { maxDepth: depth });
         assert.equal(games.length, 1);
         assert.equal(path.basename(games[0].folder), 'Sample Title');
         assert.equal(path.basename(games[0].exePath), 'sampletitle.exe');
         assert.equal(games[0].displayName, 'Sample Title');
       }
+    } finally {
+      fs.rmSync(td, { recursive: true, force: true });
+    }
+  });
+  it('obeys the selected level even when a parent has an exe', () => {
+    const td = fs.mkdtempSync(path.join(os.tmpdir(), 'depth-'));
+    try {
+      touch(path.join(td, 'Publisher', 'launcher.exe'), 1_000_000);
+      touch(path.join(td, 'Publisher', 'First Game', 'first.exe'), 2_000_000);
+      touch(path.join(td, 'Publisher', 'Second Game', 'second.exe'), 2_000_000);
+      const games = scanner.scanGames(td, { maxDepth: 2 });
+      assert.deepEqual(games.map((g) => path.basename(g.folder)), ['First Game', 'Second Game']);
     } finally {
       fs.rmSync(td, { recursive: true, force: true });
     }

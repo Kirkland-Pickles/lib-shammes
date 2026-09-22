@@ -287,17 +287,32 @@ function foldersCard() {
     <span style="display:flex;flex-direction:column;gap:6px">
     <button class="btn sm" data-r="add">Add…</button>
     <button class="btn sm" data-r="remove">Remove</button></span></div>
-    <div class="note">Every subfolder is treated as one game by default.</div>`;
+    <label class="row">Game folder depth <select data-r="depth" aria-label="Game folder depth">${[0, 1, 2, 3, 4, 5, 6].map((n) => `<option>${n}</option>`).join('')}</select></label>
+    <div class="note">For the selected folder: 0 = the game itself, 1 = game folders inside it, 2 = your game folders are one level further inside. Increase the number for additional folder levels. Within each game folder, the app searches up to 3 levels down for an executable.</div>`;
   const q = (s) => d.querySelector(`[data-r="${s}"]`);
-  const paint = () => {
+  const showDepth = () => {
+    q('depth').disabled = !q('list').value;
+    q('depth').value = String(S.cfg.folder_depths[folderKey(q('list').value)] ?? 1);
+  };
+  const paint = (selected = q('list').value) => {
     q('list').innerHTML = (S.cfg.games_roots || []).map((g) => `<option>${esc(g)}</option>`).join('');
+    if (S.cfg.games_roots.includes(selected)) q('list').value = selected;
+    else q('list').selectedIndex = S.cfg.games_roots.length ? 0 : -1;
+    showDepth();
   };
   paint();
+  q('list').addEventListener('change', showDepth);
+  q('depth').addEventListener('change', () => savePatch({
+    folder_depths: { ...S.cfg.folder_depths, [folderKey(q('list').value)]: Number(q('depth').value) },
+  }));
   q('add').addEventListener('click', async () => {
     const p = await window.api.foldersBrowse();
     if (p && !S.cfg.games_roots.includes(p)) {
-      await savePatch({ games_roots: [...S.cfg.games_roots, p] });
-      paint();
+      await savePatch({
+        games_roots: [...S.cfg.games_roots, p],
+        folder_depths: { ...S.cfg.folder_depths, [folderKey(p)]: 1 },
+      });
+      paint(p);
       log(`Games folder added: ${p}`);
     }
   });
@@ -319,20 +334,13 @@ function renderSettingsCards() {
   host.appendChild(foldersCard());
   const prefs = document.createElement('div');
   prefs.className = 'card';
-  prefs.innerHTML = `<h3>Scanning</h3>
-    <div class="row"><span class="muted">how deep should folders count as games</span>
-    <select data-r="depth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>
-    <span class="muted small">(default is 1)</span></div>
-    <span class="muted small">(by default, app will look 3 folders deep into each game folder for a valid exe. if you have your games folder structured like Games\\publisher\\gamename, use depth 2. if you use Games\\gamename, use depth 1.)</span></div>
-    <h3 style="margin-top:14px">Default artwork</h3>
+  prefs.innerHTML = `<h3>Default artwork</h3>
     <div class="row" data-r="kinds"></div>
     <div class="row" data-r="flags"></div>
     <label class="check" style="margin-top:8px"><input type="checkbox" data-r="missing">
     Skip already populated artwork</label>
     <div class="note">Per-game / per-type picks. manually choosing artwork will override these settings</div>`;
   const q = (s) => prefs.querySelector(`[data-r="${s}"]`);
-  q('depth').value = String(S.cfg.scan_depth || 1);
-  q('depth').addEventListener('change', () => savePatch({ scan_depth: Number(q('depth').value) || 1 }));
   const kinds = [['wide', 'Wide'], ['grid', 'Grid'], ['hero', 'Hero'], ['logo', 'Logo'], ['icon', 'Icon']];
   q('kinds').innerHTML = kinds.map(([k, label]) =>
     `<label class="check"><input type="checkbox" data-k="${k}"${S.cfg[`want_${k}`] ? ' checked' : ''}> ${label}</label>`).join('');
@@ -747,7 +755,7 @@ async function doScan() {
     return;
   }
   status(`Scanning ${roots.length} folder(s)…`);
-  const games = await window.api.scanStart({ roots, depth: Math.max(1, Math.min(6, S.cfg.scan_depth || 1)) });
+  const games = await window.api.scanStart({ roots });
   const prev = new Map(S.rows.map((r) => [r.folder, r]));
   const folderCounts = new Map();
   for (const g of games) {
@@ -925,6 +933,7 @@ function rowPayload(r) {
 async function doDownloadArt() {
   const rows = checkedRows().filter((r) => r.sgdbId && r.source !== 'steam');
   if (!rows.length) { toast('No matched games selected - run Auto-match first (store games need no art).'); return; }
+  if (await needKey()) return;
   const kinds = wantedKinds();
   if (!kinds.length) { toast('Tick at least one artwork type (Settings).'); return; }
   status(`Downloading art for ${rows.length} games…`);
