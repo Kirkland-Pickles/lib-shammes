@@ -926,7 +926,7 @@ async function refreshSteamState() {
   if (S.detailKey) renderDetail();
 }
 
-async function needKey() {
+function needKey() {
   if (!S.cfg.api_key) {
     toast('Add your SteamGridDB API key first in Settings.');
     return true;
@@ -940,7 +940,7 @@ async function doAutoMatch() {
   let rows = S.rows.filter((r) => r.checked && !r.sgdbId && matchable(r));
   if (!rows.length) rows = S.rows.filter((r) => r.checked && matchable(r));
   if (!rows.length) { toast('Nothing to match - scan a folder first.'); return; }
-  if (await needKey()) return;
+  if (needKey()) return;
   status(`Auto-matching ${rows.length} games…`);
   log(`Auto-matching ${rows.length} games…`);
   const payload = rows.map((r) => ({
@@ -973,7 +973,7 @@ function rowPayload(r) {
 async function doDownloadArt() {
   const rows = checkedRows().filter((r) => r.sgdbId && r.source !== 'steam');
   if (!rows.length) { toast('No matched games selected - run Auto-match first (store games need no art).'); return; }
-  if (await needKey()) return;
+  if (needKey()) return;
   const kinds = wantedKinds();
   if (!kinds.length) { toast('Tick at least one artwork type (Settings).'); return; }
   status(`Downloading art for ${rows.length} games…`);
@@ -1163,7 +1163,7 @@ const ART_TABS = [['wide', 'Wide Capsule'], ['grid', 'Vertical Grid'], ['hero', 
 
 function openArtModal(row, focusKind) {
   if (row.source === 'steam') { toast('Artwork for Steam store games is managed by Steam.'); return; }
-  if (!S.cfg.api_key) { toast('Add your SteamGridDB API key first in Settings.'); return; }
+  if (needKey()) return;
   S.modal = {
     row, tab: focusKind || 'grid',
     sgdbId: row.sgdbId || null,
@@ -1508,7 +1508,7 @@ async function sgdbSearch() {
   const key = rowKey(r);
   const q = $('#s-search').value.trim() || r.display;
   if (!q) return;
-  if (!S.cfg.api_key) { toast('Add your SteamGridDB API key first in Settings.'); return; }
+  if (needKey()) return;
   const token = ++S.matchSearchToken;
   const sel = $('#s-results');
   const use = $('#s-set');
@@ -1557,7 +1557,7 @@ async function sgdbUseSelected() {
 async function sgdbAutoOne() {
   const r = cur();
   if (!r) return;
-  if (!S.cfg.api_key) { toast('Add your SteamGridDB API key first in Settings.'); return; }
+  if (needKey()) return;
   const key = rowKey(r);
   const token = ++S.matchSearchToken;
   resetMatchResults('Matching automatically…');
