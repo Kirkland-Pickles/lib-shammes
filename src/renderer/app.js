@@ -1110,10 +1110,10 @@ async function doRestartSteam() {
     : 'Launch Steam now?')) return;
   status('Restarting Steam…');
   try {
-    const { lines } = await window.api.steamRestart();
+    const { restarted, lines } = await window.api.steamRestart();
     lines.forEach(log);
-    // Launch call alone means nothing: poll till Steam is actually seen, or
-    // the bar says "launching" forever with no verdict.
+    if (!restarted) { status(lines.at(-1) || 'Steam did not restart.'); return; }
+    // Check that steam.exe is running before reporting success.
     let seen = false;
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 500));
@@ -1123,7 +1123,6 @@ async function doRestartSteam() {
     }
     if (seen) {
       status('Steam restarted.');
-      toast('Steam restarted.');
     } else {
       status('Steam did not come back - launch it manually.');
       log('Restart issued but Steam was not seen running after 15s.');
