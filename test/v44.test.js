@@ -59,15 +59,39 @@ describe('game folder depth', () => {
   });
 });
 
-describe('orphan cap', () => {
+describe('executable search', () => {
+  it('lists every executable separately down to depth ten', () => {
+    const td = fs.mkdtempSync(path.join(os.tmpdir(), 'executables-'));
+    try {
+      const first = path.join(td, 'game.exe');
+      const second = path.join(td, 'uninstall.exe');
+      const utility = path.join(td, 'redist', '7za.exe');
+      const tenth = path.join(td, ...Array(10).fill('nested'), 'last.exe');
+      const eleventh = path.join(path.dirname(tenth), 'nested', 'too-deep.exe');
+      for (const file of [first, second, utility, tenth, eleventh]) touch(file, 1);
+      const { games, truncated } = scanner.findExecutables(td, new Set());
+      assert.deepEqual(new Set(games.map((g) => g.exePath)), new Set([first, second, utility, tenth]));
+      assert.equal(new Set(games.map((g) => g.folder)).size, 4);
+      assert.ok(games.every((g) => g.candidates.length === 1 && g.startDir === path.dirname(g.exePath)));
+      assert.ok(games.every((g) => g.fromExecutableSearch));
+      assert.equal(games.find((g) => g.exePath === second).idMethod, 'folder');
+      assert.equal(truncated, false);
+      const remaining = scanner.findExecutables(td, new Set([first.toUpperCase()]));
+      assert.equal(remaining.games.length, 3);
+      assert.ok(remaining.games.every((g) => g.exePath !== first));
+    } finally {
+      fs.rmSync(td, { recursive: true, force: true });
+    }
+  });
+
   it('reports truncation instead of silently dropping', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'orph-'));
     try {
       for (let i = 0; i < 5; i++) touch(path.join(td, `G${i}`, 'game.exe'), 10_000_000);
-      const full = scanner.scanOrphans(td, new Set());
+      const full = scanner.findExecutables(td, new Set());
       assert.equal(full.games.length, 5);
       assert.equal(full.truncated, false);
-      const capped = scanner.scanOrphans(td, new Set(), { limit: 2 });
+      const capped = scanner.findExecutables(td, new Set(), { limit: 2 });
       assert.equal(capped.games.length, 2);
       assert.equal(capped.truncated, true);
     } finally {

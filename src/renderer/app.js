@@ -28,6 +28,7 @@ const S = {
   matchSearchToken: 0,
   previewCache: {},         // sgdbId -> thumb url
   modal: null,              // artwork picker state
+  exePicker: null,
 };
 
 const cur = () => (S.detailKey ? rowByKey(S.detailKey) : null);
@@ -155,11 +156,12 @@ function navReset(page) {
   paintRoute();
 }
 function navBack() {
-  if (!S.modal && Nav.idx > 0) { Nav.idx -= 1; paintRoute(); }
+  if (!pickerOpen() && Nav.idx > 0) { Nav.idx -= 1; paintRoute(); }
 }
 function navFwd() {
-  if (!S.modal && Nav.idx < Nav.stack.length - 1) { Nav.idx += 1; paintRoute(); }
+  if (!pickerOpen() && Nav.idx < Nav.stack.length - 1) { Nav.idx += 1; paintRoute(); }
 }
+function pickerOpen() { return !!(S.modal || S.exePicker); }
 // Mouse back/forward click can arrive twice - once from the DOM, once from Electron.
 // Second one inside the window is the echo, the following code drops it.
 let lastMouseNav = 0;
@@ -446,7 +448,7 @@ function renderRows() {
     tr.dataset.key = rowKey(r);
     if (S.detailKey === rowKey(r)) tr.classList.add('sel');
     if (!r.exe && r.source !== 'steam') tr.classList.add('noexe');
-    const source = SOURCE_LABEL[r.source] || r.source;
+    const source = r.fromExecutableSearch ? 'Executable' : SOURCE_LABEL[r.source] || r.source;
     const folder = r.folderName && r.folderName !== r.display ? r.folderName : '';
     const gameMeta = folder ? `${source} · ${folder}` : source;
     const matchName = r.source === 'steam'
@@ -565,7 +567,7 @@ function renderDetail() {
   empty.hidden = true;
   content.hidden = false;
   $('#d-title').textContent = row.display;
-  const identity = [SOURCE_LABEL[row.source] || row.source];
+  const identity = [row.fromExecutableSearch ? 'Executable' : SOURCE_LABEL[row.source] || row.source];
   if (row.steamAppid) identity.push(`Steam ${row.steamAppid}`);
   if (row.source !== 'steam') identity.push(row.idMethod === 'folder' ? 'Needs review' : `${Math.round(row.confidence * 100)}% match`);
   $('#d-identity').textContent = identity.join(' · ');
@@ -580,7 +582,8 @@ function renderDetail() {
   } else if (row.candidates.length) {
     row.candidates.forEach((c) => {
       const o = document.createElement('option');
-      const rel = c.path.startsWith(row.folder) ? c.path.slice(row.folder.length).replace(/^[\\/]/, '') : c.path;
+      const rel = !row.fromExecutableSearch && c.path.startsWith(row.folder)
+        ? c.path.slice(row.folder.length).replace(/^[\\/]/, '') : c.path;
       o.value = c.path;
       o.textContent = rel.toLowerCase() === baseName(c.path).toLowerCase()
         ? `${baseName(c.path)} · ${fmtMB(c.size)}`
@@ -661,7 +664,7 @@ async function previewFor(row) {
 
 // ------------------------------------------------------------ library ops
 function toRow(g, useLegacy = false) {
-  const folderName = baseName(g.folder);
+  const folderName = baseName(g.fromExecutableSearch ? g.startDir : g.folder);
   const key = folderKey(g.folder);
   const title = (S.cfg.title_map && (S.cfg.title_map[key]
     || (useLegacy && S.cfg.title_map[folderName]))) || g.displayName;
@@ -672,11 +675,12 @@ function toRow(g, useLegacy = false) {
     folder: g.folder, folderName, display: title, exe: g.exePath, startDir: g.startDir,
     launchOptions: '', candidates: g.candidates || [], score: g.score || 0, reason: g.reason || '',
     query: title, steamAppid: g.steamAppid ?? null, idMethod: g.idMethod || 'folder',
+    fromExecutableSearch: !!g.fromExecutableSearch,
     confidence: g.confidence || 0, source: 'folder',
     checked: !!g.exePath, sgdbId: savedSgdb, sgdbName: savedSgdb ? '(cached)' : '',
     inSteam: false, managed: false, shortcutIdx: null, appid: null, art: {},
   };
-  const savedExe = S.cfg.exe_map && (S.cfg.exe_map[key]
+  const savedExe = !g.fromExecutableSearch && S.cfg.exe_map && (S.cfg.exe_map[key]
     || (useLegacy && S.cfg.exe_map[folderName]));
   if (savedExe && row.candidates.length) {
     const hit = row.candidates.find((c) =>
@@ -790,68 +794,106 @@ async function doScan() {
   await syncSteamLibrary();
 }
 
-function isWithin(p, folder) {
-  const a = String(p).toLowerCase();
-  const b = String(folder).toLowerCase().replace(/[\\/]+$/, '');
-  return a === b || a.startsWith(`${b}\\`) || a.startsWith(`${b}/`);
-}
-
-async function doDeepScan() {
+function doFindExecutables() {
   const roots = (S.cfg.games_roots || []).filter(Boolean);
   if (!roots.length) { toast('Add a games folder first in Settings.'); return; }
-  const known = new Set(S.rows.map((r) => r.folder.toLowerCase()));
-  const claimed = new Set();
-  for (const r of S.rows) {
-    if (r.exe) claimed.add(r.exe);
-    for (const c of r.candidates) claimed.add(c.path);
-  }
-  status('Deep scan…');
-  log('Deep scan: checking unassigned executables under the game folders…');
-  let res;
-  try {
-    res = await window.api.scanOrphans({ roots, claimed: [...claimed] });
-  } catch (e) {
-    toast(`Deep scan failed: ${e.message || e}`);
-    status('Deep scan failed.');
-    return;
-  }
-  const { games: orphans, truncated } = res;
-  if (truncated) log('  Deep scan list capped - narrow the folders if games are missing.');
-  let attached = 0;
-  let added = 0;
-  for (const g of orphans) {
-    if (known.has(g.folder.toLowerCase())) continue;
-    // Fill an existing exe-less row before adding another row.
-    const target = g.exePath && S.rows.find((r) => r.source === 'folder' && !r.exe && isWithin(g.exePath, r.folder));
-    if (target) {
-      target.exe = g.exePath;
-      target.startDir = g.startDir;
-      target.candidates = g.candidates;
-      target.reason = g.reason;
-      if (target.idMethod === 'folder' && g.idMethod !== 'folder') {
-        target.display = target.query = g.displayName;
-        target.steamAppid = g.steamAppid;
-        target.idMethod = g.idMethod;
-        target.confidence = g.confidence;
+  if (S.exePicker) return;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'exe-picker';
+  dialog.setAttribute('aria-labelledby', 'exe-heading');
+  dialog.innerHTML = `<h2 id="exe-heading">Find executables</h2>
+    <p class="muted">Search added folders up to 10 levels down, including utilities and uninstallers. Select the executables you want to work with in Lib Shammes.</p>
+    <p id="exe-summary" role="status" hidden></p>
+    <div id="exe-results"></div>
+    <div class="modal-foot"><button class="btn sm" id="exe-select-all" hidden>Select all</button>
+      <button class="btn sm" id="exe-select-none" hidden>Select none</button><span class="spacer"></span>
+      <button class="btn sm" id="exe-cancel">Cancel</button>
+      <button class="btn sm primary" id="exe-search">Search</button>
+      <button class="btn sm primary" id="exe-add" hidden disabled>Show selected in Lib Shammes</button></div>`;
+  document.body.appendChild(dialog);
+  S.exePicker = dialog;
+  const q = (sel) => dialog.querySelector(sel);
+  dialog.addEventListener('close', () => {
+    if (S.exePicker === dialog) S.exePicker = null;
+    dialog.remove();
+  }, { once: true });
+  q('#exe-cancel').onclick = () => dialog.close();
+  dialog.showModal();
+  q('#exe-search').onclick = handleAction('Executable search', async () => {
+    const search = q('#exe-search');
+    const summary = q('#exe-summary');
+    const results = q('#exe-results');
+    const add = q('#exe-add');
+    const selectAll = q('#exe-select-all');
+    const selectNone = q('#exe-select-none');
+    search.disabled = true;
+    summary.hidden = false;
+    summary.textContent = 'Searching…';
+    try {
+      const claimed = S.rows.filter((r) => r.exe).map((r) => r.exe);
+      const { games, truncated } = await window.api.findExecutables({ roots, claimed });
+      if (!dialog.open) return;
+      summary.textContent = `${games.length} executable(s) found. Already listed executables are excluded.`
+        + (truncated ? ' Search limit reached. Search smaller folders to see more results.' : '');
+      const selected = new Set();
+      const choices = [];
+      const updateSelection = () => {
+        add.disabled = !selected.size;
+        add.textContent = selected.size ? `Show ${selected.size} in Lib Shammes` : 'Show selected in Lib Shammes';
+      };
+      const fragment = document.createDocumentFragment();
+      for (const game of games) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.onchange = () => {
+          if (checkbox.checked) selected.add(game); else selected.delete(game);
+          updateSelection();
+        };
+        const name = document.createElement('span');
+        name.textContent = game.exePath;
+        label.append(checkbox, name);
+        fragment.appendChild(label);
+        choices.push([checkbox, game]);
       }
-      attached++;
-      log(`  attached ${baseName(g.exePath)} -> '${target.display}'`);
-    } else {
-      const row = toRow(g);
-      S.rows.push(row);
-      known.add(g.folder.toLowerCase());
-      added++;
+      results.replaceChildren(fragment);
+      search.hidden = true;
+      selectAll.hidden = selectNone.hidden = false;
+      selectAll.disabled = selectNone.disabled = !choices.length;
+      selectAll.onclick = () => {
+        for (const [checkbox, game] of choices) { checkbox.checked = true; selected.add(game); }
+        updateSelection();
+      };
+      selectNone.onclick = () => {
+        for (const [checkbox] of choices) checkbox.checked = false;
+        selected.clear();
+        updateSelection();
+      };
+      add.hidden = false;
+      add.onclick = handleAction('Add executables', async () => {
+        const known = new Set(S.rows.filter((r) => r.exe).map((r) => r.exe.toLowerCase()));
+        let added = 0;
+        for (const game of selected) {
+          if (known.has(game.exePath.toLowerCase())) continue;
+          const row = toRow(game);
+          row.checked = false;
+          S.rows.push(row);
+          known.add(game.exePath.toLowerCase());
+          added++;
+        }
+        dialog.close();
+        renderRows();
+        log(`Showing ${added} executable(s) in Lib Shammes.`);
+        status(`Found ${added} executable(s).`);
+        await refreshSteamState();
+      });
+    } catch (e) {
+      summary.textContent = 'Search failed. You can try again.';
+      throw e;
+    } finally {
+      search.disabled = false;
     }
-  }
-  renderRows();
-  await refreshSteamState();
-  if (attached || added) {
-    log(`Deep scan: ${attached} attached, ${added} new candidates.`);
-    status(`Deep scan: +${added} new, ${attached} attached.`);
-  } else {
-    log('Deep scan: nothing new was found since the standard scan.');
-    status('Deep scan: nothing new was found.');
-  }
+  });
 }
 
 async function refreshSteamState() {
@@ -1278,7 +1320,7 @@ async function artLoadId() {
 // ------------------------------------------------------------------ boot
 function wireToolbar() {
   $('#btn-scan').addEventListener('click', doScan);
-  $('#btn-deep').addEventListener('click', doDeepScan);
+  $('#btn-find-executables').addEventListener('click', doFindExecutables);
   $('#btn-match').addEventListener('click', handleAction('Auto-match', doAutoMatch));
   $('#btn-download').addEventListener('click', handleAction('Artwork download', doDownloadArt));
   $('#btn-add').addEventListener('click', doAddToSteam);
@@ -1323,7 +1365,7 @@ function wireToolbar() {
   $('#d-apply').addEventListener('click', applyDetails);
   $('#d-browse').addEventListener('click', async () => {
     const r = cur();
-    const p = await window.api.filesPickExe(r ? r.folder : null);
+    const p = await window.api.filesPickExe(r ? (r.fromExecutableSearch ? r.startDir : r.folder) : null);
     if (p) {
       const pick = $('#d-exe-pick');
       if (![...pick.options].some((o) => o.value === p)) {
@@ -1339,7 +1381,7 @@ function wireToolbar() {
     const r = cur();
     if (!r) return;
     const folder = r.source === 'steam' ? r.startDir
-      : r.source === 'shortcut' ? (r.startDir || parentDir(r.exe)) : r.folder;
+      : r.source === 'shortcut' || r.fromExecutableSearch ? (r.startDir || parentDir(r.exe)) : r.folder;
     if (folder) window.api.shellOpen(folder);
   });
   $('#detail-choose-art').addEventListener('click', () => {
@@ -1398,15 +1440,16 @@ function wireToolbar() {
     if (e.target.id === 'art-overlay') closeArtModal(false);
   });
   document.addEventListener('keydown', (e) => {
+    if (S.exePicker) return;
     if (e.key === 'Escape' && S.modal) closeArtModal(false);
     // History shortcuts. Ignored while the modal owns input.
-    if (!S.modal && e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); }
-    if (!S.modal && e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navFwd(); }
+    if (!pickerOpen() && e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); }
+    if (!pickerOpen() && e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navFwd(); }
   });
   // Mouse back/forward at DOM level (buttons 3/4 here = 4th/5th on the mouse).
   // Always fires, unlike the OS path. Deduped against it above.
   document.addEventListener('mouseup', (e) => {
-    if (S.modal || (e.button !== 3 && e.button !== 4)) return;
+    if (pickerOpen() || (e.button !== 3 && e.button !== 4)) return;
     if (Date.now() - lastIpcNav < NAV_ECHO_MS) return;
     lastMouseNav = Date.now();
     e.preventDefault();
@@ -1421,6 +1464,23 @@ async function applyDetails() {
   if (r.source === 'steam') { toast('Steam store games cannot be edited here - Steam manages them.'); return; }
   const name = $('#d-name').value.trim();
   const exe = $('#d-exe-pick').value.trim();
+  if (r.fromExecutableSearch && exe && folderKey(exe) !== folderKey(r.folder)) {
+    if (S.rows.some((other) => other !== r && other.exe && folderKey(other.exe) === folderKey(exe))) {
+      toast('That executable is already listed.');
+      return;
+    }
+    const oldKey = folderKey(r.folder);
+    const newKey = folderKey(exe);
+    for (const map of [S.cfg.title_map, S.cfg.sgdb_map, S.cfg.sgdb_cache]) {
+      if (Object.hasOwn(map, oldKey)) map[newKey] = map[oldKey];
+      else delete map[newKey];
+      delete map[oldKey];
+    }
+    delete S.cfg.exe_map[oldKey];
+    r.folder = exe;
+    r.folderName = baseName(parentDir(exe));
+    S.detailKey = rowKey(r);
+  }
   if (name) {
     r.display = name;
     r.query = name;
@@ -1430,11 +1490,14 @@ async function applyDetails() {
     const launcherChanged = exe !== r.exe;
     r.exe = exe;
     if (launcherChanged) r.startDir = parentDir(exe);
-    S.cfg.exe_map[folderKey(r.folder)] = exe.startsWith(r.folder)
-      ? exe.slice(r.folder.length).replace(/^[\\/]/, '') : baseName(exe);
+    if (!r.fromExecutableSearch) {
+      S.cfg.exe_map[folderKey(r.folder)] = exe.startsWith(r.folder)
+        ? exe.slice(r.folder.length).replace(/^[\\/]/, '') : baseName(exe);
+    }
   }
   r.reason = 'manual';
-  await savePatch({ title_map: S.cfg.title_map, exe_map: S.cfg.exe_map });
+  await savePatch({ title_map: S.cfg.title_map, exe_map: S.cfg.exe_map,
+    sgdb_map: S.cfg.sgdb_map, sgdb_cache: S.cfg.sgdb_cache });
   await refreshSteamState();
   log(`Updated '${r.display}'.`);
 }

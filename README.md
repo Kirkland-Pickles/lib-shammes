@@ -52,8 +52,8 @@ using the folder name, executable name, location, and file size, then chooses
 the most likely launcher for the game. You can change its choice from the game
 details if Lib Shammes gets it wrong.
 
-**Find missed games** checks executables that were not assigned during the
-normal scan.
+**Find executables** searches each added folder up to 10 levels down and lets
+you choose individual executables to show as separate rows in Lib Shammes.
 
 ## Identifying and matching games
 

@@ -304,6 +304,16 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 #confirm-box p.danger-text.small { font-size: 9.1pt; }
 .confirm-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 
+#exe-picker { position: fixed; margin: auto; width: min(850px, 90vw); max-height: 85vh;
+  box-sizing: border-box; padding: 18px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; }
+#exe-picker[open] { display: flex; flex-direction: column; gap: 12px; }
+#exe-picker::backdrop { background: rgba(4, 6, 10, .72); }
+#exe-picker h2 { font-size: 13pt; }
+#exe-results { overflow-y: auto; min-height: 0; }
+#exe-results label { display: flex; align-items: baseline; gap: 8px; padding: 6px 2px; }
+#exe-results span { overflow-wrap: anywhere; min-width: 0; }
+
 /* artwork modal */
 #art-overlay { position: fixed; inset: 0; background: rgba(4, 6, 10, .72); z-index: 50;
   display: flex; align-items: center; justify-content: center; }

@@ -155,7 +155,7 @@ describe('scanner', () => {
     assert.equal(resolve.resolveExeStem('Sample.Game.Title-RUNE'), null);
   });
 
-  it('handles publisher layout and rescues buried exes via orphans', () => {
+  it('handles publisher layout and finds buried executables', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'scan-'));
     try {
       touch(path.join(td, 'Publisher', 'GameA', 'gamea.exe'), 10_000_000);
@@ -171,8 +171,8 @@ describe('scanner', () => {
         if (g.exePath) claimed.add(g.exePath);
         for (const c of g.candidates) claimed.add(c.path);
       }
-      const orphans = scanner.scanOrphans(td, claimed);
-      assert.ok(orphans.games.some((g) => path.basename(g.exePath) === 'deep.exe'), 'orphan scan must rescue it');
+      const found = scanner.findExecutables(td, claimed);
+      assert.ok(found.games.some((g) => path.basename(g.exePath) === 'deep.exe'), 'executable search must find it');
     } finally {
       fs.rmSync(td, { recursive: true, force: true });
     }

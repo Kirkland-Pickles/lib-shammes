@@ -189,17 +189,16 @@ function scanGames(root, { maxDepth = 1, innerDepth = 3, onProgress } = {}) {
   return results;
 }
 
-/** Fallback scan for unassigned executables. Reports when a scan limit was hit. */
-function scanOrphans(root, claimedSet, { maxDepth = 10, limit = 200, maxDirs = 50000, maxFiles = 10000 } = {}) {
+/** Find individual executables up to 10 folder levels down. */
+function findExecutables(root, claimedSet, { maxDepth = 10, limit = 10000, maxDirs = 50000, maxFiles = 10000 } = {}) {
   const claimed = new Set([...(claimedSet || [])].map((p) => String(p).toLowerCase()));
-  const orphans = [];
+  const executables = [];
   let capped = false;
   let visited = 0;
   const stack = [[root, 0]];
   while (stack.length && !capped) {
     const [cur, depth] = stack.pop();
     if (depth > maxDepth) continue;
-    if (cur !== root && DIR_BLACKLIST.has(path.basename(cur).toLowerCase())) continue;
     if (++visited > maxDirs) { capped = true; break; }
     let entries;
     try {
@@ -210,46 +209,30 @@ function scanOrphans(root, claimedSet, { maxDepth = 10, limit = 200, maxDirs = 5
       try {
         if (e.isFile() && e.name.toLowerCase().endsWith('.exe')) {
           if (claimed.has(full.toLowerCase())) continue;
-          if (exeBlacklistHit(path.basename(e.name, '.exe'))) continue;
-          let sz = 0;
-          try { sz = fs.statSync(full).size; } catch { /* ignore */ }
-          if (sz < 500 * 1024) continue;
-          orphans.push([full, depth]);
-          if (orphans.length >= maxFiles) { capped = true; break; }
+          executables.push([full, depth]);
+          if (executables.length >= maxFiles) { capped = true; break; }
         } else if (e.isDirectory()) {
-          stack.push([full, depth + 1]);
+          if (depth < maxDepth) stack.push([full, depth + 1]);
         }
       } catch { /* ignore */ }
     }
   }
-  const byDir = new Map();
-  for (const [p, d] of orphans) {
-    const k = path.dirname(p).toLowerCase();
-    if (!byDir.has(k)) byDir.set(k, []);
-    byDir.get(k).push([p, d]);
-  }
   const results = [];
   let truncated = capped;
-  for (const [, items] of [...byDir.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [exe, depth] of executables.sort(([a], [b]) => a.localeCompare(b))) {
     if (results.length >= limit) { truncated = true; break; }
-    items.sort((a, b) => {
-      const sa = safeSize(a[0]);
-      const sb = safeSize(b[0]);
-      return sb - sa;
-    });
-    const best = items[0][0];
-    const stem = path.basename(best, path.extname(best));
+    const stem = path.basename(exe, path.extname(exe));
     const ident = resolve.resolveExeStem(stem);
     const title = ident ? ident.title : cleanFolderName(stem);
-    const cands = items.slice(0, 12).map(([p, d]) => ({
-      path: p, size: safeSize(p), depth: d, score: safeSize(p), reason: 'orphan exe',
-    }));
+    const size = safeSize(exe);
     results.push({
-      folder: path.dirname(best), displayName: title, exePath: best,
-      startDir: path.dirname(best), candidates: cands, score: cands[0].size,
-      reason: 'deep exe scan (folder unparsed)', query: title,
+      folder: exe, displayName: title || stem, exePath: exe,
+      startDir: path.dirname(exe),
+      candidates: [{ path: exe, size, depth, score: size, reason: 'selected executable' }],
+      score: size, reason: 'selected executable', query: title || stem,
       steamAppid: ident ? ident.steamAppid : null,
-      idMethod: 'orphan-exe', confidence: ident ? ident.confidence : 0.5,
+      idMethod: ident ? ident.method : 'folder', confidence: ident ? ident.confidence : 0.5,
+      fromExecutableSearch: true,
     });
   }
   return { games: results, truncated };
@@ -261,5 +244,5 @@ function safeSize(p) {
 
 module.exports = {
   DIR_BLACKLIST, EXE_BLACKLIST_SUBSTRINGS,
-  cleanFolderName, pickExe, scanGames, scanOrphans,
+  cleanFolderName, pickExe, scanGames, findExecutables,
 };

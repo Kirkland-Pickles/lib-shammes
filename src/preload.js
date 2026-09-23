@@ -38,7 +38,7 @@ contextBridge.exposeInMainWorld('api', {
   artList: (req) => ipcRenderer.invoke('art:list', req),
   // library ops (progress streams back on 'job:progress')
   scanStart: (req) => ipcRenderer.invoke('scan:start', req),
-  scanOrphans: (req) => ipcRenderer.invoke('scan:orphans', req),
+  findExecutables: (req) => ipcRenderer.invoke('scan:find-executables', req),
   matchAuto: (req) => ipcRenderer.invoke('match:auto', req),
   artDownload: (req) => ipcRenderer.invoke('art:download', req),
   // progress + log stream from long jobs

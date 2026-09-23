@@ -294,17 +294,17 @@ ipcMain.handle('scan:start', async (_e, req) => {
   return games;
 });
 
-ipcMain.handle('scan:orphans', async (_e, req) => {
+ipcMain.handle('scan:find-executables', async (_e, req) => {
   const roots = (req && Array.isArray(req.roots) ? req.roots : []).filter(Boolean);
   const claimed = (req && Array.isArray(req.claimed) ? req.claimed : []);
   const seen = new Set();
   const out = [];
   let truncated = false;
   for (const root of roots) {
-    const { games, truncated: t } = scanner.scanOrphans(root, new Set(claimed || []));
+    const { games, truncated: t } = scanner.findExecutables(root, claimed);
     truncated = truncated || t;
     for (const g of games) {
-      const k = g.folder.toLowerCase();
+      const k = g.exePath.toLowerCase();
       if (!seen.has(k)) { seen.add(k); out.push(g); }
     }
   }

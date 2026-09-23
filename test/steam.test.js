@@ -92,7 +92,7 @@ describe('steam paths', () => {
   });
 });
 
-describe('orphan runaway guards', () => {
+describe('executable search limits', () => {
   it('caps visited dirs instead of hanging on pathological trees', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'orph-'));
     try {
@@ -103,10 +103,10 @@ describe('orphan runaway guards', () => {
         fs.ftruncateSync(fh, 10_000_000);
         fs.closeSync(fh);
       }
-      const res = scanner.scanOrphans(td, new Set(), { maxDirs: 5 });
+      const res = scanner.findExecutables(td, new Set(), { maxDirs: 5 });
       assert.equal(res.truncated, true);
       assert.ok(res.games.length <= 5);
-      const full = scanner.scanOrphans(td, new Set());
+      const full = scanner.findExecutables(td, new Set());
       assert.equal(full.truncated, false);
       assert.equal(full.games.length, 30);
     } finally {
