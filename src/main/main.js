@@ -236,8 +236,16 @@ async function uninstallCleanup() {
     if (result.failedFiles.length) throw new Error('Some artwork could not be removed. The undo history was kept. Close any programs using it and try again.');
   }
   if (process.argv.includes('--delete-app-data')) {
-    const result = wipeData();
-    if (result.skipped.length) throw new Error(`Some app data could not be removed:\n${result.skipped.join('\n')}`);
+    let skipped;
+    try { skipped = wipeData().skipped; }
+    catch (e) { skipped = [e.message || String(e)]; }
+    if (skipped.length) {
+      await dialog.showMessageBox({
+        type: 'warning', title: 'Some app data remains',
+        message: 'Lib Shammes will be uninstalled, but some app data could not be removed and will remain on disk.',
+        detail: skipped.join('\n'), buttons: ['OK'],
+      });
+    }
   }
   return 0;
 }

@@ -10,7 +10,7 @@ const filename = path.join(__dirname, '../src/main/main.js');
 const source = fs.readFileSync(filename, 'utf8');
 const realRequire = createRequire(filename);
 
-async function uninstall(flags = [], { running = false, backupFails = false, fileFails = false } = {}) {
+async function uninstall(flags = [], { running = false, backupFails = false, fileFails = false, dataFails = false } = {}) {
   const calls = [];
   let boot;
   const plan = { removeAppids: [1], restoreFields: [], deleteFiles: [{ path: 'art.png' }], skippedFiles: [] };
@@ -22,11 +22,17 @@ async function uninstall(flags = [], { running = false, backupFails = false, fil
       },
       BrowserWindow: function () { throw new Error('Cleanup must not open the app window'); },
       Menu: { setApplicationMenu() {} }, ipcMain: { handle() {} },
-      dialog: { showErrorBox: (_, message) => calls.push(['error', message]) },
+      dialog: {
+        showErrorBox: (_, message) => calls.push(['error', message]),
+        showMessageBox: (options) => calls.push(['warning', options]),
+      },
     },
     fs: {
       existsSync: () => true,
-      rmSync: (file) => calls.push(['wipe', file]),
+      rmSync: (file) => {
+        if (dataFails && file === 'config.json') throw new Error('locked');
+        calls.push(['wipe', file]);
+      },
       unlinkSync: (file) => { if (fileFails) throw new Error('locked'); calls.push(['delete', file]); },
     },
     './store': {
@@ -69,6 +75,14 @@ it('can delete app data without purging Steam', async () => {
   const calls = await uninstall(['--delete-app-data']);
   assert.ok(calls.some(([action]) => action === 'wipe'));
   assert.ok(!calls.some(([action]) => action === 'purge'));
+  assert.deepEqual(calls.at(-1), ['exit', 0]);
+});
+
+it('continues uninstall and warns when app data cannot be deleted', async () => {
+  const calls = await uninstall(['--delete-app-data'], { dataFails: true });
+  const warning = calls.find(([action]) => action === 'warning')[1];
+  assert.equal(warning.message, 'Lib Shammes will be uninstalled, but some app data could not be removed and will remain on disk.');
+  assert.match(warning.detail, /config\.json \(locked\)/);
   assert.deepEqual(calls.at(-1), ['exit', 0]);
 });
 
