@@ -125,7 +125,7 @@ async function renderChecklist() {
 
 // ------------------------------------------------------------------ router
 // Back/Forward history for mouse navigation.
-const TITLES = { library: 'Steam library', xbox: 'Xbox library', desktop: 'Desktop shortcuts library', settings: 'Settings' };
+const TITLES = { library: 'Steam library', xbox: 'Xbox library', desktop: 'Desktop library', settings: 'Settings' };
 const Nav = {
   stack: ['library'],
   idx: 0,
@@ -699,7 +699,9 @@ function toRow(g, useLegacy = false) {
 // Steam's own rows: existing non-Steam shortcuts ('shortcut') and installed
 // store games ('steam'). Folder rows aren't touched here; match/art/checks
 // survive rebuilds through stable per-source keys.
-async function syncSteamLibrary() {
+async function syncSteamLibrary(entries, installed) {
+  if (!entries) { try { entries = await window.api.steamRead(); } catch { entries = []; } }
+  if (!installed) { try { installed = await window.api.steamGames(); } catch { installed = []; } }
   const keep = new Map();
   for (const r of S.rows) {
     if (r.source === 'folder') continue;
@@ -707,10 +709,6 @@ async function syncSteamLibrary() {
   }
   S.rows = S.rows.filter((r) => r.source === 'folder');
   const folderExe = new Set(S.rows.map((r) => (r.exe || '').toLowerCase()).filter(Boolean));
-  let entries = [];
-  let installed = [];
-  try { entries = await window.api.steamRead(); } catch { entries = []; }
-  try { installed = await window.api.steamGames(); } catch { installed = []; }
   S.ownedAppids = new Set(installed.map((g) => g.appid));
 
   for (const e of entries) {
@@ -752,22 +750,14 @@ async function syncSteamLibrary() {
   if (S.detailKey && !cur()) { S.detailKey = null; renderDetail(); }
 }
 
-async function doScan() {
-  const roots = (S.cfg.games_roots || []).filter(Boolean);
-  if (!roots.length) {
-    toast('Add a games folder first in Settings.');
-    return;
-  }
-  status(`Scanning ${roots.length} folder(s)…`);
-  const games = await window.api.scanStart({ roots });
+function scannedRows(games) {
   const prev = new Map(S.rows.map((r) => [r.folder, r]));
   const folderCounts = new Map();
   for (const g of games) {
     const name = baseName(g.folder).toLowerCase();
     folderCounts.set(name, (folderCounts.get(name) || 0) + 1);
   }
-  S.rows = [];
-  let droppedNoExe = 0;
+  const rows = [];
   for (const g of games) {
     const old = prev.get(g.folder);
     const row = toRow(g, folderCounts.get(baseName(g.folder).toLowerCase()) === 1);
@@ -780,10 +770,23 @@ async function doScan() {
     }
     // No exe, not even a candidate: not a game. Leave it out instead of
     // showing a dead row.
-    if (!row.exe && !row.candidates.length) { droppedNoExe++; continue; }
+    if (!row.exe && !row.candidates.length) continue;
     if (!row.sgdbName && row.sgdbId) row.sgdbName = '(cached)';
-    S.rows.push(row);
+    rows.push(row);
   }
+  return rows;
+}
+
+async function doScan() {
+  const roots = (S.cfg.games_roots || []).filter(Boolean);
+  if (!roots.length) {
+    toast('Add a games folder first in Settings.');
+    return;
+  }
+  status(`Scanning ${roots.length} folder(s)…`);
+  const games = await window.api.scanStart({ roots });
+  S.rows = scannedRows(games);
+  const droppedNoExe = games.length - S.rows.length;
   renderRows();
   const ok = S.rows.filter((r) => r.exe).length;
   const parsed = S.rows.filter((r) => r.idMethod !== 'folder').length;
@@ -896,10 +899,9 @@ function doFindExecutables() {
   });
 }
 
-async function refreshSteamState() {
-  let entries = [];
+async function refreshSteamState(entries) {
   try {
-    entries = await window.api.steamRead();
+    entries ||= await window.api.steamRead();
   } catch (e) {
     renderRows();
     if (S.detailKey) renderDetail();
@@ -924,6 +926,25 @@ async function refreshSteamState() {
   }
   renderRows();
   if (S.detailKey) renderDetail();
+}
+
+async function doRefresh() {
+  const button = $('#btn-refresh');
+  button.disabled = true;
+  try {
+    const roots = (S.cfg.games_roots || []).filter(Boolean);
+    status('Refreshing library…');
+    const [games, entries, installed] = await Promise.all([
+      roots.length ? window.api.scanStart({ roots }) : [],
+      window.api.steamRead(), window.api.steamGames(),
+    ]);
+    S.rows = [...scannedRows(games), ...S.rows.filter((r) => r.source !== 'folder')];
+    await syncSteamLibrary(entries, installed);
+    await refreshSteamState(entries);
+    status('Steam library refreshed.');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function needKey() {
@@ -1318,6 +1339,7 @@ async function artLoadId() {
 
 // ------------------------------------------------------------------ boot
 function wireToolbar() {
+  $('#btn-refresh').addEventListener('click', handleAction('Refresh', doRefresh));
   $('#btn-scan').addEventListener('click', doScan);
   $('#btn-find-executables').addEventListener('click', doFindExecutables);
   $('#btn-match').addEventListener('click', handleAction('Auto-match', doAutoMatch));

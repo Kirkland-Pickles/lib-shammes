@@ -23,6 +23,12 @@
       "icon": "src/assets/app-icon.ico",
       "target": ["nsis"]
     },
+    "nsis": {
+      "license": "LICENSE",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "installer/options.nsh"
+    },
     "publish": null
   }
 }

@@ -156,7 +156,7 @@ ipcMain.handle('steam:games', () => {
  *  never locked - the live Chromium profile around them always is, so a
  *  whole-dir delete dies on locked files and used to leave config.json
  *  behind (the wipe that never wiped). Profile leftovers are inert now. */
-ipcMain.handle('app:wipe-data', async () => {
+function wipeData() {
   const removed = [];
   const skipped = [];
   for (const f of store.dataFiles()) {
@@ -177,11 +177,16 @@ ipcMain.handle('app:wipe-data', async () => {
       skipped.push(`${d} (${e.message || e})`);
     }
   }
-  setImmediate(() => { try { app.quit(); } catch { /* already going down */ } });
   return { removed, skipped, cfg };
+}
+
+ipcMain.handle('app:wipe-data', () => {
+  const result = wipeData();
+  setImmediate(() => { try { app.quit(); } catch { /* already going down */ } });
+  return result;
 });
 
-ipcMain.handle('steam:purge', async (_e, opts) => {
+function purgeSteam(opts) {
   // Fail closed: absent input means dry run; only an explicit false arms it.
   const dryRun = !opts || opts.dryRun !== false;
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
@@ -206,17 +211,36 @@ ipcMain.handle('steam:purge', async (_e, opts) => {
   if (bak) lines.push(`shortcuts.vdf backed up -> ${path.basename(bak)}`);
   lines.push(`Removed ${entries.length - kept.length} shortcut(s).`);
   let deleted = 0;
+  const failedFiles = [];
   for (const f of plan.deleteFiles) {
     try {
       fs.unlinkSync(f.path);
       deleted++;
-    } catch { lines.push(`  could not delete ${f.path}`); }
+    } catch {
+      lines.push(`  could not delete ${f.path}`);
+      failedFiles.push(changes.files.find((entry) => entry.path === f.path) || { path: f.path });
+    }
   }
   for (const s of plan.skippedFiles) lines.push(`  kept ${s.path} - ${s.why}`);
   lines.push(`Deleted ${deleted} art file(s), kept ${plan.skippedFiles.length} changed-by-user.`);
-  store.saveChanges(store.blankChanges());
-  return { ...plan, lines, executed: true, backup: bak ? path.basename(bak) : null };
-});
+  store.saveChanges({ ...store.blankChanges(), files: failedFiles });
+  return { ...plan, lines, failedFiles, executed: true, backup: bak ? path.basename(bak) : null };
+}
+
+ipcMain.handle('steam:purge', (_e, opts) => purgeSteam(opts));
+
+async function uninstallCleanup() {
+  if (process.argv.includes('--purge-steam')) {
+    if (await steam.isSteamRunning()) throw new Error('Close Steam completely, then run the uninstaller again.');
+    const result = purgeSteam({ dryRun: false });
+    if (result.failedFiles.length) throw new Error('Some artwork could not be removed. The undo history was kept. Close any programs using it and try again.');
+  }
+  if (process.argv.includes('--delete-app-data')) {
+    const result = wipeData();
+    if (result.skipped.length) throw new Error(`Some app data could not be removed:\n${result.skipped.join('\n')}`);
+  }
+  return 0;
+}
 
 // ------------------------------------------------------------ key/folders
 ipcMain.handle('key:validate', async (_e, key) => {
@@ -656,7 +680,15 @@ ipcMain.handle('steam:remove', async (_e, req) => {
 });
 
 // ------------------------------------------------------------------ boot
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (process.argv.includes('--uninstall-cleanup')) {
+    try { app.exit(await uninstallCleanup()); }
+    catch (e) {
+      dialog.showErrorBox('Uninstall stopped', e.message || String(e));
+      app.exit(1);
+    }
+    return;
+  }
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
