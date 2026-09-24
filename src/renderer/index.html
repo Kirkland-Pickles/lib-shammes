@@ -28,8 +28,6 @@
     <header class="library-head">
       <h1>Steam library</h1>
       <div class="library-head-actions">
-        <button class="btn" id="btn-refresh">Refresh</button>
-        <button class="btn" id="btn-scan">Scan folders</button>
         <button class="btn primary" id="btn-add">Add selected to Steam</button>
       </div>
     </header>
@@ -43,9 +41,11 @@
     <div id="lib-banner" class="banner" hidden></div>
     <div class="commandbar">
       <div class="command-group" role="group" aria-label="Library actions">
+        <button class="btn sm" id="btn-scan">Scan folders</button>
         <button class="btn sm" id="btn-find-executables">Find executables</button>
         <button class="btn sm" id="btn-match">Match selected</button>
         <button class="btn sm" id="btn-download">Download artwork</button>
+        <button class="btn sm" id="btn-refresh">Refresh</button>
       </div>
       <div class="command-group manage-actions" role="group" aria-label="Steam shortcut actions">
         <button class="btn sm" id="btn-remove">Remove from Steam</button>
