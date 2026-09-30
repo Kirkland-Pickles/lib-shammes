@@ -3,6 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  isDevelopment: () => ipcRenderer.invoke('app:is-development'),
   // config
   cfgGet: () => ipcRenderer.invoke('cfg:get'),
   cfgSet: (patch) => ipcRenderer.invoke('cfg:set', patch),
@@ -36,6 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   sgdbBySteam: (appid) => ipcRenderer.invoke('sgdb:by-steam', appid),
   resolveName: (name) => ipcRenderer.invoke('resolve:name', name),
   artList: (req) => ipcRenderer.invoke('art:list', req),
+  artPreviewFile: (file) => ipcRenderer.invoke('art:preview-file', file),
   // library ops (progress streams back on 'job:progress')
   scanStart: (req) => ipcRenderer.invoke('scan:start', req),
   findExecutables: (req) => ipcRenderer.invoke('scan:find-executables', req),

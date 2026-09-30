@@ -29,6 +29,8 @@ const S = {
   previewCache: {},         // sgdbId -> thumb url
   modal: null,              // artwork picker state
   exePicker: null,
+  onboardingStep: 0,
+  isDevelopment: false,
 };
 
 const cur = () => (S.detailKey ? rowByKey(S.detailKey) : null);
@@ -93,7 +95,14 @@ async function syncCfg() { S.cfg = await window.api.cfgGet(); }
 // cfgSet returns the saved config. Keep the renderer copy in sync.
 async function savePatch(patch) {
   S.cfg = await window.api.cfgSet(patch);
+  applyTheme();
   renderChecklist().catch(() => {});
+}
+function applyTheme() {
+  const mode = ['dark', 'light'].includes(S.cfg.theme) ? S.cfg.theme : 'system';
+  const theme = mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode;
+  document.documentElement.dataset.theme = theme;
+  $('#theme').value = mode;
 }
 
 // --------------------------------------------- onboarding checklist
@@ -116,7 +125,7 @@ async function renderChecklist() {
     box.querySelectorAll('.cl-item').forEach((btn) => {
       const done = !!st[btn.dataset.cl];
       btn.classList.toggle('done', done);
-      btn.querySelector('.cl-state').textContent = done ? '✓' : '○';
+      btn.querySelector('.cl-state').textContent = done ? '✓' : '';
       if (!done) allDone = false;
     });
     box.hidden = allDone;
@@ -125,20 +134,59 @@ async function renderChecklist() {
 
 // ------------------------------------------------------------------ router
 // Back/Forward history for mouse navigation.
-const TITLES = { library: 'Steam library', xbox: 'Xbox library', desktop: 'Desktop library', settings: 'Settings' };
+const TITLES = { library: 'Steam library', xbox: 'Xbox library', desktop: 'Desktop library', settings: 'Settings', onboarding: 'Set up Lib Shammes' };
 const Nav = {
   stack: ['library'],
   idx: 0,
   current() { return this.stack[this.idx]; },
 };
+let routeMotion = 0;
 function paintRoute() {
   const page = Nav.current();
-  $$('.page').forEach((p) => p.classList.remove('on'));
-  $(`#page-${page}`).classList.add('on');
+  const target = $(`#page-${page}`);
+  const current = $('.page.on');
+  const animate = current && current !== target && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const motion = ++routeMotion;
+  $$('.page').forEach((p) => {
+    p.getAnimations().forEach((animation) => animation.cancel());
+    p.classList.remove('on', 'route-exit');
+    p.removeAttribute('aria-hidden');
+    p.inert = true;
+  });
+  if (animate) {
+    current.classList.add('route-exit');
+    current.setAttribute('aria-hidden', 'true');
+  }
+  target.classList.add('on');
+  target.inert = false;
   $$('.nav').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
+  $('.navigation-row').hidden = page === 'onboarding';
+  $('.steam-controls').hidden = page !== 'library';
   if (page === 'settings') renderSettingsCards();
+  if (page === 'onboarding') {
+    renderOnboarding();
+  }
   if (page === 'library') renderChecklist();
   document.title = `Lib Shammes - ${TITLES[page]}`;
+  if (animate) {
+    const order = Object.keys(TITLES);
+    const direction = order.indexOf(page) >= order.indexOf(current.id.slice(5)) ? 1 : -1;
+    const exit = current.animate(
+      [{ opacity: 1, transform: 'translateX(0)' }, { opacity: 0, transform: `translateX(${-direction * 24}px)` }],
+      { duration: 160, easing: 'ease-in', fill: 'both' },
+    );
+    const enter = target.animate(
+      [{ opacity: 0, transform: `translateX(${direction * 56}px)` }, { opacity: 1, transform: 'translateX(0)' }],
+      { duration: 380, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'both' },
+    );
+    Promise.allSettled([exit.finished, enter.finished]).then(() => {
+      if (motion !== routeMotion) return;
+      current.classList.remove('route-exit');
+      current.removeAttribute('aria-hidden');
+      exit.cancel();
+      enter.cancel();
+    });
+  }
 }
 function navGo(page, { replace = false } = {}) {
   if (replace) {
@@ -169,6 +217,26 @@ let lastIpcNav = 0;
 const NAV_ECHO_MS = 500;
 
 // ---------------------------------------------------------- shared cards
+let lastDetectedSteamPath = '';
+function renderOnboarding() {
+  const steps = [
+    ['Connect Steam', 'Choose the Steam installation and account you want to use.', steamCard],
+    ['Find artwork', 'Add an SGDB API key. You can do this later in Settings.', keyCard],
+    ['Add your game folders', 'Choose the folders you want Lib Shammes to scan. You can add more later.', foldersCard],
+  ];
+  const [title, description, card] = steps[S.onboardingStep];
+  $('#onboarding-title').textContent = title;
+  $('#onboarding-description').textContent = description;
+  $('#onboarding-cards').replaceChildren(card());
+  $('.onboarding-steps').querySelectorAll('button').forEach((button, i) => {
+    button.disabled = i > S.onboardingStep;
+    if (i === S.onboardingStep) button.setAttribute('aria-current', 'step');
+    else button.removeAttribute('aria-current');
+  });
+  $('#onboarding-back').disabled = S.onboardingStep === 0;
+  $('#onboarding-close').hidden = !S.isDevelopment || !S.cfg.onboarded;
+  $('#onboarding-continue').textContent = S.onboardingStep === 2 ? 'Open library' : 'Next';
+}
 function steamCard() {
   const d = document.createElement('div');
   d.className = 'card';
@@ -180,7 +248,7 @@ function steamCard() {
     <div class="row"><span class="muted">User:</span>
     <select data-r="user" style="flex:1"></select></div>
     <div class="status-line" data-r="status">Detecting…</div>
-    <div class="note">After adding games, fully exit Steam (tray - Exit) and reopen it. (or press Restart Steam in the bottom left of this app)</div>`;
+    <div class="note">After adding games, fully exit Steam (tray - Exit) and reopen it, or use Restart Steam in Steam library.</div>`;
   const q = (s) => d.querySelector(`[data-r="${s}"]`);
   const userLabel = (u) => (u.name && u.name !== u.id ? `${u.name} (${u.id})` : u.id);
   // Shown with steam.exe on the end (same as manual picking); stored as a
@@ -233,7 +301,8 @@ function steamCard() {
       S.steamUsers = r.users || [];
       q('path').value = steamDisplay(S.cfg.steam_path);
       paintUsers();
-      if (r.path) log(`Steam found at ${r.path}`);
+      if (r.path && folderKey(r.path) !== lastDetectedSteamPath) log(`Steam found at ${r.path}`);
+      lastDetectedSteamPath = folderKey(r.path);
     } catch (e) {
       log(`Steam detect failed: ${e.message || e}`);
     } finally {
@@ -252,7 +321,7 @@ function keyCard() {
     <button class="btn sm" data-r="show">Show</button></div>
     <div class="row"><button class="btn sm" data-r="validate">Validate</button>
     <button class="btn sm" data-r="get">Get key…</button></div>
-    <div class="status-line" data-r="status">Free key. you can scan and add games without it. it is needed for game art.</div>
+    <div class="status-line" data-r="status">Add your SGDB API key to find matches and artwork.</div>
     <div class="note">Go to steamgriddb.com, click profile, click preferences, click API. Stored in %APPDATA%\\Lib Shammes.</div>`;
   const q = (s) => d.querySelector(`[data-r="${s}"]`);
   q('key').value = S.cfg.api_key || '';
@@ -285,7 +354,7 @@ function foldersCard() {
   const d = document.createElement('div');
   d.className = 'card full';
   d.innerHTML = `<h3>Game Folders</h3>
-    <div class="row"><select data-r="list" size="4" style="flex:1;min-height:76px"></select>
+    <div class="row"><select data-r="list" size="4" style="flex:1"></select>
     <span style="display:flex;flex-direction:column;gap:6px">
     <button class="btn sm" data-r="add">Add…</button>
     <button class="btn sm" data-r="remove">Remove</button></span></div>
@@ -359,7 +428,7 @@ function renderSettingsCards() {
     // NSFW asks every single time it gets enabled.
     if (k === 'include_nsfw' && e.target.checked) {
       const yes = await confirmDlg('Enable NSFW artwork?',
-        'Results can change how you look at the games characters forever.',
+        'Artwork searches and automatic artwork selection can include NSFW images when this is enabled.\n\nResults can change how you look at the games characters forever.',
         { danger: true, small: true, confirmText: "I don't care" });
       if (!yes) { e.target.checked = false; return; }
       savePatch({ include_nsfw: true });
@@ -372,11 +441,9 @@ function renderSettingsCards() {
   host.appendChild(prefs);
   const danger = document.createElement('div');
   danger.className = 'card';
-  danger.innerHTML = `<h3>Purge every change this app made to steam</h3>
-    <div class="row"><button class="btn danger sm" data-r="purge">Purge…</button></div>
-    <hr>
-    <div class="note"><b>Delete app data.</b></div>
-    <div class="row"><button class="btn danger sm" data-r="wipe">Delete app data…</button></div>`;
+  danger.innerHTML = `<h3>Danger zone</h3>
+    <div class="row"><button class="btn danger sm" data-r="purge">Purge</button>
+    <button class="btn danger sm" data-r="wipe">Delete app data</button></div>`;
   danger.querySelector('[data-r="purge"]').addEventListener('click', handleAction('Purge', doPurge));
   danger.querySelector('[data-r="wipe"]').addEventListener('click', doWipeData);
   host.appendChild(danger);
@@ -469,7 +536,11 @@ function renderRows() {
     body.appendChild(tr);
     visible++;
   }
-  const checked = checkedRows().filter((r) => r.source !== 'steam').length;
+  const selectable = S.rows.filter((r) => r.source !== 'steam');
+  const checked = selectable.filter((r) => r.checked).length;
+  $('#sel-all').checked = selectable.length > 0 && checked === selectable.length;
+  $('#sel-all').indeterminate = checked > 0 && checked < selectable.length;
+  $('#sel-all').disabled = !selectable.length;
   $('#selection-count').textContent = `${checked} selected`;
   $('#library-count').textContent = visible === S.rows.length
     ? `${visible} game${visible === 1 ? '' : 's'}`
@@ -526,6 +597,17 @@ function selectRow(key) {
   S.detailKey = key;
   $$('#games-body tr').forEach((tr) => tr.classList.toggle('sel', tr.dataset.key === key));
   renderDetail();
+  const detail = $('#detail-content');
+  detail.getAnimations().forEach((animation) => animation.cancel());
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    detail.animate(
+      [
+        { opacity: 0, transform: 'translateY(18px)' },
+        { opacity: 1, transform: 'translateY(0)' },
+      ],
+      { duration: 320, easing: 'cubic-bezier(.16,1,.3,1)' },
+    );
+  }
 }
 
 function resetMatchResults(label = 'Search for a game first') {
@@ -580,14 +662,18 @@ function renderDetail() {
     o.textContent = 'Managed by Steam';
     pick.appendChild(o);
   } else if (row.candidates.length) {
+    const names = new Map();
+    for (const c of row.candidates) {
+      const name = baseName(c.path).toLowerCase();
+      names.set(name, (names.get(name) || 0) + 1);
+    }
     row.candidates.forEach((c) => {
       const o = document.createElement('option');
       const rel = !row.fromExecutableSearch && c.path.startsWith(row.folder)
         ? c.path.slice(row.folder.length).replace(/^[\\/]/, '') : c.path;
       o.value = c.path;
-      o.textContent = rel.toLowerCase() === baseName(c.path).toLowerCase()
-        ? `${baseName(c.path)} · ${fmtMB(c.size)}`
-        : `${baseName(c.path)} · ${rel} · ${fmtMB(c.size)}`;
+      o.title = c.path;
+      o.textContent = `${names.get(baseName(c.path).toLowerCase()) > 1 ? rel : baseName(c.path)} · ${fmtMB(c.size)}`;
       pick.appendChild(o);
     });
   }
@@ -604,6 +690,7 @@ function renderDetail() {
     pick.appendChild(o);
   }
   pick.value = row.exe || '';
+  pick.title = pick.value;
   const locked = row.source === 'steam';
   $('#d-name').disabled = locked;
   pick.disabled = locked;
@@ -640,6 +727,17 @@ function renderDetail() {
 
 async function previewFor(row) {
   const img = $('#d-preview');
+  const picked = row.art.grid;
+  if (picked) {
+    img.hidden = true;
+    try {
+      const src = picked.file ? await window.api.artPreviewFile(picked.file) : picked.thumb || picked.url;
+      if (cur() !== row || row.art.grid !== picked) return;
+      img.src = src;
+      img.hidden = false;
+    } catch { /* preview is optional */ }
+    return;
+  }
   if (!row.sgdbId || !S.cfg.api_key) { img.hidden = true; return; }
   if (S.previewCache[row.sgdbId]) {
     img.src = S.previewCache[row.sgdbId];
@@ -654,7 +752,7 @@ async function previewFor(row) {
       filters: { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor },
     });
     // Do not paint a late result onto a newly selected row.
-    if (items.length && row.sgdbId === cur()?.sgdbId) {
+    if (items.length && row.sgdbId === cur()?.sgdbId && !cur()?.art.grid) {
       S.previewCache[row.sgdbId] = items[0].thumb || items[0].url;
       img.src = S.previewCache[row.sgdbId];
       img.hidden = false;
@@ -679,6 +777,8 @@ function toRow(g, useLegacy = false) {
     confidence: g.confidence || 0, source: 'folder',
     checked: !!g.exePath, sgdbId: savedSgdb, sgdbName: savedSgdb ? '(cached)' : '',
     inSteam: false, managed: false, shortcutIdx: null, appid: null, art: {},
+    defaults: { folder: g.folder, folderName, display: g.displayName, query: g.displayName,
+      exe: g.exePath, startDir: g.startDir, reason: g.reason || '' },
   };
   const savedExe = !g.fromExecutableSearch && S.cfg.exe_map && (S.cfg.exe_map[key]
     || (useLegacy && S.cfg.exe_map[folderName]));
@@ -732,6 +832,7 @@ async function syncSteamLibrary(entries, installed) {
       checked: old ? old.checked : false, sgdbId: old ? old.sgdbId : null,
       sgdbName: old ? old.sgdbName : '', inSteam: true, managed: !!e.managed,
       shortcutIdx: e.index, appid: e.appid, art: old ? old.art || {} : {},
+      defaults: { display: name, query, exe: exe || null, startDir },
     });
   }
   for (const g of installed) {
@@ -947,6 +1048,61 @@ async function doRefresh() {
   }
 }
 
+async function doClear() {
+  if (!await confirmDlg('Clear unapplied changes?',
+    "Clear changes that haven't been applied to Steam?\n\nNames and launchers already in Steam will be kept. Artwork already written to Steam won't be deleted. Your selection will stay the same.",
+    { confirmText: 'Clear' })) return;
+  const entries = await window.api.steamRead();
+  const byAppid = new Map(entries.map((entry) => [Number(entry.appid), entry]));
+  const byExe = new Map(entries.map((entry) => [folderKey(String(entry.exe || '').replace(/^"|"$/g, '')), entry]));
+  const patch = Object.fromEntries(['title_map', 'exe_map', 'sgdb_map', 'sgdb_cache']
+    .map((key) => [key, { ...S.cfg[key] }]));
+  const resets = [];
+  for (const row of S.rows) {
+    if (row.source === 'steam') continue;
+    const reset = { ...row.defaults, art: {}, sgdbId: null, sgdbName: '' };
+    const entry = (row.appid != null && byAppid.get(Number(row.appid)))
+      || (row.exe && byExe.get(folderKey(row.exe))) || (reset.exe && byExe.get(folderKey(reset.exe)));
+    if (entry) {
+      reset.display = reset.query = entry.appName;
+      reset.exe = String(entry.exe || '').replace(/^"|"$/g, '');
+      reset.startDir = String(entry.startDir || '').replace(/^"|"$/g, '') || parentDir(reset.exe);
+      if (row.fromExecutableSearch) {
+        reset.folder = reset.exe;
+        reset.folderName = baseName(reset.startDir);
+      }
+    }
+    for (const map of Object.values(patch)) {
+      for (const key of [folderKey(row.folder), folderKey(row.defaults?.folder), row.folderName, row.display, row.defaults?.display]) delete map[key];
+    }
+    resets.push([row, reset, entry]);
+  }
+  for (const [row, reset, entry] of resets) {
+    if (entry && row.source === 'folder') {
+      const folder = reset.folder || row.folder;
+      patch.title_map[folderKey(folder)] = reset.display;
+      if (!row.fromExecutableSearch) patch.exe_map[folderKey(folder)] = reset.exe.startsWith(folder)
+        ? reset.exe.slice(folder.length).replace(/^[\\/]/, '') : baseName(reset.exe);
+    }
+  }
+  await savePatch(patch);
+  let detail = cur();
+  for (const [row, reset] of resets) Object.assign(row, reset);
+  const folderExes = new Set(S.rows.filter((row) => row.source === 'folder' && row.exe).map((row) => folderKey(row.exe)));
+  const unique = new Map();
+  S.rows = S.rows.filter((row) => {
+    const key = row.exe && folderExes.has(folderKey(row.exe)) ? `exe:${folderKey(row.exe)}` : rowKey(row);
+    const existing = unique.get(key);
+    if (!existing) { unique.set(key, row); return true; }
+    existing.checked ||= row.checked;
+    if (detail === row) detail = existing;
+    return false;
+  });
+  S.detailKey = detail ? rowKey(detail) : null;
+  await refreshSteamState(entries);
+  status('Unapplied changes cleared.');
+}
+
 function needKey() {
   if (!S.cfg.api_key) {
     toast('Add your SteamGridDB API key first in Settings.');
@@ -1010,8 +1166,8 @@ async function doDownloadArt() {
     if (u) r.art = u.art || r.art;
   }
   lines.forEach(log);
-  log('Art download done. Restart Steam to see it.');
-  status('Art download done. Restart Steam.');
+  log('Art download completed. Restart Steam to see it.');
+  status('Art download completed. Restart Steam.');
   toast('Artwork downloaded - restart Steam to see it.');
   if (S.detailKey) renderDetail();
 }
@@ -1180,6 +1336,7 @@ async function doPruneMissing() {  let stale;
 
 // ------------------------------------------------------- artwork modal
 const ART_TABS = [['wide', 'Wide Capsule'], ['grid', 'Vertical Grid'], ['hero', 'Hero'], ['logo', 'Logo'], ['icon', 'Icon']];
+let artModalMotion = 0;
 
 function openArtModal(row, focusKind) {
   if (row.source === 'steam') { toast('Artwork for Steam store games is managed by Steam.'); return; }
@@ -1195,21 +1352,46 @@ function openArtModal(row, focusKind) {
   $('#art-q').value = row.query || row.display;
   $('#art-id').value = row.sgdbId || '';
   $('#art-games').innerHTML = '';
+  $('#art-url-entry').hidden = true;
+  closeArtPreview();
+  $('#art-grid').replaceChildren();
   renderArtTabs();
-  $('#art-overlay').hidden = false;
+  const overlay = $('#art-overlay');
+  artModalMotion++;
+  overlay.getAnimations().forEach((animation) => animation.cancel());
+  overlay.classList.remove('closing');
+  overlay.hidden = false;
+  overlay.inert = false;
   if (row.sgdbId) loadArtTabs();
   else artStatus('Pick an SGDB match, then choose art per tab.');
 }
 
 function closeArtModal(save) {
   const m = S.modal;
+  if (!m) return;
+  if (m.previewLoader) m.previewLoader.src = '';
+  $('#art-url-entry').hidden = true;
   S.modal = null;
-  $('#art-overlay').hidden = true;
-  if (save && m) {
+  const overlay = $('#art-overlay');
+  overlay.inert = true;
+  const motion = ++artModalMotion;
+  overlay.getAnimations().forEach((animation) => animation.cancel());
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    overlay.hidden = true;
+  } else {
+    overlay.classList.add('closing');
+    const exit = overlay.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-in', fill: 'both' });
+    exit.finished.then(() => {
+      if (motion !== artModalMotion || S.modal) return;
+      overlay.hidden = true;
+      overlay.classList.remove('closing');
+      exit.cancel();
+    }).catch(() => {});
+  }
+  if (save) {
     if (m.sgdbId && m.sgdbId !== m.row.sgdbId) {
       m.row.sgdbId = m.sgdbId;
-      m.row.sgdbName = m.row.sgdbName && !['(cached)', '(manual)'].includes(m.row.sgdbName)
-        ? m.row.sgdbName : '(picked)';
+      m.row.sgdbName = m.games.find((game) => game.id === m.sgdbId)?.name || '(picked)';
       S.cfg.sgdb_map[folderKey(m.row.folder)] = m.sgdbId;
       savePatch({ sgdb_map: S.cfg.sgdb_map });
     }
@@ -1232,8 +1414,54 @@ function renderArtTabs() {
     b.textContent = label;
     const picked = m.sel[kind];
     if (picked) b.textContent += ' ★';
-    b.addEventListener('click', () => { m.tab = kind; renderArtTabs(); renderArtGrid(); });
+    b.addEventListener('click', () => { $('#art-url-entry').hidden = true; m.tab = kind; renderArtTabs(); renderArtGrid(); });
     host.appendChild(b);
+  }
+  $$('#art-grid .thumb').forEach((cell) => {
+    const picked = !!isPicked(m.tab, cell._art);
+    cell.classList.toggle('picked', picked);
+  });
+}
+
+function closeArtPreview() {
+  const wasOpen = !$('#art-preview').hidden;
+  if (S.modal) {
+    S.modal.previewItem = null;
+    if (S.modal.previewLoader) S.modal.previewLoader.src = '';
+    S.modal.previewLoader = null;
+  }
+  $('#art-preview').hidden = true;
+  $('#art-grid').hidden = false;
+  $('#art-preview-image').removeAttribute('src');
+  if (wasOpen) $('.thumbScroll').scrollTop = S.modal?.galleryScroll || 0;
+}
+
+async function openArtPreview(item) {
+  const m = S.modal;
+  const kind = m.tab;
+  if (!item) return;
+  const src = item.file ? await window.api.artPreviewFile(item.file) : item.thumb || item.url;
+  if (S.modal !== m || m.tab !== kind) return;
+  m.previewItem = item;
+  m.galleryScroll = $('.thumbScroll').scrollTop;
+  $('#art-preview').hidden = false;
+  $('#art-grid').hidden = true;
+  $('.thumbScroll').scrollTop = 0;
+  $('#art-preview-image').src = src;
+  if (item.thumb && item.url && item.thumb !== item.url) {
+    const full = new Image();
+    m.previewLoader = full;
+    full.decoding = 'async';
+    full.src = item.url;
+    artStatus('Loading full-size artwork…');
+    full.decode().then(() => {
+      if (S.modal !== m || m.previewItem !== item) return;
+      $('#art-preview-image').src = item.url;
+      m.previewLoader = null;
+      artStatus('Full-size artwork loaded.');
+    }).catch(() => {
+      if (S.modal === m && m.previewItem === item) artStatus('Full-size image could not load. Showing the preview.');
+    });
   }
 }
 
@@ -1257,7 +1485,7 @@ async function loadArtTabs() {
     if (!S.modal || S.modal.sgdbId !== m.sgdbId) return; // user moved on
     let total = 0;
     for (const [kind] of ART_TABS) total += (m.cache[`${m.sgdbId}:${kind}`] || []).length;
-    artStatus(`SGDB ${m.sgdbId}: ${total} images. Double-click to select per type.`);
+    artStatus(`SGDB ${m.sgdbId}: ${total} images. Click to select per type.`);
     renderArtTabs();
     renderArtGrid();
   } catch (e) {
@@ -1271,6 +1499,7 @@ function isPicked(kind, item) {
 }
 
 function renderArtGrid(loading = false) {
+  closeArtPreview();
   const m = S.modal;
   const grid = $('#art-grid');
   grid.innerHTML = '';
@@ -1286,11 +1515,17 @@ function renderArtGrid(loading = false) {
   }
   for (const im of items) {
     const cell = document.createElement('div');
+    cell._art = im;
     cell.className = `thumb${isPicked(m.tab, im) ? ' picked' : ''}`;
-    cell.innerHTML = `<img loading="lazy" src="${esc(im.thumb || im.url)}" alt="">
+    cell.innerHTML = `<div class="thumb-image"><img loading="lazy" decoding="async" width="${Number(im.width) || 600}" height="${Number(im.height) || 900}" src="${esc(im.thumb || im.url)}" alt="">
+      <button class="art-preview-button" type="button" title="Preview artwork" aria-label="Preview artwork"><svg class="icon" aria-hidden="true"><use href="#i-preview"/></svg></button></div>
       <div class="meta">#${im.id} · ${esc(im.style)} · ${im.width}x${im.height}<br>
-      ▲${im.upvotes} score ${im.score} · ${esc(im.author)}</div>`;
+      ▲${im.upvotes} score ${im.score} · ${esc(im.author)}<span class="art-selected"> · Selected</span></div>`;
     cell.addEventListener('click', () => pickArt(m.tab, im));
+    $('.art-preview-button', cell).addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleAction('Artwork preview', () => openArtPreview(im))();
+    });
     grid.appendChild(cell);
   }
 }
@@ -1299,7 +1534,6 @@ function pickArt(kind, item) {
   S.modal.sel[kind] = item;
   artStatus(`${kind}: selected #${item.id} by ${item.author}.`);
   renderArtTabs();
-  renderArtGrid();
 }
 
 async function artSearch() {
@@ -1319,7 +1553,8 @@ async function artSearch() {
       o.textContent = `${g.name}  [${g.id}]`;
       sel.appendChild(o);
     }
-    const g = games[0];
+    const g = games.find((game) => game.id === m.sgdbId) || games[0];
+    sel.value = String(g.id);
     m.sgdbId = g.id;
     $('#art-id').value = String(g.id);
     artStatus(`Matched '${g.name}' (${g.id}). Loading artwork…`);
@@ -1339,6 +1574,41 @@ async function artLoadId() {
 
 // ------------------------------------------------------------------ boot
 function wireToolbar() {
+  $('#onboarding-continue').addEventListener('click', handleAction('Setup', async () => {
+    const button = $('#onboarding-continue');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      if (S.onboardingStep === 0 && (!await window.api.steamVerify(S.cfg.steam_path)
+        || !S.steamUsers.some((user) => user.id === S.cfg.steam_user_id))) {
+        toast('Choose a valid Steam installation and account first.');
+        return;
+      }
+      if (S.onboardingStep < 2) { S.onboardingStep++; renderOnboarding(); return; }
+      const completed = S.cfg.onboarded;
+      if (!completed) await savePatch({ onboarded: true });
+      navReset('library');
+      if (!completed) await loadLibrary();
+    } finally { button.disabled = false; }
+  }));
+  $('#onboarding-back').addEventListener('click', () => { S.onboardingStep--; renderOnboarding(); });
+  $('.onboarding-steps').addEventListener('click', (e) => {
+    const button = e.target.closest('[data-step]');
+    if (!button || button.disabled) return;
+    S.onboardingStep = Number(button.dataset.step);
+    renderOnboarding();
+  });
+  $('#onboarding-close').addEventListener('click', () => navReset('library'));
+  $('#preview-onboarding').addEventListener('click', () => { S.onboardingStep = 0; navGo('onboarding'); });
+  $('#theme').addEventListener('change', handleAction('Theme change', () => savePatch({ theme: $('#theme').value })));
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  const dock = $('#bottomdock');
+  const dockToggle = $('#dock-toggle');
+  dockToggle.addEventListener('click', () => {
+    const collapsed = dock.classList.toggle('collapsed');
+    dockToggle.setAttribute('aria-expanded', String(!collapsed));
+    dockToggle.textContent = collapsed ? 'Show log' : 'Hide log';
+  });
   $('#btn-refresh').addEventListener('click', handleAction('Refresh', doRefresh));
   $('#btn-scan').addEventListener('click', doScan);
   $('#btn-find-executables').addEventListener('click', doFindExecutables);
@@ -1349,14 +1619,11 @@ function wireToolbar() {
   $('#btn-prune').addEventListener('click', handleAction('Prune', doPruneMissing));
   $('#side-kill').addEventListener('click', doKillSteam);
   $('#side-restart').addEventListener('click', doRestartSteam);
-  $('#sel-all').addEventListener('click', () => { S.rows.forEach((r) => { r.checked = r.source !== 'steam'; }); renderRows(); });
-  $('#sel-none').addEventListener('click', () => { S.rows.forEach((r) => { r.checked = false; }); renderRows(); });
+  $('#sel-all').addEventListener('change', (e) => { S.rows.forEach((r) => { r.checked = e.target.checked && r.source !== 'steam'; }); renderRows(); });
+  $('#btn-clear').addEventListener('click', handleAction('Clear', doClear));
   $('#unresolved-only').addEventListener('change', (e) => { S.unresolvedOnly = e.target.checked; renderRows(); });
-  $('#hide-owned').addEventListener('click', () => {
-    S.hideOwned = !S.hideOwned;
-    const b = $('#hide-owned');
-    b.classList.toggle('on', S.hideOwned);
-    b.setAttribute('aria-pressed', String(S.hideOwned));
+  $('#hide-owned').addEventListener('change', (e) => {
+    S.hideOwned = e.target.checked;
     renderRows();
   });
   $('#filter').addEventListener('input', (e) => { S.filter = e.target.value; renderRows(); });
@@ -1384,6 +1651,7 @@ function wireToolbar() {
     selectRow(tr.dataset.key);
   });
   $('#d-apply').addEventListener('click', applyDetails);
+  $('#d-exe-pick').addEventListener('change', (e) => { e.target.title = e.target.value; });
   $('#d-browse').addEventListener('click', async () => {
     const r = cur();
     const p = await window.api.filesPickExe(r ? (r.fromExecutableSearch ? r.startDir : r.folder) : null);
@@ -1396,6 +1664,7 @@ function wireToolbar() {
         pick.appendChild(o);
       }
       pick.value = p;
+      pick.title = p;
     }
   });
   $('#d-open').addEventListener('click', () => {
@@ -1409,6 +1678,10 @@ function wireToolbar() {
     const r = cur();
     if (r) openArtModal(r);
   });
+  $('#d-preview-open').addEventListener('click', () => {
+    const r = cur();
+    if (r) openArtModal(r, 'grid');
+  });
   $('#s-go').addEventListener('click', sgdbSearch);
   $('#s-set').addEventListener('click', sgdbUseSelected);
   $('#s-auto').addEventListener('click', sgdbAutoOne);
@@ -1420,7 +1693,19 @@ function wireToolbar() {
   });
   // modal
   $('#art-search').addEventListener('click', artSearch);
+  for (const [input, button] of [['s-search', 's-go'], ['art-q', 'art-search']]) {
+    $(`#${input}`).addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
+      e.preventDefault();
+      $(`#${button}`).click();
+    });
+  }
   $('#art-load').addEventListener('click', artLoadId);
+  $('#art-preview-back').addEventListener('click', closeArtPreview);
+  $('#art-preview-image').addEventListener('error', () => {
+    artStatus('Could not preview this image.');
+    closeArtPreview();
+  });
   $('#art-games').addEventListener('change', async (e) => {
     const m = S.modal;
     const g = (m.games || []).find((x) => String(x.id) === e.target.value);
@@ -1430,30 +1715,42 @@ function wireToolbar() {
       await loadArtTabs();
     }
   });
-  $('#art-url').addEventListener('click', async () => {
+  $('#art-url').addEventListener('click', () => {
+    $('#art-url-input').value = S.modal.sel[S.modal.tab]?.custom ? S.modal.sel[S.modal.tab].url || '' : '';
+    $('#art-url-entry').hidden = false;
+    $('#art-url-input').focus();
+  });
+  $('#art-url-cancel').addEventListener('click', () => { $('#art-url-entry').hidden = true; });
+  $('#art-url-entry').addEventListener('submit', (e) => {
+    e.preventDefault();
     const m = S.modal;
-    const url = prompt(`Direct image URL for '${m.tab}':`);
-    if (url && url.trim()) {
-      m.sel[m.tab] = { url: url.trim(), custom: true };
+    const url = $('#art-url-input').value.trim();
+    if (url) {
+      closeArtPreview();
+      m.sel[m.tab] = { url, custom: true };
       renderArtTabs();
       artStatus(`${m.tab}: custom URL set.`);
     }
+    $('#art-url-entry').hidden = true;
   });
-  $('#art-file').addEventListener('click', async () => {
+  $('#art-file').addEventListener('click', handleAction('Artwork preview', async () => {
     const m = S.modal;
     const p = await window.api.filesPickImage();
     if (p) {
+      if (S.modal !== m) return;
+      closeArtPreview();
       m.sel[m.tab] = { file: p, custom: true };
       renderArtTabs();
       artStatus(`${m.tab}: local file set.`);
+      await openArtPreview(m.sel[m.tab]);
     }
-  });
+  }));
   $('#art-clear').addEventListener('click', () => {
     const m = S.modal;
     delete m.sel[m.tab];
     renderArtTabs();
-    renderArtGrid();
     artStatus(`${m.tab}: cleared (default top result will be used).`);
+    closeArtPreview();
   });
   $('#art-cancel').addEventListener('click', () => closeArtModal(false));
   $('#art-apply').addEventListener('click', () => closeArtModal(true));
@@ -1462,7 +1759,10 @@ function wireToolbar() {
   });
   document.addEventListener('keydown', (e) => {
     if (S.exePicker) return;
-    if (e.key === 'Escape' && S.modal) closeArtModal(false);
+    if (e.key === 'Escape' && S.modal) {
+      if (!$('#art-url-entry').hidden) $('#art-url-entry').hidden = true;
+      else closeArtModal(false);
+    }
     // History shortcuts. Ignored while the modal owns input.
     if (!pickerOpen() && e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); }
     if (!pickerOpen() && e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navFwd(); }
@@ -1615,13 +1915,15 @@ function checkedRows() {
 
 async function boot() {
   S.cfg = await window.api.cfgGet();
+  applyTheme();
   console.log('RENDERER booted');
   log('ready.');
   try {
     S.steamUsers = S.cfg.steam_path ? await window.api.steamUsers(S.cfg.steam_path) : [];
   } catch { S.steamUsers = []; }
   wireToolbar();
-  renderSettingsCards();
+  S.isDevelopment = await window.api.isDevelopment().catch(() => false);
+  $('#preview-onboarding').hidden = !S.isDevelopment;
   window.api.onNav((dir) => {
     if (Date.now() - lastMouseNav < NAV_ECHO_MS) return; // DOM handler got it first
     lastIpcNav = Date.now();
@@ -1635,16 +1937,20 @@ async function boot() {
   const steamOk = S.cfg.steam_path
     ? await window.api.steamVerify(S.cfg.steam_path).catch(() => false)
     : false;
-  // No separate onboarding page: unconfigured launches land on full Settings
-  // (all cards live there); configured launches land on the Steam library.
-  if (!steamOk) {
+  if (!S.cfg.onboarded) {
+    navReset('onboarding');
+  } else if (!steamOk) {
     navReset('settings');
   } else {
     navReset('library');
-    await syncSteamLibrary();
-    if ((S.cfg.games_roots || []).length) doScan();
-    else status('Browse your Steam library or add a games folder in Settings.');
+    await loadLibrary();
   }
+}
+
+async function loadLibrary() {
+  await syncSteamLibrary();
+  if ((S.cfg.games_roots || []).length) await handleAction('Scan', doScan)();
+  else status('Browse your Steam library or add a games folder in Settings.');
 }
 
 document.addEventListener('DOMContentLoaded', () => {

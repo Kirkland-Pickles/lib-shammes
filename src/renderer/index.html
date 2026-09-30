@@ -2,34 +2,62 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data:; img-src https: data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data:; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
 <title>Lib Shammes v0.9.0</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="titlebar-drag"></div>
-<aside id="sidebar">
-  <div class="brand">LIB SHAMMES</div>
-  <button class="nav" data-page="library">Steam library</button>
-  <button class="nav" data-page="xbox">Xbox library</button>
-  <button class="nav" data-page="desktop">Desktop library</button>
-  <button class="nav" data-page="settings">Settings</button>
-  <div class="side-steam">
-    <button class="btn sm" id="side-kill" title="Force-close Steam (Steam games will stop)">Kill Steam</button>
-    <button class="btn sm" id="side-restart" title="Restart Steam (launches it if it isn't running)">Restart Steam</button>
+<svg class="icon-defs" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5h6l2 2h10v12H3Z"/></symbol>
+  <symbol id="i-find" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 6 6"/></symbol>
+  <symbol id="i-match" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 6 6M7.5 10l1.5 1.5 3-3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 17v4h16v-4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 8a8 8 0 1 0 1 7M20 3v5h-5"/></symbol>
+  <symbol id="i-preview" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+</svg>
+<header id="app-header">
+  <div class="title-row">
+    <div class="brand"><img src="../assets/app-icon.svg" alt=""><span>Lib Shammes</span><span class="app-version">v0.9.0</span></div>
   </div>
-  <div class="side-foot">v0.9.0</div>
-</aside>
+  <div class="navigation-row">
+    <nav id="page-nav" aria-label="Main navigation">
+      <button class="nav" data-page="library">Steam library</button>
+      <button class="nav" data-page="xbox">Xbox library</button>
+      <button class="nav" data-page="desktop">Desktop library</button>
+      <button class="nav" data-page="settings">Settings</button>
+    </nav>
+    <div class="steam-controls">
+      <button class="btn sm" id="side-kill" title="Force-close Steam (Steam games will stop)">Kill Steam</button>
+      <button class="btn sm" id="side-restart" title="Restart Steam (launches it if it isn't running)">Restart Steam</button>
+    </div>
+  </div>
+</header>
 
 <div id="center">
 <main id="pages">
+  <section class="page" id="page-onboarding">
+    <nav class="onboarding-steps" aria-label="Setup steps">
+      <button type="button" data-step="0">Steam</button>
+      <button type="button" data-step="1">Artwork</button>
+      <button type="button" data-step="2">Game folders</button>
+    </nav>
+    <header class="onboarding-heading">
+      <h1 id="onboarding-title"></h1>
+      <p class="sub" id="onboarding-description"></p>
+    </header>
+    <div id="onboarding-cards"></div>
+    <div class="onboarding-actions">
+      <button class="btn" id="onboarding-back">Back</button>
+      <button class="text-btn" id="onboarding-close" hidden>Back to library</button>
+      <span class="spacer"></span>
+      <button class="btn primary" id="onboarding-continue">Next</button>
+    </div>
+  </section>
   <!-- LIBRARY -->
   <section class="page" id="page-library">
     <header class="library-head">
-      <h1>Steam library</h1>
-      <div class="library-head-actions">
-        <button class="btn primary" id="btn-add">Add selected to Steam</button>
-      </div>
+      <div class="library-count"><span id="library-count">0 games</span><span>in view</span></div>
+      <button class="btn primary" id="btn-add">Add selected to Steam</button>
     </header>
     <div class="checklist" hidden>
       <span class="cl-title">Get set up</span>
@@ -40,35 +68,37 @@
     </div>
     <div id="lib-banner" class="banner" hidden></div>
     <div class="commandbar">
-      <div class="command-group" role="group" aria-label="Library actions">
-        <button class="btn sm" id="btn-scan">Scan folders</button>
-        <button class="btn sm" id="btn-find-executables">Find executables</button>
-        <button class="btn sm" id="btn-match">Match selected</button>
-        <button class="btn sm" id="btn-download">Download artwork</button>
-        <button class="btn sm" id="btn-refresh">Refresh</button>
+      <div class="command-group" role="group" aria-label="Find games">
+        <button class="btn sm" id="btn-scan"><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>Scan folders</button>
+        <button class="btn sm" id="btn-find-executables"><svg class="icon" aria-hidden="true"><use href="#i-find"/></svg>Find executables</button>
+      </div>
+      <div class="command-group" role="group" aria-label="Artwork actions">
+        <button class="btn sm" id="btn-match"><svg class="icon" aria-hidden="true"><use href="#i-match"/></svg>Match selected</button>
+        <button class="btn sm" id="btn-download"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Download artwork</button>
+      </div>
+      <div class="command-group" role="group" aria-label="Refresh library">
+        <button class="btn sm" id="btn-refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
       </div>
       <div class="command-group manage-actions" role="group" aria-label="Steam shortcut actions">
         <button class="btn sm" id="btn-remove">Remove from Steam</button>
-        <button class="btn sm danger" id="btn-prune" title="Remove shortcuts we added whose games no longer exist">Prune missing</button>
+        <button class="btn sm" id="btn-prune" title="Remove shortcuts we added whose games no longer exist">Prune missing</button>
       </div>
     </div>
     <div class="list-tools">
       <div class="selection-tools">
         <span id="selection-count">0 selected</span>
-        <button class="text-btn" id="sel-all">Select all</button>
-        <button class="text-btn" id="sel-none">Clear</button>
+        <label class="check filter-toggle"><input type="checkbox" id="sel-all"> Select all</label>
       </div>
       <div class="view-tools">
-        <label class="check"><input type="checkbox" id="unresolved-only"> Needs review</label>
-        <button class="btn sm" id="hide-owned" aria-pressed="false" title="Hide games installed through Steam">Hide games installed in Steam</button>
-        <input class="search-field" id="filter" type="text" placeholder="Filter games" aria-label="Filter games" autocomplete="off">
+        <label class="check filter-toggle"><input type="checkbox" id="unresolved-only"> Needs review</label>
+        <label class="check filter-toggle" title="Hide games installed through Steam"><input type="checkbox" id="hide-owned"> Hide games installed in Steam</label>
+        <button class="btn sm" id="btn-clear">Clear</button>
       </div>
     </div>
     <div class="library-workspace">
       <div class="list-panel">
         <div class="panel-head">
-          <span>Games</span>
-          <span class="muted" id="library-count">0 games</span>
+          <input class="search-field" id="filter" type="text" placeholder="Filter games" aria-label="Filter games" autocomplete="off">
         </div>
         <div class="list-wrap">
           <table id="games">
@@ -87,7 +117,7 @@
         </div>
         <div id="detail-content" hidden>
           <div class="det-head">
-            <img id="d-preview" alt="" hidden>
+            <button class="cover-button" id="d-preview-open" type="button" title="Choose grid artwork" aria-label="Choose grid artwork"><img id="d-preview" alt="" hidden></button>
             <div class="det-titles">
               <h2 id="d-title"></h2>
               <div class="muted" id="d-identity"></div>
@@ -137,18 +167,37 @@
 
   <!-- XBOX (blank entry for later) -->
   <section class="page" id="page-xbox">
-    <p class="sub">coming soon</p>
+    <div class="page-stub">
+      <img src="../assets/app-icon.svg" alt="" class="stub-mark">
+      <h1>Xbox library</h1>
+      <p class="sub">Not available yet</p>
+    </div>
   </section>
 
   <!-- DESKTOP SHORTCUTS (stub for later) -->
   <section class="page" id="page-desktop">
-    <p class="sub">coming soon</p>
+    <div class="page-stub">
+      <img src="../assets/app-icon.svg" alt="" class="stub-mark">
+      <h1>Desktop library</h1>
+      <p class="sub">Not available yet</p>
+    </div>
   </section>
 
   <!-- SETTINGS -->
   <section class="page" id="page-settings">
-    <h1>Settings</h1>
-    <p class="sub">Saved instantly as you change them.</p>
+    <header class="settings-heading">
+      <div>
+        <div class="page-kicker">Preferences</div>
+        <h1>Settings</h1>
+        <p class="sub">Saved instantly as you change them.</p>
+      </div>
+      <div class="row">
+        <button class="btn sm" id="preview-onboarding" hidden>Preview onboarding</button>
+        <label class="theme-setting">Theme
+          <select id="theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select>
+        </label>
+      </div>
+    </header>
     <div class="checklist" hidden>
       <span class="cl-title">Get set up</span>
       <button class="cl-item" data-cl="steam"><span>Connect Steam</span><span class="cl-state"></span></button>
@@ -160,14 +209,17 @@
   </section>
 </main>
 
-<div id="bottomdock">
-  <div id="dockhead"><span class="caption">Logs</span></div>
-  <div class="progress" id="progwrap" hidden><div id="fill"></div></div>
+<div class="progress" id="progwrap" hidden><div id="fill"></div></div>
+<div id="bottomdock" class="collapsed">
+  <div id="dockhead">
+    <span class="caption">Activity</span>
+  </div>
   <div id="log"></div>
 </div>
 
 <footer id="statusbar">
   <span id="status"></span>
+  <button class="dock-toggle" id="dock-toggle" type="button" aria-expanded="false" aria-controls="log">Show log</button>
 </footer>
 </div>
 
@@ -187,7 +239,12 @@
       <button class="btn sm" id="art-load">Load</button>
     </div>
     <div class="tabs" id="art-tabs"></div>
-    <div class="thumbScroll"><div id="art-grid"></div></div>
+    <div class="thumbScroll"><div id="art-grid"></div><div id="art-preview" hidden><button class="btn sm" id="art-preview-back">Back to artwork</button><img id="art-preview-image" alt="Artwork preview" decoding="async"></div></div>
+    <form id="art-url-entry" hidden>
+      <label class="fld"><span>Image URL</span><input id="art-url-input" type="url" placeholder="https://…" required></label>
+      <button class="btn sm" type="submit">Use image</button>
+      <button class="btn sm" id="art-url-cancel" type="button">Cancel</button>
+    </form>
     <div class="modal-foot">
       <span class="muted small">Click an image to select it.</span>
       <span class="spacer"></span>

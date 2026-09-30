@@ -2,7 +2,7 @@
 /* Main-process window and IPC handlers. */
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, shell, nativeTheme } = require('electron');
 
 if (app.isPackaged) Menu.setApplicationMenu(null);
 
@@ -24,7 +24,18 @@ function send(channel, payload) {
 function progress(current, total, label) {
   send('job:progress', { current, total, label: label || '' });
 }
+function windowColors() {
+  const light = cfg.theme === 'light' || (cfg.theme !== 'dark' && !nativeTheme.shouldUseDarkColors);
+  return light ? { background: '#f7f7f7', text: '#1d1d1d' } : { background: '#0b0d0e', text: '#e9ece7' };
+}
+function updateWindowTheme() {
+  if (!win || win.isDestroyed()) return;
+  const colors = windowColors();
+  win.setBackgroundColor(colors.background);
+  if (process.platform !== 'darwin') win.setTitleBarOverlay({ symbolColor: colors.text });
+}
 function createWindow() {
+  const colors = windowColors();
   win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -33,8 +44,8 @@ function createWindow() {
     title: `Lib Shammes v${app.getVersion()}`,
     icon: path.join(__dirname, '..', 'assets', 'app-icon.ico'),
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#00000000', symbolColor: '#e8ecf1', height: 32 },
-    backgroundColor: '#101216',
+    titleBarOverlay: { color: '#00000000', symbolColor: colors.text, height: 32 },
+    backgroundColor: colors.background,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
@@ -55,6 +66,7 @@ function createWindow() {
 }
 
 // ---------------------------------------------------------------- config
+ipcMain.handle('app:is-development', () => !app.isPackaged);
 ipcMain.handle('cfg:get', () => cfg);
 ipcMain.handle('cfg:set', (_e, patch) => {
   const clean = store.sanitizePatch(patch);
@@ -63,6 +75,7 @@ ipcMain.handle('cfg:set', (_e, patch) => {
   }
   Object.assign(cfg, clean);
   store.save(cfg);
+  if (clean.theme !== undefined) updateWindowTheme();
   return cfg;
 });
 
@@ -301,6 +314,15 @@ ipcMain.handle('files:pick-image', async () => {
     properties: ['openFile'],
   });
   return r.canceled ? null : r.filePaths[0];
+});
+
+ipcMain.handle('art:preview-file', async (_e, file) => {
+  const ext = path.extname(String(file)).slice(1).toLowerCase();
+  if (!['png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(ext)) throw new Error('Choose an image file to preview.');
+  const stat = await fs.promises.stat(file);
+  if (stat.size > 32 * 1024 * 1024) throw new Error('Image is too large to preview (maximum 32 MB).');
+  const bytes = await fs.promises.readFile(file);
+  return `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${bytes.toString('base64')}`;
 });
 
 ipcMain.handle('shell:open', (_e, p) => shell.openPath(p));
@@ -545,7 +567,7 @@ ipcMain.handle('art:download', async (_e, req) => {
     if (bak) lines.push(`shortcuts.vdf backed up -> ${path.basename(bak)}`);
   }
   store.saveChanges(changes);
-  progress(0, 0, 'Art download done. Restart Steam.');
+  progress(0, 0, 'Art download completed. Restart Steam.');
   return { rows, lines };
 });
 
@@ -697,6 +719,7 @@ app.whenReady().then(async () => {
     }
     return;
   }
+  nativeTheme.on('updated', updateWindowTheme);
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

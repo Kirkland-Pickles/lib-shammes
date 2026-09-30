@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 
 const DEFAULTS = {
+  theme: 'system',
   games_root: '',
   games_roots: [],
   folder_depths: {},
