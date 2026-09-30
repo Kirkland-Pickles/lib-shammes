@@ -1,6 +1,6 @@
 {
   "name": "lib-shammes",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Scan game folders, add them to Steam as non-Steam shortcuts, fetch SteamGridDB art",
   "license": "GPL-3.0-only",
   "main": "src/main/main.js",
