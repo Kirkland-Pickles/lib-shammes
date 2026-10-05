@@ -2,6 +2,7 @@
 /* Main-process window and IPC handlers. */
 const path = require('path');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 const { app, BrowserWindow, dialog, ipcMain, Menu, shell, nativeTheme } = require('electron');
 
 if (app.isPackaged) Menu.setApplicationMenu(null);
@@ -220,11 +221,20 @@ function purgeSteam(opts) {
   }
   const removeSet = new Set(plan.removeAppids.map(Number));
   const kept = entries.filter((e) => !removeSet.has(Number(e.appid)));
-  const bak = steam.saveEntries(sp, uid, kept);
+  const bak = removeSet.size || plan.restoreFields.length ? steam.saveEntries(sp, uid, kept) : null;
   if (bak) lines.push(`shortcuts.vdf backed up -> ${path.basename(bak)}`);
   lines.push(`Removed ${entries.length - kept.length} shortcut(s).`);
   let deleted = 0;
   const failedFiles = [];
+  for (const f of plan.restoreFiles) {
+    try {
+      fs.copyFileSync(f.before, f.path);
+      lines.push(`  restored ${f.path}`);
+    } catch {
+      lines.push(`  could not restore ${f.path}`);
+      failedFiles.push(changes.files.find((entry) => entry.path === f.path));
+    }
+  }
   for (const f of plan.deleteFiles) {
     try {
       fs.unlinkSync(f.path);
@@ -237,6 +247,11 @@ function purgeSteam(opts) {
   for (const s of plan.skippedFiles) lines.push(`  kept ${s.path} - ${s.why}`);
   lines.push(`Deleted ${deleted} art file(s), kept ${plan.skippedFiles.length} changed-by-user.`);
   store.saveChanges({ ...store.blankChanges(), files: failedFiles });
+  for (const f of changes.files) {
+    if (f.before && !failedFiles.includes(f)) {
+      try { fs.unlinkSync(f.before); } catch {}
+    }
+  }
   return { ...plan, lines, failedFiles, executed: true, backup: bak ? path.basename(bak) : null };
 }
 
@@ -316,13 +331,38 @@ ipcMain.handle('files:pick-image', async () => {
   return r.canceled ? null : r.filePaths[0];
 });
 
-ipcMain.handle('art:preview-file', async (_e, file) => {
-  const ext = path.extname(String(file)).slice(1).toLowerCase();
-  if (!['png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(ext)) throw new Error('Choose an image file to preview.');
+async function previewFile(file, extension = path.extname(String(file))) {
+  if (extension === '.bak') {
+    const record = store.loadChanges().files.find((f) => f.before === file);
+    if (record) extension = path.extname(record.path);
+  }
+  const ext = extension.slice(1).toLowerCase();
+  if (!['png', 'jpg', 'jpeg', 'webp', 'bmp', 'ico'].includes(ext)) throw new Error('Choose an image file to preview.');
   const stat = await fs.promises.stat(file);
   if (stat.size > 32 * 1024 * 1024) throw new Error('Image is too large to preview (maximum 32 MB).');
   const bytes = await fs.promises.readFile(file);
-  return `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${bytes.toString('base64')}`;
+  const type = images.isWebp(bytes) ? 'webp' : images.isPng(bytes) ? 'png' : ext === 'jpg' ? 'jpeg' : ext === 'ico' ? 'x-icon' : ext;
+  return `data:image/${type};base64,${bytes.toString('base64')}`;
+}
+ipcMain.handle('art:preview-file', (_e, file) => previewFile(file));
+ipcMain.handle('art:current', async (_e, req) => {
+  let file = steam.currentArtwork(cfg.steam_path, cfg.steam_user_id, req?.row, req?.kind, !!req?.stock);
+  const changes = req?.stock ? store.loadChanges().files : [];
+  if (!file && req?.stock && req?.row?.source === 'steam' && req.kind === 'icon') {
+    const dir = path.join(cfg.steam_path, 'appcache', 'librarycache', String(req.row.steamAppid));
+    file = changes.find((f) => path.dirname(f.path) === dir
+      && /^[a-f0-9]{40}\.jpg$/i.test(path.basename(f.path)) && f.before)?.path;
+  }
+  if (!file) return null;
+  const extension = path.extname(file);
+  if (req.stock) {
+    const record = changes.find((f) => f.path === file && Object.hasOwn(f, 'before'));
+    if (record) {
+      if (!record.before || !fs.existsSync(record.before)) return null;
+      file = record.before;
+    }
+  }
+  return { file, ...(req.existsOnly ? {} : { url: await previewFile(file, extension) }) };
 });
 
 ipcMain.handle('shell:open', (_e, p) => shell.openPath(p));
@@ -425,6 +465,10 @@ ipcMain.handle('match:auto', async (_e, req) => {
         ok++;
         continue;
       }
+      if (row.source === 'steam') {
+        lines.push(`  ${row.display}: no SGDB match for Steam ${row.steamAppid}; choose a match manually.`);
+        continue;
+      }
       lines.push(`  ${row.display}: Steam ${row.steamAppid} not on SGDB, trying title search…`);
     }
     try {
@@ -456,12 +500,22 @@ ipcMain.handle('match:auto', async (_e, req) => {
 });
 
 // ------------------------------------------------------------------- art
-async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes = null, journalFile = null, shortcut = null) {
+async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes = null, journalFile = null, shortcut = null, native = null) {
   const journal = (p) => { if (changes && journalFile && p) journalFile(p); };
   const suffix = steam.ART_SUFFIXES[kind];
-  const sel = (row.art && row.art[kind]) || null;
+  const sel = row.art?.[kind]?.automatic ? null : (row.art && row.art[kind]) || null;
   if (!sel && onlyMissing && images.gridHasArt(gridFolder, stem, suffix)) {
     return { line: `${row.display} [${kind}]: already present, skip.`, saved: false };
+  }
+  let metadata;
+  if (native && ((!sel && onlyMissing) || kind === 'icon')) {
+    metadata = await native.metadata();
+    const key = { wide: 'header_image', grid: 'library_capsule', hero: 'library_hero', logo: 'library_logo', icon: 'icon' }[kind];
+    const full = metadata[`${key}_full`];
+    const stock = metadata[key] || (kind === 'icon' && metadata.clienticon)
+      || [full?.image || full, full?.image2x].some((map) => Object.values(map || {}).some((value) => typeof value === 'string' && value));
+    if (!sel && onlyMissing && stock) return { line: `${row.display} [${kind}]: stock Steam artwork present, skip.`, saved: false };
+    if (kind === 'icon' && !/^[a-f0-9]{40}$/i.test(metadata.icon || '')) throw new Error('Steam icon cache filename is unavailable.');
   }
   let data = null;
   let src = '';
@@ -469,7 +523,7 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
   if (sel && sel.file) {
     data = fs.readFileSync(sel.file);
     src = `file ${sel.file}`;
-    srcUrl = sel.file;
+    srcUrl = store.loadChanges().files.find((f) => f.before === sel.file)?.path || sel.file;
   } else if (sel && sel.url) {
     data = await c.downloadBytes(sel.url);
     src = sel.custom ? 'custom URL' : `#${sel.id}`;
@@ -492,10 +546,21 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
     // separate "default" flag, so top score IS the default.
     const img = items[0];
     row.art = row.art || {};
-    row.art[kind] = { id: img.id, url: img.url, author: img.author, width: img.width, height: img.height };
     data = await c.downloadBytes(img.url);
+    row.art[kind] = { id: img.id, url: img.url, author: img.author, width: img.width, height: img.height,
+      automatic: true };
     src = `#${img.id} ${img.author}`;
     srcUrl = img.url;
+  }
+  if (native && kind === 'icon') {
+    const dest = path.join(cfg.steam_path, 'appcache', 'librarycache', stem, `${metadata.icon}.jpg`);
+    const finish = native.beforeWrite(dest, false);
+    try {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, data);
+    } finally { finish(); }
+    row.art[kind] = { ...row.art[kind], appliedFile: dest };
+    return { line: `  ${row.display} [icon]: saved ${path.basename(dest)}.`, saved: true };
   }
   if (kind === 'icon') {
     const destPng = steam.artDest(gridFolder, stem, 'icon', '.png');
@@ -509,18 +574,23 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
         shortcut.icon = ico;
       }
     }
+    row.art[kind] = { ...row.art[kind], appliedFile: ico || destPng };
     return { line: `  ${row.display} [icon]: saved ${path.basename(destPng)}${ico ? ` + ${stem}_icon.ico` : ' (no .ico: source was not PNG)'}`, saved: true };
   }
-  const dest = steam.artDest(gridFolder, stem, kind, images.extFromUrl(srcUrl || '.png'));
-  steam.clearConflictingExts(dest);
-  journal(images.saveGridBytes(data, dest));
+  const dest = steam.artDest(gridFolder, stem, kind, images.isWebp(data) ? '.png' : images.extFromUrl(srcUrl || '.png'));
+  const finish = native ? native.beforeWrite(dest, true) : null;
+  try {
+    journal(images.saveGridBytes(data, dest));
+    steam.clearConflictingExts(dest);
+  } finally { if (finish) finish(); }
+  row.art[kind] = { ...row.art[kind], appliedFile: dest };
   return { line: `  ${row.display} [${kind}]: saved ${path.basename(dest)} (${src}).`, saved: true };
 }
 
 ipcMain.handle('art:download', async (_e, req) => {
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
-  const kinds = (req && Array.isArray(req.kinds) ? req.kinds : []);
+  const kinds = (req && Array.isArray(req.kinds) ? req.kinds : []).filter((kind) => Object.hasOwn(steam.ART_SUFFIXES, kind));
   const onlyMissing = !!(req && req.onlyMissing);
   const filters = (req && req.filters) || {};
   const c = client();
@@ -532,32 +602,72 @@ ipcMain.handle('art:download', async (_e, req) => {
     const sig = store.statSig(p);
     if (sig) changes.files.push({ path: p, size: sig.size, mtimeMs: sig.mtimeMs });
   };
+  const beforeWrite = (dest, clearOthers) => {
+    const base = dest.slice(0, -path.extname(dest).length);
+    const paths = [dest, ...(clearOthers ? steam.GRID_IMAGE_EXTS.map((ext) => base + ext).filter((p) => p !== dest && fs.existsSync(p)) : [])];
+    const records = paths.map((p) => {
+      const sig = store.statSig(p);
+      const old = changes.files.find((f) => f.path === p && Object.hasOwn(f, 'before'));
+      if (old && (sig ? sig.size === old.size && sig.mtimeMs === old.mtimeMs : old.size === null)) return old;
+      let before = null;
+      if (sig) {
+        const dir = path.join(store.configDir(), 'artwork-backups');
+        fs.mkdirSync(dir, { recursive: true });
+        before = path.join(dir, `${randomUUID()}.bak`);
+        fs.copyFileSync(p, before);
+      }
+      const record = { path: p, before, ...(sig || { size: null, mtimeMs: null }) };
+      changes.files = changes.files.filter((f) => f.path !== p);
+      changes.files.push(record);
+      return record;
+    });
+    store.saveChanges(changes);
+    return () => {
+      for (const record of records) Object.assign(record, store.statSig(record.path) || { size: null, mtimeMs: null });
+      store.saveChanges(changes);
+    };
+  };
   let entries;
   try {
-    entries = steam.loadEntries(cfg.steam_path, cfg.steam_user_id);
+    entries = rows.some((row) => row.source !== 'steam') ? steam.loadEntries(cfg.steam_path, cfg.steam_user_id) : [];
   } catch (err) {
     throw new Error(`Cannot read shortcuts.vdf: ${String((err && err.message) || err)}`);
   }
   let shortcutsChanged = false;
+  let saved = 0;
+  let failed = 0;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     progress(i, rows.length, `Art ${i + 1}/${rows.length}: ${row.display}`);
-    const indexed = row.shortcutIdx != null ? entries[row.shortcutIdx] : null;
+    const isNative = row.source === 'steam';
+    const appid = Number(row.steamAppid);
+    if (isNative && (!Number.isInteger(appid) || appid <= 0 || appid > 0xffffffff)) {
+      lines.push(`  ${row.display}: invalid Steam AppID.`);
+      failed++;
+      continue;
+    }
+    const indexed = !isNative && row.shortcutIdx != null ? entries[row.shortcutIdx] : null;
     const hit = (indexed && (row.appid == null || Number(indexed.appid) === Number(row.appid)) ? indexed : null)
-      || (row.exe && entries[steam.findByExe(entries, row.exe)]);
-    const stem = hit ? steam.gridStemFromEntry(hit)
+      || (!isNative && row.exe && entries[steam.findByExe(entries, row.exe)]);
+    const stem = isNative ? String(appid) : hit ? steam.gridStemFromEntry(hit)
       : (row.exe && row.display ? steam.gridStemFor(steam.quoteExe(row.exe), row.display) : null);
     if (!stem) {
       lines.push(`  ${row.display}: not in Steam yet - add to Steam first (need shortcut id).`);
       continue;
     }
-    for (const kind of kinds) {
+    let metadata;
+    const native = isNative ? { beforeWrite, metadata: () => metadata ||= c.steamMetadata(appid) } : null;
+    const rowKinds = [...new Set([...kinds, ...Object.keys(row.art || {}).filter((kind) => Object.hasOwn(steam.ART_SUFFIXES, kind) && !row.art[kind]?.automatic)])];
+    for (const kind of rowKinds) {
+      if (!row.sgdbId && !row.art?.[kind]) continue;
       try {
         const beforeIcon = hit && hit.icon;
-        const result = await fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes, journalFile, hit);
+        const result = await fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes, isNative ? null : journalFile, hit, native);
         lines.push(result.line);
+        if (result.saved) saved++;
         if (hit && hit.icon !== beforeIcon) shortcutsChanged = true;
       } catch (err) {
+        failed++;
         lines.push(`  ${row.display} [${kind}]: ${String((err && err.message) || err)}`);
       }
     }
@@ -567,8 +677,8 @@ ipcMain.handle('art:download', async (_e, req) => {
     if (bak) lines.push(`shortcuts.vdf backed up -> ${path.basename(bak)}`);
   }
   store.saveChanges(changes);
-  progress(0, 0, 'Art download completed. Restart Steam.');
-  return { rows, lines };
+  progress(0, 0, `${saved} artwork saved, ${failed} failed.`);
+  return { rows, lines, saved, failed };
 });
 
 // ------------------------------------------------------------ steam add/rm
@@ -577,7 +687,6 @@ ipcMain.handle('steam:add', async (_e, req) => {
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
   const autoArt = !!(req && req.autoArt);
   const kinds = (req && Array.isArray(req.kinds) ? req.kinds : []);
-  const onlyMissing = !!(req && req.onlyMissing);
   const filters = (req && req.filters) || {};
   if (!rows.length) return { rows: [], lines: ['No rows to add - nothing was sent.'], added: 0, updated: 0 };
   const sp = cfg.steam_path;
@@ -596,6 +705,7 @@ ipcMain.handle('steam:add', async (_e, req) => {
   let added = 0;
   let updated = 0;
   let artworkSaved = 0;
+  let artworkFailed = 0;
   let shortcutsChanged = false;
   const changes = store.loadChanges();
   const journalFile = (p) => {
@@ -654,14 +764,16 @@ ipcMain.handle('steam:add', async (_e, req) => {
     if (c && kinds.length) {
       const stem = steam.gridStemFromEntry(shortcut);
       for (const kind of kinds) {
-        if (!(row.art && row.art[kind]) && (!autoArt || !row.sgdbId)) continue;
+        const picked = row.art?.[kind];
+        if ((!picked || picked.automatic || picked.current) && (!autoArt || !row.sgdbId)) continue;
         try {
           const beforeIcon = shortcut.icon;
-          const res = await fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes, journalFile, shortcut);
+          const res = await fetchOneArt(c, gridFolder, stem, row, kind, filters, true, changes, journalFile, shortcut);
           if (shortcut.icon !== beforeIcon) shortcutsChanged = true;
           if (res.saved) artworkSaved++;
           lines.push(res.line);
         } catch (err) {
+          artworkFailed++;
           lines.push(`  ${row.display} [${kind}]: ${String((err && err.message) || err)}`);
         }
       }
@@ -679,7 +791,7 @@ ipcMain.handle('steam:add', async (_e, req) => {
     ? `Saved shortcuts.vdf: ${added} added, ${updated} updated.`
     : 'No shortcut changes needed.');
   progress(0, 0, `Done: ${added} added, ${updated} updated, ${artworkSaved} artwork saved. Restart Steam!`);
-  return { rows, lines, added, updated, artworkSaved };
+  return { rows, lines, added, updated, artworkSaved, artworkFailed };
 });
 
 ipcMain.handle('steam:remove', async (_e, req) => {

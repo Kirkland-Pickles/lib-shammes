@@ -101,7 +101,7 @@ describe('executable search', () => {
 });
 
 describe('stale shortcut pruning', () => {
-  it('lists only our tagged shortcuts with missing exes', () => {
+  it('lists only app-tagged shortcuts with missing exes', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'stale-'));
     try {
       const real = path.join(td, 'real.exe');

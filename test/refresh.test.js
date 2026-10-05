@@ -66,3 +66,18 @@ it('removes scanned rows when no folders remain, but still reloads Steam', async
   await refresh();
   assert.equal(state.rows.length, 0);
 });
+
+it('keeps native selections and artwork by AppID when games share a name', async () => {
+  const { state, refresh } = renderer({
+    steamRead: async () => [], steamGames: async () => [{ appid: 1, name: 'Renamed game' }, { appid: 2, name: 'Game' }],
+  });
+  state.cfg = { games_roots: [], sgdb_map: {}, sgdb_cache: {} };
+  state.rows = [{ source: 'steam', steamAppid: 1, display: 'Game', checked: true, sgdbId: 7, art: { grid: 'chosen' } },
+    { source: 'steam', steamAppid: 2, display: 'Game', checked: false, art: {} }];
+  await refresh();
+  assert.equal(state.rows[0].checked, true);
+  assert.equal(state.rows[0].sgdbId, 7);
+  assert.equal(state.rows[0].art.grid, 'chosen');
+  assert.equal(state.rows[1].checked, false);
+  assert.equal(Object.keys(state.rows[1].art).length, 0);
+});

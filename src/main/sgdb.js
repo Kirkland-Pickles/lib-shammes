@@ -100,6 +100,16 @@ class SGDBClient {
     return null;
   }
 
+  async steamMetadata(appid) {
+    const game = await this.gameBySteamAppid(appid);
+    if (game) {
+      const data = await this._getJson(`/games/id/${game.id}?platformdata=steam`);
+      const entry = data?.external_platform_data?.steam?.find((item) => String(item.id) === String(appid));
+      if (entry?.metadata) return entry.metadata;
+    }
+    throw new SGDBError('Could not check stock Steam artwork.');
+  }
+
   buildParams({ dimensions, types, nsfw, humor, limit = 50 } = {}) {
     const p = new URLSearchParams();
     if (dimensions) p.set('dimensions', dimensions);

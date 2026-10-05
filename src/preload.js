@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('api', {
   resolveName: (name) => ipcRenderer.invoke('resolve:name', name),
   artList: (req) => ipcRenderer.invoke('art:list', req),
   artPreviewFile: (file) => ipcRenderer.invoke('art:preview-file', file),
+  artCurrent: (req) => ipcRenderer.invoke('art:current', req),
   // library ops (progress streams back on 'job:progress')
   scanStart: (req) => ipcRenderer.invoke('scan:start', req),
   findExecutables: (req) => ipcRenderer.invoke('scan:find-executables', req),

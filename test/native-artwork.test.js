@@ -1,0 +1,193 @@
+'use strict';
+const { it } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const vm = require('node:vm');
+const { createRequire } = require('node:module');
+const steam = require('../src/main/steam');
+const store = require('../src/main/store');
+const { SGDBClient } = require('../src/main/sgdb');
+
+function main(t, metadata = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'native-art-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cfg = { ...structuredClone(store.DEFAULTS), steam_path: root, steam_user_id: '1' };
+  const handlers = new Map();
+  const calls = [];
+  let changes = store.blankChanges();
+  const filename = path.join(__dirname, '../src/main/main.js');
+  const realRequire = createRequire(filename);
+  const mocks = {
+    electron: {
+      app: { isPackaged: true, whenReady: () => ({ then() {} }), on() {} },
+      Menu: { setApplicationMenu() {} }, ipcMain: { handle: (name, fn) => handlers.set(name, fn) },
+    },
+    './store': { ...store, load: () => cfg, save() {}, configDir: () => path.join(root, 'appdata'),
+      loadChanges: () => structuredClone(changes), saveChanges: (value) => { changes = structuredClone(value); } },
+    './steam': { ...steam, normalizeSteamPath: (value) => value,
+      loadEntries: () => { calls.push('read shortcuts'); return []; },
+      saveEntries: () => { calls.push('write shortcuts'); throw new Error('Native artwork must not write shortcuts'); } },
+    './sgdb': { SGDBClient: class {
+      steamMetadata = async () => { calls.push('metadata'); if (metadata instanceof Error) throw metadata; return metadata; };
+      gridsVertical = async () => [{ id: 9, url: 'https://test.invalid/art.jpg' }];
+      logos = this.gridsVertical;
+      icons = this.gridsVertical;
+      downloadBytes = async () => { calls.push('download'); return Buffer.from('new artwork'); };
+    } },
+  };
+  vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
+    require: (name) => mocks[name] || realRequire(name), __dirname: path.dirname(filename),
+    process: { argv: [], platform: process.platform }, Buffer,
+  }, { filename });
+  return { root, calls, grid: steam.gridDir(root, '1'), changes: () => changes,
+    download: (row = native(), options = {}) => handlers.get('art:download')(null, { rows: [row], kinds: ['grid'], onlyMissing: false, ...options }),
+    invoke: (name, req) => handlers.get(name)(null, req) };
+}
+
+function native(art = {}, appid = 123) {
+  return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
+}
+
+it('reads current artwork from the Steam cache without SGDB and prefers custom artwork', async (t) => {
+  const env = main(t, new Error('metadata unavailable'));
+  const cache = path.join(env.root, 'appcache', 'librarycache');
+  const files = { grid: 'capsule-hash/library_capsule.jpg', hero: 'hero-hash/library_hero.jpg',
+    logo: 'logo.png', wide: 'header.jpg', icon: 'a'.repeat(40) + '.jpg' };
+  const parts = [Buffer.from([0, 0, 0, 48, 0, 0]), Buffer.from('123\0')];
+  for (const [index, relative] of Object.values(files).entries()) {
+    const file = path.join(cache, '123', relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'cached artwork');
+    parts.push(Buffer.from(`\x01${index}f\0${relative}\0`));
+  }
+  parts.push(Buffer.from([8, 8, 8, 8]));
+  fs.writeFileSync(path.join(cache, 'assetcache.vdf'), Buffer.concat(parts));
+  for (const [kind, relative] of Object.entries(files)) {
+    const item = await env.invoke('art:current', { row: native(), kind });
+    assert.equal(item.file, path.join(cache, '123', relative));
+    assert.ok(item.url.endsWith(Buffer.from('cached artwork').toString('base64')));
+  }
+  fs.mkdirSync(env.grid, { recursive: true });
+  const custom = path.join(env.grid, '123p.png');
+  fs.writeFileSync(custom, 'custom artwork');
+  assert.equal((await env.invoke('art:current', { row: native(), kind: 'grid' })).file, custom);
+  assert.equal((await env.invoke('art:current', { row: native(), kind: 'grid', stock: true })).file,
+    path.join(cache, '123', files.grid));
+  assert.equal(await env.invoke('art:current', { row: native(), kind: 'invalid' }), null);
+  assert.deepEqual(env.calls, []);
+});
+
+it('checks stock artwork by the original Steam AppID, not the chosen SGDB listing', async () => {
+  const client = new SGDBClient('test');
+  const requests = [];
+  client._getJson = async (url) => {
+    requests.push(url);
+    return url.startsWith('/games/steam/') ? { id: 7, name: 'Game' } : {
+      external_platform_data: { steam: [{ id: '456', metadata: { icon: 'wrong' } }, { id: '123', metadata: { icon: 'right' } }] },
+    };
+  };
+  assert.equal((await client.steamMetadata(123)).icon, 'right');
+  assert.deepEqual(requests, ['/games/steam/123', '/games/id/7?platformdata=steam']);
+  await assert.rejects(client.steamMetadata(789), /Could not check stock/);
+});
+
+it('skips stock and custom artwork when onlyMissing is on', async (t) => {
+  for (const stock of [{ library_capsule: 'capsule.jpg' }, { library_capsule_full: { image2x: { english: 'capsule.jpg' } } }]) {
+    const env = main(t, stock);
+    const result = await env.download(native(), { onlyMissing: true });
+    assert.equal(result.saved, 0);
+    assert.equal(result.failed, 0);
+    assert.ok(!env.calls.includes('download'));
+  }
+  const env = main(t, new Error('metadata unavailable'));
+  fs.mkdirSync(env.grid, { recursive: true });
+  const custom = path.join(env.grid, '123p.png');
+  fs.writeFileSync(custom, 'custom');
+  const result = await env.download(native(), { onlyMissing: true });
+  assert.equal(result.saved, 0);
+  assert.equal(fs.readFileSync(custom, 'utf8'), 'custom');
+  assert.ok(!env.calls.includes('metadata'));
+});
+
+it('allows automatic replacement when onlyMissing is off and manual replacement when it is on', async (t) => {
+  for (const [manual, metadata] of [
+    [false, { library_capsule: 'stock.jpg' }], [true, { library_capsule: 'stock.jpg' }],
+    [false, new Error('metadata unavailable')], [true, new Error('metadata unavailable')],
+  ]) {
+    const env = main(t, metadata);
+    const row = native(manual ? { grid: { url: 'https://test.invalid/chosen.jpg' } } : {});
+    const result = await env.download(row, { onlyMissing: manual });
+    assert.equal(result.saved, 1);
+    assert.equal(result.failed, 0);
+    assert.equal(fs.readFileSync(path.join(env.grid, '123p.jpg'), 'utf8'), 'new artwork');
+    assert.equal(result.rows[0].art.grid.appliedFile, path.join(env.grid, '123p.jpg'));
+    assert.ok(!env.calls.includes('read shortcuts'));
+    assert.ok(!env.calls.includes('write shortcuts'));
+  }
+});
+
+it('restores overwritten custom artwork after repeated writes and removes the replacement extension', async (t) => {
+  const env = main(t);
+  fs.mkdirSync(env.grid, { recursive: true });
+  const original = path.join(env.grid, '123p.png');
+  const replacement = path.join(env.grid, '123p.jpg');
+  fs.writeFileSync(original, 'original');
+  for (let i = 0; i < 2; i++) await env.download();
+  assert.equal(fs.existsSync(original), false);
+  const plan = await env.invoke('steam:purge', { dryRun: true });
+  assert.equal(plan.restoreFiles.length, 1);
+  assert.equal(plan.deleteFiles.length, 1);
+  const result = await env.invoke('steam:purge', { dryRun: false });
+  assert.equal(result.failedFiles.length, 0);
+  assert.equal(fs.readFileSync(original, 'utf8'), 'original');
+  assert.equal(fs.existsSync(replacement), false);
+  assert.ok(!env.calls.includes('write shortcuts'));
+  assert.equal(env.changes().files.length, 0);
+});
+
+it('leaves later user artwork changes alone during Purge', async (t) => {
+  const env = main(t);
+  await env.download();
+  const dest = path.join(env.grid, '123p.jpg');
+  fs.writeFileSync(dest, 'user replacement');
+  const result = await env.invoke('steam:purge', { dryRun: false });
+  assert.equal(result.skippedFiles.length, 1);
+  assert.equal(fs.readFileSync(dest, 'utf8'), 'user replacement');
+});
+
+it('does not download an unticked type from an earlier automatic selection', async (t) => {
+  for (const row of [native(), { ...native(), source: 'folder', folder: 'fixture', exe: 'C:/Games/game.exe' }]) {
+    const env = main(t);
+    const first = await env.download(row);
+    assert.equal(first.rows[0].art.grid.automatic, true);
+    const grid = first.rows[0].art.grid.appliedFile;
+    const before = store.statSig(grid);
+    env.calls.length = 0;
+    const result = await env.download(first.rows[0], { kinds: ['logo'] });
+    assert.equal(result.saved, 1);
+    assert.equal(result.failed, 0);
+    assert.equal(env.calls.filter((call) => call === 'download').length, 1);
+    assert.deepEqual(store.statSig(grid), before);
+  }
+});
+
+it('writes native icons to the Steam cache and restores the original icon', async (t) => {
+  const hash = 'a'.repeat(40);
+  const env = main(t, { icon: hash });
+  const icon = path.join(env.root, 'appcache', 'librarycache', '123', `${hash}.jpg`);
+  fs.mkdirSync(path.dirname(icon), { recursive: true });
+  fs.writeFileSync(icon, 'original icon');
+  const result = await env.download(native({ icon: { url: 'https://test.invalid/icon.png' } }), { kinds: [], onlyMissing: true });
+  assert.equal(result.saved, 1);
+  assert.equal(fs.readFileSync(icon, 'utf8'), 'new artwork');
+  assert.equal(result.rows[0].art.icon.appliedFile, icon);
+  const stock = await env.invoke('art:current', { row: native(), kind: 'icon', stock: true });
+  assert.notEqual(stock.file, icon);
+  assert.ok(stock.url.endsWith(Buffer.from('original icon').toString('base64')));
+  await env.invoke('steam:purge', { dryRun: false });
+  assert.equal(fs.readFileSync(icon, 'utf8'), 'original icon');
+  assert.equal(fs.readdirSync(env.grid).length, 0);
+});
+

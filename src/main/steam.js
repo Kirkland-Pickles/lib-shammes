@@ -304,6 +304,47 @@ function artDest(gridFolder, stem, kind, ext) {
   return path.join(gridFolder, `${stem}${ART_SUFFIXES[kind]}${e}`);
 }
 
+function currentArtwork(steamPath, userId, row, kind, stock = false) {
+  if (!steamPath || !userId || !row || !Object.hasOwn(ART_SUFFIXES, kind)) return null;
+  const native = row.source === 'steam';
+  if (stock && !native) return null;
+  let stem, entry;
+  if (native) {
+    const appid = Number(row.steamAppid);
+    if (!Number.isInteger(appid) || appid <= 0 || appid > 0xffffffff) return null;
+    stem = String(appid);
+  } else {
+    const entries = loadEntries(steamPath, userId);
+    entry = row.appid != null ? entries.find((e) => Number(e.appid) === Number(row.appid))
+      : row.exe ? entries[findByExe(entries, row.exe)] : null;
+    stem = entry ? gridStemFromEntry(entry) : row.exe && row.display ? gridStemFor(quoteExe(row.exe), row.display) : null;
+  }
+  if (!stem) return null;
+  const find = (files) => files.find((file) => {
+    if (!file || ![...GRID_IMAGE_EXTS, '.ico'].includes(path.extname(file).toLowerCase())) return false;
+    try { return fs.statSync(file).isFile(); } catch { return false; }
+  }) || null;
+  const custom = find([kind === 'icon' && entry?.icon,
+    ...GRID_IMAGE_EXTS.map((ext) => artDest(gridDir(steamPath, userId), stem, kind, ext))]);
+  if (!stock && (custom || !native)) return custom;
+  const cache = path.join(steamPath, 'appcache', 'librarycache');
+  const appDir = path.join(cache, stem);
+  let mapped;
+  try {
+    const data = new vdf.Reader(fs.readFileSync(path.join(cache, 'assetcache.vdf'))).readRoot();
+    const index = { grid: '0f', hero: '1f', logo: '2f', wide: '3f', icon: '4f' }[kind];
+    const relative = data['']?.['0']?.[stem]?.[index];
+    if (typeof relative === 'string') {
+      const file = path.resolve(appDir, relative);
+      if (file.startsWith(appDir + path.sep)) mapped = file;
+    }
+  } catch {}
+  const name = { wide: 'header', grid: 'library_600x900', hero: 'library_hero', logo: 'logo', icon: 'icon' }[kind];
+  return find([mapped, ...GRID_IMAGE_EXTS.flatMap((ext) => [
+    path.join(appDir, name + ext), path.join(cache, `${stem}_${name}${ext}`),
+  ])]);
+}
+
 function clearConflictingExts(dest) {
   const dir = path.dirname(dest);
   const base = path.basename(dest, path.extname(dest));
@@ -418,7 +459,7 @@ function listInstalledGames(steamPath) {
 
 /** Purge plan: combines the change journal with app-tagged shortcuts.
  * Shortcut appids are signed. Building the plan does not change anything.
- * Returns { removeAppids, restoreFields, deleteFiles, skippedFiles, names }. */
+ * Returns { removeAppids, restoreFields, restoreFiles, deleteFiles, skippedFiles, names }. */
 function planPurge(entries, changes, gridDirs, fileSig) {
   const sig = fileSig || ((p) => {
     try {
@@ -444,6 +485,7 @@ function planPurge(entries, changes, gridDirs, fileSig) {
   }
 
   const deleteFiles = [];
+  const restoreFiles = [];
   const skippedFiles = [];
   const seenPaths = new Set();
   const consider = (p, size, mtimeMs, why) => {
@@ -451,12 +493,22 @@ function planPurge(entries, changes, gridDirs, fileSig) {
     seenPaths.add(p);
     const cur = sig(p);
     if (cur && size !== undefined && (cur.size !== size || cur.mtimeMs !== mtimeMs)) {
-      skippedFiles.push({ path: p, why: `${why} (changed since we wrote it)` });
+      skippedFiles.push({ path: p, why: `${why} (changed after the app wrote it)` });
     } else if (cur) {
       deleteFiles.push({ path: p, why });
     }
   };
-  for (const f of changes.files || []) consider(f.path, f.size, f.mtimeMs, 'artwork we added');
+  for (const f of changes.files || []) {
+    if (!Object.hasOwn(f, 'before')) { consider(f.path, f.size, f.mtimeMs, 'artwork added by the app'); continue; }
+    if (seenPaths.has(f.path)) continue;
+    seenPaths.add(f.path);
+    const cur = sig(f.path);
+    if (cur ? cur.size !== f.size || cur.mtimeMs !== f.mtimeMs : f.size !== null) {
+      skippedFiles.push({ path: f.path, why: 'changed after the app wrote it' });
+    } else if (f.before) {
+      restoreFiles.push({ path: f.path, before: f.before });
+    } else if (cur) deleteFiles.push({ path: f.path, why: 'artwork added by the app' });
+  }
   // Stem-matched leftovers for removed shortcuts (covers pre-journal versions).
   for (const dir of gridDirs || []) {
     let files = [];
@@ -474,7 +526,7 @@ function planPurge(entries, changes, gridDirs, fileSig) {
     const e = byAppid.get(id);
     return String((e && e.AppName) || `appid ${id}`);
   });
-  return { removeAppids, restoreFields, deleteFiles, skippedFiles, names };
+  return { removeAppids, restoreFields, restoreFiles, deleteFiles, skippedFiles, names };
 }
 
 /** Candidates for prune: app-tagged shortcuts whose exe path no longer exists. */
@@ -504,7 +556,7 @@ module.exports = {
   findSteamPath, getUserIds, shortcutsPath, gridDir, parseLibraryFolders,
   crc32, shortcutId, appidSigned, quoteExe,
   loadEntries, backupShortcuts, buildEntry, findByExe, isManagedEntry, upsertEntry, saveEntries,
-  gridStemFor, gridStemFromEntry, artDest, clearConflictingExts, isSteamRunning,
+  gridStemFor, gridStemFromEntry, artDest, currentArtwork, clearConflictingExts, isSteamRunning,
   killSteam, launchSteam, restartSteam, findStaleShortcuts,
   listInstalledGames, planPurge,
 };

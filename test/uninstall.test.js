@@ -13,7 +13,7 @@ const realRequire = createRequire(filename);
 async function uninstall(flags = [], { running = false, backupFails = false, fileFails = false, dataFails = false } = {}) {
   const calls = [];
   let boot;
-  const plan = { removeAppids: [1], restoreFields: [], deleteFiles: [{ path: 'art.png' }], skippedFiles: [] };
+  const plan = { removeAppids: [1], restoreFields: [], restoreFiles: [], deleteFiles: [{ path: 'art.png' }], skippedFiles: [] };
   const mocks = {
     electron: {
       app: {

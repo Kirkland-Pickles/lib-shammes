@@ -473,8 +473,8 @@ async function doPurge() {
     toast(e.message || String(e));
     return;
   }
-  if (!plan.removeAppids.length && !plan.restoreFields.length && !plan.deleteFiles.length) {
-    toast('Nothing to purge - Steam is clean of our changes.');
+  if (!plan.removeAppids.length && !plan.restoreFields.length && !plan.deleteFiles.length && !plan.restoreFiles.length) {
+    toast("Nothing to purge - Steam is clean of the app's changes.");
     log('Purge check: nothing to undo.');
     return;
   }
@@ -482,10 +482,10 @@ async function doPurge() {
     + (plan.names.length > 8 ? `\n… and ${plan.names.length - 8} more` : '');
   const msg = `Remove everything this app changed in Steam?\n\n`
     + `${plan.removeAppids.length} shortcut(s), ${plan.restoreFields.length} restored name(s)/icon(s), `
-    + `${plan.deleteFiles.length} art file(s)`
+    + `${plan.deleteFiles.length} art file(s), ${plan.restoreFiles.length} restored art file(s)`
     + (plan.skippedFiles.length ? `, ${plan.skippedFiles.length} user-changed file(s) kept` : '')
     + (sample ? `\n\n${sample}` : '')
-    + `\n\nA backup of shortcuts.vdf is taken first. Your games and Steam itself are untouched.`;
+    + `\n\nShortcuts are backed up before changes. Your games and Steam itself are untouched.`;
   if (!await confirmDlg('Purge everything', msg)) return;
   const res = await window.api.steamPurge({ dryRun: false });
   (res.lines || []).forEach(log);
@@ -518,17 +518,13 @@ function renderRows() {
     const source = r.fromExecutableSearch ? 'Executable' : SOURCE_LABEL[r.source] || r.source;
     const folder = r.folderName && r.folderName !== r.display ? r.folderName : '';
     const gameMeta = folder ? `${source} · ${folder}` : source;
-    const matchName = r.source === 'steam'
-      ? `Steam ${r.steamAppid ?? ''}`.trim()
-      : r.sgdbId ? r.sgdbName : 'Not matched';
-    const matchMeta = r.source === 'steam' ? '' : r.sgdbId ? `SGDB ${r.sgdbId}` : '';
+    const matchName = r.sgdbId ? r.sgdbName || '(cached)' : r.source === 'steam'
+      ? `Steam ${r.steamAppid ?? ''}`.trim() : 'Not matched';
+    const matchMeta = r.sgdbId ? `SGDB ${r.sgdbId}` : '';
     const steamText = r.source === 'steam' ? 'Installed' : r.inSteam ? 'Added' : 'Not added';
     const steamClass = r.inSteam ? 'ok' : '';
     const exeTxt = r.source === 'steam' ? 'Managed by Steam' : (r.exe ? baseName(r.exe) : 'No launcher');
-    const selectable = r.source !== 'steam';
-    tr.innerHTML = `<td class="c-add"${selectable ? ' data-act="toggle"' : ''}>${selectable
-      ? `<input class="row-check" type="checkbox" aria-label="Select ${esc(r.display)}"${r.checked ? ' checked' : ''}>`
-      : ''}</td>
+    tr.innerHTML = `<td class="c-add" data-act="toggle"><input class="row-check" type="checkbox" aria-label="Select ${esc(r.display)}"${r.checked ? ' checked' : ''}></td>
       <td title="${esc(r.display)}"><div class="game-name">${esc(r.display)}</div><div class="cell-meta" title="${esc(gameMeta)}">${esc(gameMeta)}</div></td>
       <td class="c-match" title="${esc(matchMeta ? `${matchName} - ${matchMeta}` : matchName)}"><div class="cell-main">${esc(matchName)}</div>${matchMeta ? `<div class="cell-meta">${esc(matchMeta)}</div>` : ''}</td>
       <td class="c-st"><span class="table-status ${steamClass}">${steamText}</span></td>
@@ -536,20 +532,19 @@ function renderRows() {
     body.appendChild(tr);
     visible++;
   }
-  const selectable = S.rows.filter((r) => r.source !== 'steam');
-  const checked = selectable.filter((r) => r.checked).length;
-  $('#sel-all').checked = selectable.length > 0 && checked === selectable.length;
-  $('#sel-all').indeterminate = checked > 0 && checked < selectable.length;
-  $('#sel-all').disabled = !selectable.length;
+  const checked = checkedRows().length;
+  $('#sel-all').checked = S.rows.length > 0 && checked === S.rows.length;
+  $('#sel-all').indeterminate = checked > 0 && checked < S.rows.length;
+  $('#sel-all').disabled = !S.rows.length;
   $('#selection-count').textContent = `${checked} selected`;
   $('#library-count').textContent = visible === S.rows.length
     ? `${visible} game${visible === 1 ? '' : 's'}`
     : `${visible} of ${S.rows.length}`;
-  $('#btn-add').disabled = !S.rows.some((r) => r.checked && r.source === 'folder' && r.exe);
+  $('#btn-add').disabled = !S.rows.some((r) => r.checked && (r.source === 'steam' || (r.source === 'folder' && r.exe)));
   $('#btn-remove').disabled = !S.rows.some((r) => r.checked && r.inSteam
     && (r.source === 'shortcut' || r.managed));
-  $('#btn-match').disabled = !S.rows.some((r) => r.checked && r.source !== 'steam');
-  $('#btn-download').disabled = !S.rows.some((r) => r.checked && r.sgdbId && r.source !== 'steam');
+  $('#btn-match').disabled = !S.rows.some((r) => r.checked);
+  $('#btn-download').disabled = !S.rows.some((r) => r.checked && (r.sgdbId || Object.keys(r.art).length));
   if (focusedKey) [...body.rows].find((tr) => tr.dataset.key === focusedKey)?.querySelector('.row-check')?.focus();
   renderBanner();
 }
@@ -700,17 +695,11 @@ function renderDetail() {
   S.matchSearchToken++;
   resetMatchResults();
   const matchStatus = $('#s-status');
-  matchStatus.textContent = row.source === 'steam'
-    ? `Steam ${row.steamAppid}`
-    : row.sgdbId ? `${row.sgdbName} · ${row.sgdbId}` : 'Not matched';
-  matchStatus.classList.toggle('ok', row.source === 'steam' || !!row.sgdbId);
-  $('#s-search').disabled = locked;
-  $('#s-go').disabled = locked;
-  $('#s-auto').disabled = locked;
-  $('.artwork-section').hidden = locked;
+  matchStatus.textContent = row.sgdbId ? `${row.sgdbName || '(cached)'} · ${row.sgdbId}` : 'Not matched';
+  matchStatus.classList.toggle('ok', !!row.sgdbId);
   const box = $('#art-rows');
   box.innerHTML = '';
-  for (const kind of locked ? [] : ['wide', 'grid', 'hero', 'logo', 'icon']) {
+  for (const kind of ['wide', 'grid', 'hero', 'logo', 'icon']) {
     const div = document.createElement('div');
     div.className = 'arow';
     div.innerHTML = `<span class="aname">${KIND_LABEL[kind]}</span>
@@ -728,8 +717,23 @@ function renderDetail() {
 async function previewFor(row) {
   const img = $('#d-preview');
   const picked = row.art.grid;
-  if (picked) {
+  img.hidden = true;
+  img.onerror = () => {
+    if (cur() !== row) return;
+    if (picked?.thumb && picked.url && img.getAttribute('src') === picked.thumb && picked.thumb !== picked.url) {
+      img.src = picked.url;
+      return;
+    }
     img.hidden = true;
+    log(`Game cover failed to load: ${picked?.file || (img.src.startsWith('data:') ? 'local image data' : img.src)}`);
+    status('Game cover could not load. Check the log.');
+  };
+  if (!picked || picked.automatic) {
+    const current = await window.api.artCurrent({ row: rowPayload(row), kind: 'grid' }).catch(() => null);
+    if (cur() !== row || row.art.grid !== picked) return;
+    if (current) { img.src = current.url; img.hidden = false; return; }
+  }
+  if (picked) {
     try {
       const src = picked.file ? await window.api.artPreviewFile(picked.file) : picked.thumb || picked.url;
       if (cur() !== row || row.art.grid !== picked) return;
@@ -744,7 +748,6 @@ async function previewFor(row) {
     img.hidden = false;
     return;
   }
-  img.hidden = true;
   try {
     const items = await window.api.artList({
       sgdbId: row.sgdbId,
@@ -805,7 +808,7 @@ async function syncSteamLibrary(entries, installed) {
   const keep = new Map();
   for (const r of S.rows) {
     if (r.source === 'folder') continue;
-    keep.set(`${r.source}:${(r.exe || r.display).toLowerCase()}`, r);
+    keep.set(r.source === 'steam' ? `steam:${r.steamAppid}` : `${r.source}:${(r.exe || r.display).toLowerCase()}`, r);
   }
   S.rows = S.rows.filter((r) => r.source === 'folder');
   const folderExe = new Set(S.rows.map((r) => (r.exe || '').toLowerCase()).filter(Boolean));
@@ -836,13 +839,14 @@ async function syncSteamLibrary(entries, installed) {
     });
   }
   for (const g of installed) {
-    const old = keep.get(`steam:${String(g.name).toLowerCase()}`);
+    const old = keep.get(`steam:${g.appid}`);
     S.rows.push({
       folder: `steam:${g.appid}`, folderName: g.name, display: g.name,
       exe: null, startDir: g.installdir || '', launchOptions: '', candidates: [],
       score: 0, reason: 'installed Steam store game (managed by Steam)', query: g.name,
       steamAppid: g.appid, idMethod: 'steam', confidence: 1, source: 'steam',
-      checked: false, sgdbId: old ? old.sgdbId : null,
+      checked: old ? old.checked : false,
+      sgdbId: old ? old.sgdbId : (S.cfg.sgdb_map?.[`steam:${g.appid}`] || S.cfg.sgdb_cache?.[`steam:${g.appid}`] || null),
       sgdbName: old ? old.sgdbName : '', inSteam: true, managed: false,
       shortcutIdx: null, appid: null, art: old ? old.art || {} : {},
     });
@@ -1059,7 +1063,11 @@ async function doClear() {
     .map((key) => [key, { ...S.cfg[key] }]));
   const resets = [];
   for (const row of S.rows) {
-    if (row.source === 'steam') continue;
+    if (row.source === 'steam') {
+      for (const key of ['sgdb_map', 'sgdb_cache']) delete patch[key][folderKey(row.folder)];
+      resets.push([row, { art: {}, sgdbId: null, sgdbName: '' }, null]);
+      continue;
+    }
     const reset = { ...row.defaults, art: {}, sgdbId: null, sgdbName: '' };
     const entry = (row.appid != null && byAppid.get(Number(row.appid)))
       || (row.exe && byExe.get(folderKey(row.exe))) || (reset.exe && byExe.get(folderKey(reset.exe)));
@@ -1112,17 +1120,15 @@ function needKey() {
 }
 
 async function doAutoMatch() {
-  // Folder + shortcut rows can be matched; store games are already canonical.
-  const matchable = (r) => r.source !== 'steam';
-  let rows = S.rows.filter((r) => r.checked && !r.sgdbId && matchable(r));
-  if (!rows.length) rows = S.rows.filter((r) => r.checked && matchable(r));
+  let rows = checkedRows().filter((r) => !r.sgdbId);
+  if (!rows.length) rows = checkedRows();
   if (!rows.length) { toast('Nothing to match - scan a folder first.'); return; }
   if (needKey()) return;
   status(`Auto-matching ${rows.length} games…`);
   log(`Auto-matching ${rows.length} games…`);
   const payload = rows.map((r) => ({
     folder: r.folder, folderName: r.folderName, display: r.display,
-    query: r.query, steamAppid: r.steamAppid, sgdbId: r.sgdbId,
+    query: r.query, steamAppid: r.steamAppid, sgdbId: r.sgdbId, source: r.source,
   }));
   const { rows: back, lines, ok } = await window.api.matchAuto({ rows: payload });
   const byFolder = new Map(back.map((r) => [r.folder, r]));
@@ -1143,33 +1149,43 @@ function rowPayload(r) {
   return {
     folder: r.folder, display: r.display, exe: r.exe, startDir: r.startDir,
     launchOptions: r.launchOptions, sgdbId: r.sgdbId, art: r.art,
-    source: r.source, shortcutIdx: r.shortcutIdx, appid: r.appid,
+    source: r.source, shortcutIdx: r.shortcutIdx, appid: r.appid, steamAppid: r.steamAppid,
   };
 }
 
-async function doDownloadArt() {
-  const rows = checkedRows().filter((r) => r.sgdbId && r.source !== 'steam');
-  if (!rows.length) { toast('No matched games selected - run Auto-match first (store games need no art).'); return; }
-  if (needKey()) return;
-  const kinds = wantedKinds();
-  if (!kinds.length) { toast('Tick at least one artwork type (Settings).'); return; }
-  status(`Downloading art for ${rows.length} games…`);
-  const { rows: back, lines } = await window.api.artDownload({
+async function writeArtwork(rows, kinds) {
+  const result = await window.api.artDownload({
     rows: rows.map(rowPayload),
     kinds,
     onlyMissing: !!S.cfg.only_missing,
     filters: { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor },
   });
-  const byFolder = new Map(back.map((r) => [r.folder, r]));
+  const byFolder = new Map(result.rows.map((r) => [r.folder, r]));
   for (const r of S.rows) {
     const u = byFolder.get(r.folder);
-    if (u) r.art = u.art || r.art;
+    if (u) r.art = { ...r.art, ...u.art };
   }
-  lines.forEach(log);
-  log('Art download completed. Restart Steam to see it.');
-  status('Art download completed. Restart Steam.');
-  toast('Artwork downloaded - restart Steam to see it.');
+  result.lines.forEach(log);
   if (S.detailKey) renderDetail();
+  return result;
+}
+
+function reportArtwork({ saved, failed }, success) {
+  const message = failed ? `${saved} artwork saved, ${failed} failed. Check the log.`
+    : saved ? success : 'No artwork changed. Check the log for skipped images.';
+  log(message);
+  status(message);
+  toast(message);
+}
+
+async function doDownloadArt() {
+  const rows = checkedRows().filter((r) => r.sgdbId || Object.keys(r.art).length);
+  if (!rows.length) { toast('No matched games selected - run Match selected first.'); return; }
+  if (needKey()) return;
+  const kinds = wantedKinds();
+  if (!kinds.length && !rows.some((r) => Object.keys(r.art).length)) { toast('Tick at least one artwork type (Settings).'); return; }
+  status(`Downloading art for ${rows.length} games…`);
+  reportArtwork(await writeArtwork(rows, kinds), 'Art download completed. Restart Steam.');
 }
 
 function wantedKinds() {
@@ -1178,13 +1194,28 @@ function wantedKinds() {
 
 // ---------------------------------------------------------- steam add/rm
 async function doAddToSteam() {
-  // Only folder rows go in: shortcuts are already there, Steam manages its own.
-  const eligible = checkedRows().filter((r) => r.exe && r.source === 'folder');
-  const noExe = checkedRows().filter((r) => !r.exe && r.source !== 'steam');
+  const selected = checkedRows();
+  const native = selected.filter((r) => r.source === 'steam');
+  const nativeArt = native.map((r) => ({ ...r, art: Object.fromEntries(
+    Object.entries(r.art).filter(([, art]) => !art.automatic && !art.current)
+  ) })).filter((r) => Object.keys(r.art).length);
+  const eligible = selected.filter((r) => r.exe && r.source === 'folder');
+  const noExe = selected.filter((r) => !r.exe && r.source !== 'steam');
   if (noExe.length) log(`Skipping ${noExe.length} without exe: ${noExe.slice(0, 5).map((r) => r.display).join(', ')}`);
-  if (!eligible.length) { toast('No selected games with a .exe.'); return; }
+  if (nativeArt.length && needKey()) return;
+  if (!eligible.length) {
+    if (native.length) {
+      if (!nativeArt.length) { toast('Choose artwork first.'); return; }
+      if (!await confirmDlg('Apply artwork to Steam', 'Apply the artwork you chose to the selected Steam games?')) return;
+      status(`Applying artwork to ${nativeArt.length} Steam games…`);
+      reportArtwork(await writeArtwork(nativeArt, []), 'Artwork applied to Steam. Restart Steam to see it.');
+      return;
+    }
+    toast('No selected games with a .exe.'); return;
+  }
   const needsReview = eligible.filter((r) => r.idMethod === 'folder' && !r.sgdbId);
   let summary = `Add ${eligible.length} selected game(s) to Steam as non-Steam shortcuts?`;
+  if (nativeArt.length) summary += '\n\nChosen artwork will also be applied to the selected native Steam games.';
   if (needsReview.length) {
     summary += `\n\nCheck these names first:\n`
       + needsReview.slice(0, 8).map((r) => `• ${r.display}`).join('\n')
@@ -1196,19 +1227,33 @@ async function doAddToSteam() {
       'Shortcuts can still be written, but you MUST fully exit Steam (tray - Exit) and reopen it afterwards. Continue?')) return;
   }
   let autoArt = false;
+  let missingArt = false;
   if (S.cfg.api_key) {
+    for (const row of eligible) {
+      for (const kind of wantedKinds()) {
+        if (row.art?.[kind] && !row.art[kind].automatic) continue;
+        if (!await window.api.artCurrent({ row: rowPayload(row), kind, existsOnly: true })) {
+          missingArt = true;
+          break;
+        }
+      }
+      if (missingArt) break;
+    }
+  }
+  if (missingArt) {
     autoArt = await confirmDlg('Artwork',
       'Also find artwork automatically for types you did not choose?');
   }
-  const kinds = [...new Set([...wantedKinds(), ...eligible.flatMap((r) => Object.keys(r.art || {}))])];
+  const kinds = [...new Set([...wantedKinds(), ...eligible.flatMap((r) =>
+    Object.keys(r.art).filter((kind) => !r.art[kind].automatic && !r.art[kind].current)
+  )])];
   status(`Adding ${eligible.length} games to Steam…`);
   log(`Adding ${eligible.length} games…`);
   try {
-    const { rows: back, lines, added, updated, artworkSaved } = await window.api.steamAdd({
+    const { rows: back, lines, added, updated, artworkSaved, artworkFailed = 0 } = await window.api.steamAdd({
       rows: eligible.map(rowPayload),
       autoArt,
       kinds,
-      onlyMissing: !!S.cfg.only_missing,
       filters: { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor },
     });
     const byFolder = new Map(back.map((r) => [r.folder, r]));
@@ -1225,8 +1270,13 @@ async function doAddToSteam() {
     await syncCfg();
     lines.forEach(log);
     renderRows();
-    status(`Done: ${added} added, ${updated} updated, ${artworkSaved} artwork saved. Restart Steam!`);
-    toast(`${added} added, ${updated} updated, ${artworkSaved} artwork saved - restart Steam to see them.`);
+    const nativeResult = nativeArt.length ? await writeArtwork(nativeArt, []) : { saved: 0, failed: 0 };
+    const failed = artworkFailed + nativeResult.failed;
+    const message = `${added} added, ${updated} updated, ${artworkSaved + nativeResult.saved} artwork saved.`
+      + (failed ? ` ${failed} failed. Check the log.` : ' Restart Steam to see them.');
+    log(message);
+    status(message);
+    toast(message);
   } catch (e) {
     log(`FAILED: ${e.message || e}`);
     toast(`Write failed: ${e.message || e}`);
@@ -1317,14 +1367,14 @@ async function doPruneMissing() {  let stale;
     return;
   }
   if (!stale.length) {
-    toast('No stale shortcuts - every game we added still exists.');
+    toast('No stale shortcuts - every game the app added still exists.');
     log('Prune check: nothing stale.');
     return;
   }
   const names = stale.slice(0, 12).map((s) => `• ${s.display}`).join('\n')
     + (stale.length > 12 ? `\n… and ${stale.length - 12} more` : '');
   if (!await confirmDlg('Prune missing games',
-    `${stale.length} shortcut(s) we added point at exes that no longer exist:\n\n${names}\n\nRemove them? (Art files are left alone.)`)) return;
+    `${stale.length} shortcut(s) the app added point at exes that no longer exist:\n\n${names}\n\nRemove them? (Art files are left alone.)`)) return;
   const { removed, backup } = await window.api.steamRemove({
     rows: stale.map((s) => ({ display: s.display, exe: s.exe })),
   });
@@ -1338,13 +1388,13 @@ async function doPruneMissing() {  let stale;
 const ART_TABS = [['wide', 'Wide Capsule'], ['grid', 'Vertical Grid'], ['hero', 'Hero'], ['logo', 'Logo'], ['icon', 'Icon']];
 let artModalMotion = 0;
 
-function openArtModal(row, focusKind) {
-  if (row.source === 'steam') { toast('Artwork for Steam store games is managed by Steam.'); return; }
-  if (needKey()) return;
+async function openArtModal(row, focusKind) {
   S.modal = {
     row, tab: focusKind || 'grid',
     sgdbId: row.sgdbId || null,
     cache: {},           // `${sgdbId}:${kind}` -> items
+    current: {},
+    stock: {},
     sel: { ...(row.art || {}) },
     games: [],
   };
@@ -1352,6 +1402,7 @@ function openArtModal(row, focusKind) {
   $('#art-q').value = row.query || row.display;
   $('#art-id').value = row.sgdbId || '';
   $('#art-games').innerHTML = '';
+  for (const id of ['art-q', 'art-search', 'art-games', 'art-id', 'art-load']) $('#' + id).disabled = !S.cfg.api_key;
   $('#art-url-entry').hidden = true;
   closeArtPreview();
   $('#art-grid').replaceChildren();
@@ -1362,8 +1413,21 @@ function openArtModal(row, focusKind) {
   overlay.classList.remove('closing');
   overlay.hidden = false;
   overlay.inert = false;
-  if (row.sgdbId) loadArtTabs();
-  else artStatus('Pick an SGDB match, then choose art per tab.');
+  if (!S.cfg.api_key || !row.sgdbId) renderArtGrid();
+  if (!S.cfg.api_key) artStatus('Add your SteamGridDB API key first in Settings.');
+  else if (row.sgdbId) loadArtTabs();
+  else if (row.source === 'steam') {
+    const m = S.modal;
+    artStatus('Matching Steam AppID…');
+    const game = await window.api.sgdbBySteam(row.steamAppid).catch(() => null);
+    if (S.modal !== m) return;
+    if (game) {
+      m.sgdbId = game.id;
+      m.games = [game];
+      $('#art-id').value = game.id;
+      await loadArtTabs();
+    } else artStatus('No SGDB match for this Steam AppID. Search for a game manually.');
+  } else artStatus('Pick an SGDB match, then choose art per tab.');
 }
 
 function closeArtModal(save) {
@@ -1418,8 +1482,7 @@ function renderArtTabs() {
     host.appendChild(b);
   }
   $$('#art-grid .thumb').forEach((cell) => {
-    const picked = !!isPicked(m.tab, cell._art);
-    cell.classList.toggle('picked', picked);
+    cell.classList.toggle('picked', isPicked(m.tab, cell._art));
   });
 }
 
@@ -1440,7 +1503,7 @@ async function openArtPreview(item) {
   const m = S.modal;
   const kind = m.tab;
   if (!item) return;
-  const src = item.file ? await window.api.artPreviewFile(item.file) : item.thumb || item.url;
+  const src = item.thumb || item.url || (item.file ? await window.api.artPreviewFile(item.file) : null);
   if (S.modal !== m || m.tab !== kind) return;
   m.previewItem = item;
   m.galleryScroll = $('.thumbScroll').scrollTop;
@@ -1493,9 +1556,38 @@ async function loadArtTabs() {
   }
 }
 
+function sameArtwork(a, b) {
+  return !!(a && b && ((a.file && a.file === b.file) || (a.url && a.url === b.url)));
+}
+
 function isPicked(kind, item) {
-  const s = S.modal.sel[kind];
-  return s && s.id && item.id && s.id === item.id && s.url === item.url;
+  const choice = S.modal.sel[kind];
+  return choice ? sameArtwork(choice, item) : !!item.current;
+}
+
+async function renderArtChoice() {
+  const m = S.modal;
+  const kind = m.tab;
+  const current = await m.current[kind];
+  const stock = await m.stock[kind];
+  if (S.modal !== m || m.tab !== kind) return;
+  const choice = m.row.art[kind];
+  const applied = current && (!choice || choice.file === current.file || choice.appliedFile === current.file);
+  const item = applied ? current : choice || current;
+  const url = item?.url || (item?.file ? await window.api.artPreviewFile(item.file).catch((e) => {
+    log(`Artwork preview failed for ${item.file}: ${e.message || e}`);
+    return null;
+  }) : null);
+  if (S.modal !== m || m.tab !== kind || m.row.art[kind] !== choice) return;
+  const slot = $('#art-choice');
+  if (!slot) return;
+  const stockSlot = $('#art-stock');
+  stockSlot.hidden = !stock;
+  stockSlot.replaceChildren(...(stock ? [artThumb(stock, 'Stock Steam artwork', { file: stock.file, current: !choice && sameArtwork(stock, current) })] : []));
+  slot.hidden = !item || sameArtwork(stock, item);
+  slot.replaceChildren(...(item && !sameArtwork(stock, item) ? [artThumb({ ...item, url }, applied ? 'Current artwork' : '',
+    choice || { file: current.file, current: true })] : []));
+  $$('#art-grid > .thumb').forEach((cell) => { cell.hidden = cell._broken || sameArtwork(choice, cell._art); });
 }
 
 function renderArtGrid(loading = false) {
@@ -1504,35 +1596,60 @@ function renderArtGrid(loading = false) {
   const grid = $('#art-grid');
   grid.innerHTML = '';
   if (!m) return;
+  const kind = m.tab;
+  for (const id of ['art-stock', 'art-choice']) {
+    const slot = document.createElement('div');
+    slot.id = id;
+    slot.hidden = true;
+    grid.appendChild(slot);
+  }
+  m.current[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind }).catch(() => null);
+  m.stock[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind, stock: true }).catch(() => null);
+  handleAction('Artwork preview', renderArtChoice)();
+  if (!S.cfg.api_key) return;
   if (loading || !m.sgdbId) {
-    grid.innerHTML = `<div class="muted">${m.sgdbId ? 'Loading…' : 'Search or enter an SGDB game ID first.'}</div>`;
+    grid.insertAdjacentHTML('beforeend', `<div class="muted">${m.sgdbId ? 'Loading…' : 'Search or enter an SGDB game ID first.'}</div>`);
     return;
   }
   const items = m.cache[`${m.sgdbId}:${m.tab}`] || [];
   if (!items.length) {
-    grid.innerHTML = '<div class="muted">No images of this type.</div>';
+    grid.insertAdjacentHTML('beforeend', '<div class="muted">No SGDB images of this type.</div>');
     return;
   }
-  for (const im of items) {
-    const cell = document.createElement('div');
-    cell._art = im;
-    cell.className = `thumb${isPicked(m.tab, im) ? ' picked' : ''}`;
-    cell.innerHTML = `<div class="thumb-image"><img loading="lazy" decoding="async" width="${Number(im.width) || 600}" height="${Number(im.height) || 900}" src="${esc(im.thumb || im.url)}" alt="">
+  for (const im of items) grid.appendChild(artThumb(im));
+}
+
+function artThumb(im, label = '', selection = im) {
+  const modal = S.modal;
+  const kind = S.modal.tab;
+  const cell = document.createElement('div');
+  cell._art = selection;
+  cell.className = `thumb${isPicked(kind, selection) ? ' picked' : ''}`;
+  cell.innerHTML = `<div class="thumb-image"><img loading="lazy" decoding="async" width="${Number(im.width) || 600}" height="${Number(im.height) || 900}" src="${esc(im.thumb || im.url)}" alt="">
       <button class="art-preview-button" type="button" title="Preview artwork" aria-label="Preview artwork"><svg class="icon" aria-hidden="true"><use href="#i-preview"/></svg></button></div>
-      <div class="meta">#${im.id} · ${esc(im.style)} · ${im.width}x${im.height}<br>
-      ▲${im.upvotes} score ${im.score} · ${esc(im.author)}<span class="art-selected"> · Selected</span></div>`;
-    cell.addEventListener('click', () => pickArt(m.tab, im));
-    $('.art-preview-button', cell).addEventListener('click', (e) => {
-      e.stopPropagation();
-      handleAction('Artwork preview', () => openArtPreview(im))();
-    });
-    grid.appendChild(cell);
-  }
+      <div class="meta">${label || (im.id ? `#${im.id} · ${esc(im.style)} · ${im.width}x${im.height}<br>
+      ▲${im.upvotes} score ${im.score} · ${esc(im.author)}` : esc(im.file ? baseName(im.file) : im.url))}<span class="art-selected"> · Selected</span></div>`;
+  cell.addEventListener('click', () => pickArt(kind, selection));
+  const image = $('img', cell);
+  image.addEventListener('error', () => {
+    log(`Artwork image failed to load: ${im.file || (image.src.startsWith('data:') ? 'local image data' : image.src)}`);
+    if (im.url && image.getAttribute('src') !== im.url) { image.src = im.url; return; }
+    cell._broken = true;
+    cell.hidden = true;
+    if (['art-choice', 'art-stock'].includes(cell.parentElement?.id)) cell.parentElement.hidden = true;
+    if (S.modal === modal && modal.tab === kind) artStatus('An image could not load and was hidden. Details are in the log.');
+  });
+  $('.art-preview-button', cell).addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleAction('Artwork preview', () => openArtPreview(im))();
+  });
+  return cell;
 }
 
 function pickArt(kind, item) {
-  S.modal.sel[kind] = item;
-  artStatus(`${kind}: selected #${item.id} by ${item.author}.`);
+  S.modal.sel[kind] = item.file ? { file: item.file, appliedFile: item.appliedFile } : item;
+  artStatus(item.id ? `${kind}: selected #${item.id} by ${item.author}.`
+    : `${kind}: ${item.file ? 'local file' : 'custom URL'} set.`);
   renderArtTabs();
 }
 
@@ -1614,12 +1731,12 @@ function wireToolbar() {
   $('#btn-find-executables').addEventListener('click', doFindExecutables);
   $('#btn-match').addEventListener('click', handleAction('Auto-match', doAutoMatch));
   $('#btn-download').addEventListener('click', handleAction('Artwork download', doDownloadArt));
-  $('#btn-add').addEventListener('click', doAddToSteam);
+  $('#btn-add').addEventListener('click', handleAction('Add to Steam', doAddToSteam));
   $('#btn-remove').addEventListener('click', handleAction('Shortcut removal', doRemoveFromSteam));
   $('#btn-prune').addEventListener('click', handleAction('Prune', doPruneMissing));
   $('#side-kill').addEventListener('click', doKillSteam);
   $('#side-restart').addEventListener('click', doRestartSteam);
-  $('#sel-all').addEventListener('change', (e) => { S.rows.forEach((r) => { r.checked = e.target.checked && r.source !== 'steam'; }); renderRows(); });
+  $('#sel-all').addEventListener('change', (e) => { S.rows.forEach((r) => { r.checked = e.target.checked; }); renderRows(); });
   $('#btn-clear').addEventListener('click', handleAction('Clear', doClear));
   $('#unresolved-only').addEventListener('change', (e) => { S.unresolvedOnly = e.target.checked; renderRows(); });
   $('#hide-owned').addEventListener('change', (e) => {
@@ -1703,6 +1820,11 @@ function wireToolbar() {
   $('#art-load').addEventListener('click', artLoadId);
   $('#art-preview-back').addEventListener('click', closeArtPreview);
   $('#art-preview-image').addEventListener('error', () => {
+    const item = S.modal?.previewItem;
+    const image = $('#art-preview-image');
+    if (!item) return;
+    log(`Artwork preview failed to load: ${item.file || (image.src.startsWith('data:') ? 'local image data' : image.src)}`);
+    if (item.url && image.getAttribute('src') !== item.url) { image.src = item.url; return; }
     artStatus('Could not preview this image.');
     closeArtPreview();
   });
@@ -1886,7 +2008,7 @@ async function sgdbAutoOne() {
   try {
     const result = await window.api.matchAuto({ force: true, persist: false, rows: [{
       folder: r.folder, display: r.display, query: r.query,
-      steamAppid: r.steamAppid, sgdbId: null,
+      steamAppid: r.steamAppid, sgdbId: null, source: r.source,
     }] });
     if (!isCurrentMatchRequest(token, key)) return;
     result.lines.forEach(log);
