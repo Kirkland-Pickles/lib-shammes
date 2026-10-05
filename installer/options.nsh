@@ -90,7 +90,7 @@
   !macro customUnInstallSection
     Section /o "un.Undo Steam changes" undoSteam
     SectionEnd
-    Section /o "un.Delete settings, saved matches, and undo history" deleteData
+    Section "un.Delete settings, saved matches, and undo history" deleteData
     SectionEnd
 
     Function un.runCleanup
