@@ -90,15 +90,22 @@
   !macro customUnInstallSection
     Section /o "un.Undo Steam changes" undoSteam
     SectionEnd
+    Section /o "un.Delete desktop icons" deleteDesktopIcons
+    SectionEnd
     Section "un.Delete settings, saved matches, and undo history" deleteData
     SectionEnd
 
     Function un.runCleanup
       StrCpy $2 ""
+      !insertmacro UAC_AsUser_GetSection Flags ${deleteDesktopIcons} $3
+      IntOp $3 $3 & ${SF_SELECTED}
+      ${If} $3 != 0
+        StrCpy $2 "--delete-desktop-icons"
+      ${EndIf}
       !insertmacro UAC_AsUser_GetSection Flags ${undoSteam} $3
       IntOp $3 $3 & ${SF_SELECTED}
       ${If} $3 != 0
-        StrCpy $2 "--purge-steam"
+        StrCpy $2 "$2 --purge-steam"
       ${EndIf}
       !insertmacro UAC_AsUser_GetSection Flags ${deleteData} $3
       IntOp $3 $3 & ${SF_SELECTED}

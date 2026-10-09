@@ -3,7 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
-const { app, BrowserWindow, dialog, ipcMain, Menu, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, shell, nativeTheme, nativeImage } = require('electron');
 
 if (app.isPackaged) Menu.setApplicationMenu(null);
 
@@ -14,6 +14,9 @@ const resolveMod = require('./resolve');
 const strips = require('./strips');
 const sgdbMod = require('./sgdb');
 const images = require('./images');
+const { createDesktop } = require('./desktop');
+const { elevateShortcut, runShortcutHelper } = require('./desktop-elevation');
+const desktop = createDesktop({ app, shell, nativeImage, elevate: (row) => elevateShortcut(app, row) });
 
 let win = null;
 let cfg = store.load();
@@ -263,6 +266,13 @@ async function uninstallCleanup() {
     const result = purgeSteam({ dryRun: false });
     if (result.failedFiles.length) throw new Error('Some artwork could not be removed. The undo history was kept. Close any programs using it and try again.');
   }
+  if (process.argv.includes('--delete-desktop-icons')) {
+    let failures;
+    try { failures = await desktop.cleanup(); }
+    catch (e) { failures = [e.message]; }
+    if (failures.length) await dialog.showMessageBox({ type: 'warning', title: 'Some desktop icons remain',
+      message: 'Icons still needed by shortcuts were kept.', detail: failures.join('\n'), buttons: ['OK'] });
+  }
   if (process.argv.includes('--delete-app-data')) {
     let skipped;
     try { skipped = wipeData().skipped; }
@@ -369,7 +379,7 @@ ipcMain.handle('shell:open', (_e, p) => shell.openPath(p));
 ipcMain.handle('util:open-url', (_e, url) => shell.openExternal(url));
 
 // ------------------------------------------------------------------ scan
-ipcMain.handle('scan:start', async (_e, req) => {
+function scanFolders(req) {
   const roots = (req && Array.isArray(req.roots) ? req.roots : []).filter(Boolean);
   if (!roots.length) throw new Error('Scan needs at least one folder.');
   const seen = new Set();
@@ -386,6 +396,76 @@ ipcMain.handle('scan:start', async (_e, req) => {
   }
   progress(0, 0, '');
   return games;
+}
+function savedExecutables(library) {
+  return (cfg[`${library}_executables`] || []).filter((game) => {
+    try { return /\.exe$/i.test(game.exePath) && fs.statSync(game.exePath).isFile(); }
+    catch { return false; }
+  });
+}
+ipcMain.handle('scan:start', (_e, req) => {
+  const games = req?.roots?.length ? scanFolders(req) : [];
+  const seen = new Set(games.map((game) => store.folderKey(game.exePath)));
+  return [...games, ...savedExecutables('steam').filter((game) => {
+    const key = store.folderKey(game.exePath);
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  })];
+});
+let desktopJob = false;
+ipcMain.handle('desktop:scan', async () => {
+  if (desktopJob) throw new Error('Desktop library is busy.');
+  desktopJob = true;
+  try {
+    const games = cfg.games_roots.length ? scanFolders({ roots: cfg.games_roots }) : [];
+    return await desktop.discover([...games, ...savedExecutables('desktop')]);
+  } finally { desktopJob = false; }
+});
+ipcMain.handle('desktop:apply', async (_e, rows) => {
+  if (desktopJob) throw new Error('Desktop library is busy.');
+  desktopJob = true;
+  try {
+    const results = await desktop.apply(rows, (i, total, name) => progress(i, total, `Saving Desktop shortcut ${i + 1}/${total}: ${name}`));
+    for (const result of results) if (result.ok || result.refreshed) {
+      delete cfg.desktop_overrides[result.id];
+      if (result.ok) cfg.desktop_overrides[result.row.id] = { display: result.row.display, sgdbId: result.row.sgdbId, sgdbName: result.row.sgdbName, signature: result.row.signature };
+    }
+    try { store.save(cfg); }
+    catch (e) {
+      for (const result of results) if (result.ok || result.refreshed) {
+        result.warning = [result.warning, `App settings could not be saved: ${e.message}`].filter(Boolean).join('\n');
+      }
+    }
+    return results;
+  } finally { desktopJob = false; progress(0, 0, ''); }
+});
+ipcMain.handle('desktop:icon', (_e, file, index) => desktop.preview(file, index));
+ipcMain.handle('desktop:download', async (_e, rows) => {
+  if (desktopJob) throw new Error('Desktop library is busy.');
+  desktopJob = true;
+  const results = [];
+  try {
+    const c = client();
+    for (const row of rows) {
+      try {
+        if (!row.sgdbId) { results.push({ id: row.id, skipped: 'Not matched.' }); continue; }
+        if (cfg.only_missing && (row.icon || row.iconChoice)) {
+          results.push({ id: row.id, skipped: 'Icon already present; skipping is enabled.' }); continue;
+        }
+        progress(results.length, rows.length, row.display);
+        const icon = (await c.icons(row.sgdbId, { types: 'static', nsfw: cfg.include_nsfw ? 'any' : 'false',
+          humor: cfg.include_humor ? 'any' : 'false', limit: 30 }))[0];
+        if (!icon) { results.push({ id: row.id, error: 'No icons found.' }); continue; }
+        results.push({ id: row.id, choice: { ...icon, file: await desktop.cacheIcon(icon), automatic: true } });
+      } catch (e) { results.push({ id: row.id, error: e.message }); }
+    }
+    return results;
+  } finally { desktopJob = false; progress(0, 0, ''); }
+});
+ipcMain.handle('desktop:pick-icon', async () => {
+  const result = await dialog.showOpenDialog(win, { title: 'Choose shortcut icon', properties: ['openFile'],
+    filters: [{ name: 'Icons, images and programs', extensions: ['ico', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'exe', 'dll'] }] });
+  return result.canceled ? null : result.filePaths[0];
 });
 
 ipcMain.handle('scan:find-executables', async (_e, req) => {
@@ -521,7 +601,8 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
   let src = '';
   let srcUrl = '';
   if (sel && sel.file) {
-    data = fs.readFileSync(sel.file);
+    data = kind === 'icon' && /\.(exe|dll|ico)$/i.test(sel.file)
+      ? Buffer.from((await desktop.preview(sel.file, 0)).split(',')[1], 'base64') : fs.readFileSync(sel.file);
     src = `file ${sel.file}`;
     srcUrl = store.loadChanges().files.find((f) => f.before === sel.file)?.path || sel.file;
   } else if (sel && sel.url) {
@@ -823,6 +904,12 @@ ipcMain.handle('steam:remove', async (_e, req) => {
 
 // ------------------------------------------------------------------ boot
 app.whenReady().then(async () => {
+  const helperIndex = process.argv.indexOf('--desktop-shortcut-helper');
+  if (helperIndex >= 0) {
+    try { await runShortcutHelper(app, shell, nativeImage, process.argv[helperIndex + 1]); app.exit(0); }
+    catch { app.exit(1); }
+    return;
+  }
   if (process.argv.includes('--uninstall-cleanup')) {
     try { app.exit(await uninstallCleanup()); }
     catch (e) {

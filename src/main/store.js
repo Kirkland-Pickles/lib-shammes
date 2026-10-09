@@ -27,6 +27,10 @@ const DEFAULTS = {
   sgdb_cache: {},
   exe_map: {},
   title_map: {},
+  desktop_overrides: {},
+  desktop_executables: [],
+  steam_executables: [],
+  startup_library: 'steam',
   onboarded: false,
 };
 

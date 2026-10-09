@@ -15,6 +15,32 @@ function renderer(api) {
   return { context, button, state: vm.runInContext('S', context), refresh: () => vm.runInContext('doRefresh()', context) };
 }
 
+it('keeps newer artwork search results when an older request finishes last', async () => {
+  const pending = [];
+  const { context, state } = renderer({ sgdbSearch: () => new Promise(resolve => pending.push(resolve)) });
+  const fields = { '#art-q': { value: 'old' }, '#art-games': { appendChild() {} }, '#art-id': {}, '#art-status': {} };
+  context.document.querySelector = selector => fields[selector];
+  context.document.createElement = () => ({});
+  vm.runInContext('loadArtTabs = async () => {};', context);
+  state.modal = {};
+  const older = vm.runInContext('artSearch()', context);
+  fields['#art-q'].value = 'new';
+  const newer = vm.runInContext('artSearch()', context);
+  pending[1]([{ id: 22, name: 'New match' }]);
+  await newer;
+  pending[0]([{ id: 11, name: 'Old match' }]);
+  await older;
+  assert.equal(fields['#art-id'].value, '22');
+  assert.equal(fields['#art-games'].value, '22');
+});
+
+it('allows existing app-managed shortcut rows through the Add/update action', () => {
+  const { context } = renderer({});
+  assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:'game.exe', managed:true})", context), true);
+  assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:'game.exe', managed:false})", context), false);
+  assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:null, managed:true})", context), false);
+});
+
 it('rebuilds scanned and Steam rows while keeping staged artwork for surviving games', async () => {
   let reads = 0;
   const { state, refresh, button } = renderer({
@@ -65,6 +91,27 @@ it('removes scanned rows when no folders remain, but still reloads Steam', async
   state.rows = [{ source: 'folder', folder: 'removed', exe: 'game.exe' }];
   await refresh();
   assert.equal(state.rows.length, 0);
+});
+
+it('loads once automatically, shares pending loads, and reloads for settings changes or Refresh', async () => {
+  let scans = 0;
+  const { context, state, refresh } = renderer({
+    scanStart: async () => { scans++; return []; },
+    steamRead: async () => [], steamGames: async () => [],
+  });
+  state.cfg = { games_roots: ['games'], folder_depths: {}, steam_user_id: '1' };
+  await vm.runInContext('Promise.all([loadLibrary(), loadLibrary()])', context);
+  assert.equal(scans, 1);
+  await vm.runInContext('loadLibrary()', context);
+  assert.equal(scans, 1);
+  state.cfg.folder_depths = { games: 2 };
+  await vm.runInContext('loadLibrary()', context);
+  assert.equal(scans, 2);
+  state.cfg.steam_user_id = '2';
+  await vm.runInContext('loadLibrary()', context);
+  assert.equal(scans, 3);
+  await refresh();
+  assert.equal(scans, 4);
 });
 
 it('keeps native selections and artwork by AppID when games share a name', async () => {

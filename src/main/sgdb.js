@@ -136,7 +136,7 @@ class SGDBClient {
   logos(gameId, o = {}) { return this._assets('logos', gameId, o); }
   icons(gameId, o = {}) { return this._assets('icons', gameId, o); }
 
-  async downloadBytes(url) {
+  async downloadBytes(url, maxBytes = Infinity) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
     try {
@@ -145,6 +145,16 @@ class SGDBClient {
         signal: ctrl.signal,
       });
       if (!res.ok) throw new SGDBError(`Download failed (${res.status}): ${url}`);
+      if (Number.isFinite(maxBytes)) {
+        const chunks = [];
+        let length = 0;
+        for await (const chunk of res.body) {
+          length += chunk.length;
+          if (length > maxBytes) throw new SGDBError('Image exceeds the download size limit.');
+          chunks.push(chunk);
+        }
+        return Buffer.concat(chunks);
+      }
       return Buffer.from(await res.arrayBuffer());
     } finally {
       clearTimeout(timer);

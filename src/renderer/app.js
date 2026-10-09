@@ -20,7 +20,6 @@ const S = {
   rows: [],
   steamUsers: [],
   filter: '',
-  unresolvedOnly: false,
   hideOwned: false,
   ownedAppids: new Set(), // Steam appids installed for the user (hide-owned filter)
   detailKey: null,          // rowKey() of selected row
@@ -31,6 +30,7 @@ const S = {
   exePicker: null,
   onboardingStep: 0,
   isDevelopment: false,
+  desktop: { rows: [], detail: null, busy: false },
 };
 
 const cur = () => (S.detailKey ? rowByKey(S.detailKey) : null);
@@ -78,7 +78,7 @@ function confirmDlg(title, body, opts = {}) {
     ov.innerHTML = `<div id="confirm-box" role="alertdialog">
       <h3>${esc(title)}</h3><p class="muted${opts.danger ? ' danger-text' : ''}${opts.small ? ' small' : ''}">${esc(body)}</p>
       <div class="confirm-btns">
-        <button class="btn sm" data-v="0">Cancel</button>
+        <button class="btn sm" data-v="0">${esc(opts.cancelText || 'Cancel')}</button>
         <button class="btn primary sm" data-v="1">${esc(opts.confirmText || 'Continue')}</button>
       </div></div>`;
     document.body.appendChild(ov);
@@ -141,6 +141,7 @@ const Nav = {
   current() { return this.stack[this.idx]; },
 };
 let routeMotion = 0;
+let librarySave = Promise.resolve();
 function paintRoute() {
   const page = Nav.current();
   const target = $(`#page-${page}`);
@@ -166,7 +167,16 @@ function paintRoute() {
   if (page === 'onboarding') {
     renderOnboarding();
   }
-  if (page === 'library') renderChecklist();
+  if (page === 'library') {
+    renderChecklist();
+    if (current !== target) handleAction('Load library', () => loadLibrary())();
+  }
+  if (page === 'desktop' && current !== target) handleAction('Desktop scan', () => refreshDesktop(false))();
+  if (S.cfg?.onboarded && ['library', 'desktop', 'xbox'].includes(page)) {
+    const library = page === 'library' ? 'steam' : page;
+    librarySave = librarySave.catch(() => {}).then(() => S.cfg.startup_library !== library && savePatch({ startup_library: library }));
+    librarySave.catch((e) => log(`Startup library: ${e.message}`));
+  }
   document.title = `Lib Shammes - ${TITLES[page]}`;
   if (animate) {
     const order = Object.keys(TITLES);
@@ -234,6 +244,7 @@ function renderOnboarding() {
     else button.removeAttribute('aria-current');
   });
   $('#onboarding-back').disabled = S.onboardingStep === 0;
+  $('#onboarding-skip').hidden = S.onboardingStep !== 0;
   $('#onboarding-close').hidden = !S.isDevelopment || !S.cfg.onboarded;
   $('#onboarding-continue').textContent = S.onboardingStep === 2 ? 'Open library' : 'Next';
 }
@@ -497,6 +508,7 @@ async function doPurge() {
 
 // ---------------------------------------------------------------- library
 const SOURCE_LABEL = { folder: 'Folder', shortcut: 'Shortcut', steam: 'Steam' };
+const needsReview = (row) => row.source !== 'steam' && !row.sgdbId && row.idMethod === 'folder';
 
 function renderRows() {
   const body = $('#games-body');
@@ -507,7 +519,6 @@ function renderRows() {
   let visible = 0;
   for (const r of S.rows) {
     if (f && !r.display.toLowerCase().includes(f) && !r.folder.toLowerCase().includes(f)) continue;
-    if (S.unresolvedOnly && (r.sgdbId || r.idMethod !== 'folder')) continue;
     // Hide-owned only trusts certain appids. Shortcut rows carry guesses,
     // so they never hide.
     if (S.hideOwned && r.source !== 'shortcut' && r.steamAppid != null && S.ownedAppids.has(r.steamAppid)) continue;
@@ -527,7 +538,7 @@ function renderRows() {
     tr.innerHTML = `<td class="c-add" data-act="toggle"><input class="row-check" type="checkbox" aria-label="Select ${esc(r.display)}"${r.checked ? ' checked' : ''}></td>
       <td title="${esc(r.display)}"><div class="game-name">${esc(r.display)}</div><div class="cell-meta" title="${esc(gameMeta)}">${esc(gameMeta)}</div></td>
       <td class="c-match" title="${esc(matchMeta ? `${matchName} - ${matchMeta}` : matchName)}"><div class="cell-main">${esc(matchName)}</div>${matchMeta ? `<div class="cell-meta">${esc(matchMeta)}</div>` : ''}</td>
-      <td class="c-st"><span class="table-status ${steamClass}">${steamText}</span></td>
+      <td class="c-st"><span class="table-status ${steamClass}">${steamText}</span>${needsReview(r) ? '<div class="cell-meta">Not matched</div>' : ''}</td>
       <td class="c-exe" title="${esc(r.exe || '')}">${esc(exeTxt)}</td>`;
     body.appendChild(tr);
     visible++;
@@ -540,7 +551,7 @@ function renderRows() {
   $('#library-count').textContent = visible === S.rows.length
     ? `${visible} game${visible === 1 ? '' : 's'}`
     : `${visible} of ${S.rows.length}`;
-  $('#btn-add').disabled = !S.rows.some((r) => r.checked && (r.source === 'steam' || (r.source === 'folder' && r.exe)));
+  $('#btn-add').disabled = !S.rows.some((r) => r.checked && (r.source === 'steam' || canWriteShortcut(r)));
   $('#btn-remove').disabled = !S.rows.some((r) => r.checked && r.inSteam
     && (r.source === 'shortcut' || r.managed));
   $('#btn-match').disabled = !S.rows.some((r) => r.checked);
@@ -558,7 +569,7 @@ function rowByKey(key) {
 }
 
 // Empty library points back at Settings: an add-folder button when there are
-// no folders yet, otherwise setup/scan shortcuts.
+// no folders yet, otherwise a link to Settings.
 function renderBanner() {
   const banner = $('#lib-banner');
   if (!banner) return;
@@ -584,7 +595,6 @@ function renderBanner() {
     mk('Add games folder', true, () => navGo('settings'));
   } else {
     mk('Complete setup', false, () => navGo('settings'));
-    mk('Scan', true, () => doScan());
   }
 }
 
@@ -646,7 +656,7 @@ function renderDetail() {
   $('#d-title').textContent = row.display;
   const identity = [row.fromExecutableSearch ? 'Executable' : SOURCE_LABEL[row.source] || row.source];
   if (row.steamAppid) identity.push(`Steam ${row.steamAppid}`);
-  if (row.source !== 'steam') identity.push(row.idMethod === 'folder' ? 'Needs review' : `${Math.round(row.confidence * 100)}% match`);
+  if (row.source !== 'steam') identity.push(row.idMethod === 'folder' ? 'Not matched' : `${Math.round(row.confidence * 100)}% match`);
   $('#d-identity').textContent = identity.join(' · ');
   $('#d-name').value = row.display;
   const pick = $('#d-exe-pick');
@@ -882,27 +892,8 @@ function scannedRows(games) {
   return rows;
 }
 
-async function doScan() {
-  const roots = (S.cfg.games_roots || []).filter(Boolean);
-  if (!roots.length) {
-    toast('Add a games folder first in Settings.');
-    return;
-  }
-  status(`Scanning ${roots.length} folder(s)…`);
-  const games = await window.api.scanStart({ roots });
-  S.rows = scannedRows(games);
-  const droppedNoExe = games.length - S.rows.length;
-  renderRows();
-  const ok = S.rows.filter((r) => r.exe).length;
-  const parsed = S.rows.filter((r) => r.idMethod !== 'folder').length;
-  log(`Found ${S.rows.length} games, ${ok} with a .exe, ${parsed} auto-identified (${S.rows.length - parsed} need review).`);
-  if (droppedNoExe) log(`  Skipped ${droppedNoExe} folder(s) with no .exe - not games.`);
-  status(`Found ${S.rows.length} games.`);
-  await refreshSteamState();
-  await syncSteamLibrary();
-}
-
-function doFindExecutables() {
+function doFindExecutables(context = null) {
+  if (context instanceof Event) context = null;
   const roots = (S.cfg.games_roots || []).filter(Boolean);
   if (!roots.length) { toast('Add a games folder first in Settings.'); return; }
   if (S.exePicker) return;
@@ -938,7 +929,7 @@ function doFindExecutables() {
     summary.hidden = false;
     summary.textContent = 'Searching…';
     try {
-      const claimed = S.rows.filter((r) => r.exe).map((r) => r.exe);
+      const claimed = (context ? context.rows : S.rows).filter((r) => r.exe).map((r) => r.exe);
       const { games, truncated } = await window.api.findExecutables({ roots, claimed });
       if (!dialog.open) return;
       summary.textContent = `${games.length} executable(s) found. Already listed executables are excluded.`
@@ -979,6 +970,8 @@ function doFindExecutables() {
       };
       add.hidden = false;
       add.onclick = handleAction('Add executables', async () => {
+        if (context) { dialog.close(); await context.add([...selected]); return; }
+        await savePatch({ steam_executables: [...(S.cfg.steam_executables || []), ...selected] });
         const known = new Set(S.rows.filter((r) => r.exe).map((r) => r.exe.toLowerCase()));
         let added = 0;
         for (const game of selected) {
@@ -1033,14 +1026,28 @@ async function refreshSteamState(entries) {
   if (S.detailKey) renderDetail();
 }
 
-async function doRefresh() {
+let libraryLoad = null;
+let loadedLibraryKey = null;
+function libraryKey() {
+  return JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.steam_path, S.cfg.steam_user_id]);
+}
+function loadLibrary(force = false) {
+  const key = libraryKey();
+  if (libraryLoad) return libraryLoad.then(() => libraryKey() !== loadedLibraryKey ? loadLibrary() : undefined);
+  if (!force && key === loadedLibraryKey) return Promise.resolve();
+  libraryLoad = refreshLibrary().then(() => { loadedLibraryKey = key; }).finally(() => { libraryLoad = null; });
+  return libraryLoad;
+}
+function doRefresh() { return loadLibrary(true); }
+
+async function refreshLibrary() {
   const button = $('#btn-refresh');
   button.disabled = true;
   try {
     const roots = (S.cfg.games_roots || []).filter(Boolean);
     status('Refreshing library…');
     const [games, entries, installed] = await Promise.all([
-      roots.length ? window.api.scanStart({ roots }) : [],
+      roots.length || S.cfg.steam_executables?.length ? window.api.scanStart({ roots }) : [],
       window.api.steamRead(), window.api.steamGames(),
     ]);
     S.rows = [...scannedRows(games), ...S.rows.filter((r) => r.source !== 'folder')];
@@ -1193,13 +1200,21 @@ function wantedKinds() {
 }
 
 // ---------------------------------------------------------- steam add/rm
+function canWriteShortcut(row) {
+  return !!row.exe && (row.source === 'folder' || (row.source === 'shortcut' && row.managed));
+}
 async function doAddToSteam() {
+  const editing = cur();
+  if (editing?.checked && canWriteShortcut(editing)
+    && ($('#d-name').value.trim() !== editing.display || $('#d-exe-pick').value.trim() !== editing.exe)) {
+    if (!await applyDetails()) return;
+  }
   const selected = checkedRows();
   const native = selected.filter((r) => r.source === 'steam');
   const nativeArt = native.map((r) => ({ ...r, art: Object.fromEntries(
     Object.entries(r.art).filter(([, art]) => !art.automatic && !art.current)
   ) })).filter((r) => Object.keys(r.art).length);
-  const eligible = selected.filter((r) => r.exe && r.source === 'folder');
+  const eligible = selected.filter(canWriteShortcut);
   const noExe = selected.filter((r) => !r.exe && r.source !== 'steam');
   if (noExe.length) log(`Skipping ${noExe.length} without exe: ${noExe.slice(0, 5).map((r) => r.display).join(', ')}`);
   if (nativeArt.length && needKey()) return;
@@ -1213,14 +1228,10 @@ async function doAddToSteam() {
     }
     toast('No selected games with a .exe.'); return;
   }
-  const needsReview = eligible.filter((r) => r.idMethod === 'folder' && !r.sgdbId);
-  let summary = `Add ${eligible.length} selected game(s) to Steam as non-Steam shortcuts?`;
+  const updates = eligible.filter((row) => row.inSteam && row.managed).length;
+  let summary = updates ? `Add ${eligible.length - updates} game(s) and update ${updates} existing Steam shortcut(s)?`
+    : `Add ${eligible.length} selected game(s) to Steam as non-Steam shortcuts?`;
   if (nativeArt.length) summary += '\n\nChosen artwork will also be applied to the selected native Steam games.';
-  if (needsReview.length) {
-    summary += `\n\nCheck these names first:\n`
-      + needsReview.slice(0, 8).map((r) => `• ${r.display}`).join('\n')
-      + (needsReview.length > 8 ? `\n… and ${needsReview.length - 8} more` : '');
-  }
   if (!await confirmDlg('Add to Steam', summary)) return;
   if (await window.api.steamRunning()) {
     if (!await confirmDlg('Steam is running',
@@ -1242,7 +1253,8 @@ async function doAddToSteam() {
   }
   if (missingArt) {
     autoArt = await confirmDlg('Artwork',
-      'Also find artwork automatically for types you did not choose?');
+      'Also find artwork automatically for types you did not choose?',
+      { confirmText: 'Find artwork', cancelText: 'Add without artwork' });
   }
   const kinds = [...new Set([...wantedKinds(), ...eligible.flatMap((r) =>
     Object.keys(r.art).filter((kind) => !r.art[kind].automatic && !r.art[kind].current)
@@ -1272,8 +1284,10 @@ async function doAddToSteam() {
     renderRows();
     const nativeResult = nativeArt.length ? await writeArtwork(nativeArt, []) : { saved: 0, failed: 0 };
     const failed = artworkFailed + nativeResult.failed;
-    const message = `${added} added, ${updated} updated, ${artworkSaved + nativeResult.saved} artwork saved.`
-      + (failed ? ` ${failed} failed. Check the log.` : ' Restart Steam to see them.');
+    const changed = added + updated + artworkSaved + nativeResult.saved;
+    const message = changed || failed ? `${added} added, ${updated} updated, ${artworkSaved + nativeResult.saved} artwork saved.`
+      + (failed ? ` ${failed} failed. Check the log.` : ' Restart Steam to see them.')
+      : 'No changes were made. Check the log.';
     log(message);
     status(message);
     toast(message);
@@ -1384,8 +1398,251 @@ async function doPruneMissing() {  let stale;
   status(`Pruned ${removed}. Restart Steam.`);
 }
 
+let desktopSave = Promise.resolve();
+function saveDesktopDraft(row) {
+  row.saved = false;
+  const draft = Object.fromEntries(['display', 'exe', 'args', 'admin', 'iconChoice', 'sgdbId', 'sgdbName', 'signature']
+    .map((key) => [key, row[key]]));
+  row.draft = draft;
+  desktopSave = desktopSave.catch(() => {}).then(() => savePatch({ desktop_overrides: {
+    ...S.cfg.desktop_overrides, [row.id]: draft,
+  } }));
+  return desktopSave;
+}
+
+async function refreshDesktop(force = true) {
+  const d = S.desktop;
+  if (d.busy) return;
+  const key = JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.desktop_executables]);
+  if (!force && d.loadedKey === key) return;
+  d.busy = true;
+  renderDesktop();
+  try {
+    await desktopSave;
+    const old = new Map(d.rows.map((row) => [row.id, row]));
+    const result = await window.api.desktopScan();
+    d.rows = result.rows.map((row) => {
+      const previous = old.get(row.id);
+      const draft = previous?.draft || S.cfg.desktop_overrides[row.id];
+      const stale = draft && draft.signature !== row.signature;
+      return { ...row, ...(stale ? {} : draft), source: 'desktop', checked: previous?.checked || false,
+        draft: stale ? null : draft, art: draft?.iconChoice && !stale ? { icon: draft.iconChoice } : {},
+        saved: !stale && previous?.saved, error: '' };
+    });
+    result.warnings.forEach(log);
+    if (!d.rows.some((row) => row.id === d.detail)) d.detail = null;
+    d.loadedKey = key;
+    status(d.rows.length ? 'Desktop library refreshed.' : 'Add game folders in Settings, then refresh.');
+  } finally { d.busy = false; renderDesktop(); }
+}
+
+function desktopVisible() {
+  const query = $('#desktop-filter').value.toLowerCase();
+  return S.desktop.rows.filter((row) => (!$('#desktop-hide').checked || !row.shortcut)
+    && `${row.display} ${row.exe} ${row.shortcut || ''} ${row.args}`.toLowerCase().includes(query));
+}
+
+function renderDesktop(detail = true) {
+  const d = S.desktop;
+  const visible = desktopVisible();
+  $('#desktop-count').textContent = `${visible.length} games · ${d.rows.filter((row) => row.checked).length} selected`;
+  $('#desktop-games tbody').innerHTML = visible.map((row) => `<tr data-key="${esc(row.id)}" class="${row.id === d.detail ? 'sel' : ''}">
+    <td class="c-add"><input type="checkbox" class="row-check" aria-label="Select ${esc(row.display)}" ${row.checked ? 'checked' : ''}></td>
+    <td><div class="game-name">${esc(row.display)}</div><div class="cell-meta" title="${esc(row.exe)}">${esc(row.exe)}</div></td>
+    <td title="${esc(row.shortcut || '')}"><div class="cell-main">${esc(row.shortcut || 'New shortcut')}</div><div class="cell-meta">${esc(row.args)}</div></td>
+    <td title="${esc(row.error || '')}">${row.saving ? 'Saving…' : row.error ? 'Error' : row.saved ? 'Saved' : row.shortcut ? 'Existing' : 'Not added'}${needsReview(row) ? '<div class="cell-meta">Not matched</div>' : ''}</td></tr>`).join('');
+  for (const id of ['desktop-add', 'desktop-refresh', 'desktop-find', 'desktop-match', 'desktop-download']) $('#' + id).disabled = d.busy;
+  $('#desktop-add').disabled ||= !d.rows.some((row) => row.checked);
+  $('#desktop-match').disabled ||= !S.cfg.api_key || !d.rows.some((row) => row.checked);
+  $('#desktop-download').disabled ||= !S.cfg.api_key || !d.rows.some((row) => row.checked && row.sgdbId);
+  $('#desktop-all').checked = !!visible.length && visible.every((row) => row.checked);
+  $('#desktop-all').indeterminate = visible.some((row) => row.checked) && !$('#desktop-all').checked;
+  $('#desktop-games').inert = d.busy && !d.applying;
+  for (const id of ['desktop-all', 'desktop-hide']) $('#' + id).disabled = d.busy && !d.applying;
+  if (detail) renderDesktopDetail();
+  $('#desktop-detail').inert = d.busy && (!d.applying || !!d.rows.find((row) => row.id === d.detail)?.saving);
+}
+
+function desktopIconPreview(row) {
+  if (/\.(ico|png|jpe?g|webp|bmp)$/i.test(row.icon || '')) return window.api.artPreviewFile(row.icon);
+  if (/\.(exe|dll)$/i.test(row.icon || '')) return window.api.desktopIcon(row.icon, row.iconIndex || 0);
+  return window.api.desktopIcon(row.icon ? row.shortcut || row.icon : row.exe);
+}
+
+function localArtPreview(file) {
+  return /\.(exe|dll)$/i.test(file) ? window.api.desktopIcon(file, 0) : window.api.artPreviewFile(file);
+}
+
+function renderDesktopDetail() {
+  const d = S.desktop;
+  const row = d.rows.find((item) => item.id === d.detail);
+  const host = $('#desktop-detail');
+  if (!row) { host.innerHTML = '<div class="detail-empty"><h2>Select a game</h2><p>Choose its name, launcher and desktop icon.</p></div>'; return; }
+  const exes = [...new Set([row.exe, ...(row.candidates || []).map((item) => item.path)])];
+  host.innerHTML = `<div class="det-head"><button class="cover-button" data-desktop="icon" title="Choose icon"><img class="desktop-icon" alt="Game icon"></button><h2>${esc(row.display)}</h2></div>
+    <label class="fld"><span>Shortcut name</span><input type="text" data-field="display" value="${esc(row.display)}"></label>
+    <label class="field-label" for="desktop-exe">Launcher</label><div class="control-combo"><select id="desktop-exe" data-field="exe" title="${esc(row.exe)}">${exes.map((exe) => `<option value="${esc(exe)}" ${exe === row.exe ? 'selected' : ''}>${esc(baseName(exe))}</option>`).join('')}</select>
+    <button class="btn sm" data-desktop="browse" type="button">Browse</button></div>
+    <label class="fld"><span>Launch arguments</span><input type="text" data-field="args" value="${esc(row.args)}"></label>
+    <label class="check desktop-admin"><input type="checkbox" data-field="admin" ${row.admin ? 'checked' : ''}> Run as administrator</label>
+    <div class="status-line">${esc(row.error || row.shortcut || '')}</div>
+    <section class="detail-section"><div class="section-head match-head"><h3>Game match</h3>
+    <span class="match-status${row.sgdbId ? ' ok' : ''}" role="status">${row.sgdbId ? `${esc(row.sgdbName || '(cached)')} · ${row.sgdbId}` : 'Not matched'}</span></div>
+    ${S.cfg.api_key ? '' : '<p class="muted small">Matching requires SGDB API key.</p>'}
+    <div class="control-combo"><input type="text" data-desktop="query" value="${esc(row.display)}" placeholder="Search SteamGridDB" aria-label="Search SteamGridDB" autocomplete="off"><button class="btn sm" data-desktop="search" ${S.cfg.api_key ? '' : 'disabled'}>Search</button></div>
+    <div class="control-combo match-results"><select data-desktop="matches" aria-label="SteamGridDB search results"><option value="">Search for a game first</option></select><button class="btn sm" data-desktop="use" disabled>Use match</button></div>
+    <button class="text-btn auto-match" data-desktop="auto" ${S.cfg.api_key ? '' : 'disabled'}>Match automatically</button></section>`;
+  const image = $('.desktop-icon', host);
+  image.onload = () => image.classList.add('loaded');
+  image.onerror = () => { image.classList.remove('loaded'); log(`Icon preview could not load: ${row.display}`); };
+  const choice = row.iconChoice;
+  const preview = choice?.file ? localArtPreview(choice.file)
+    : choice?.url ? Promise.resolve(choice.thumb || choice.url)
+      : choice?.exeIcon ? window.api.desktopIcon(row.exe) : desktopIconPreview(row);
+  preview.then((src) => { if (image.isConnected) image.src = src; }).catch((e) => { log(`Icon preview: ${e.message}`); });
+  for (const input of $$('[data-field]', host)) input.onchange = handleAction('Save Desktop changes', async () => {
+    row[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
+    if (input.dataset.field === 'display') $('h2', host).textContent = row.display;
+    await saveDesktopDraft(row);
+    renderDesktop(input.dataset.field === 'exe');
+  });
+  $('[data-desktop="icon"]', host).onclick = () => openArtModal(row, 'icon');
+  $('[data-desktop="browse"]', host).onclick = handleAction('Choose launcher', async () => {
+    const exe = await window.api.filesPickExe(parentDir(row.exe));
+    if (exe) { row.exe = exe; await saveDesktopDraft(row); renderDesktop(); }
+  });
+  let searchToken = 0;
+  $('[data-desktop="search"]', host).onclick = handleAction('Game search', async () => {
+    const token = ++searchToken;
+    $('[data-desktop="use"]', host).disabled = true;
+    let matches;
+    try { matches = await window.api.sgdbSearch($('[data-desktop="query"]', host).value); }
+    catch (e) { if (token === searchToken && host.contains(image)) throw e; return; }
+    if (token !== searchToken || !host.contains(image)) return;
+    const select = $('[data-desktop="matches"]', host);
+    select.innerHTML = matches.map((match) => `<option value="${match.id}">${esc(match.name)}</option>`).join('');
+    const use = $('[data-desktop="use"]', host);
+    use.disabled = !matches.length;
+    use.onclick = handleAction('Use match', async () => {
+      const match = matches.find((item) => item.id === Number(select.value));
+      if (!match) return;
+      row.display = match.name; row.sgdbId = match.id; row.sgdbName = match.name;
+      await saveDesktopDraft(row); renderDesktop();
+    });
+  });
+  $('[data-desktop="query"]', host).onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) $('[data-desktop="search"]', host).click(); };
+  $('[data-desktop="auto"]', host).onclick = handleAction('Match Desktop game', async () => {
+    const result = await window.api.matchAuto({ rows: [{ ...row }], force: true, persist: false });
+    if (!host.contains(image)) return;
+    const match = result.rows[0];
+    if (match?.sgdbId) {
+      row.sgdbId = match.sgdbId; row.display = row.sgdbName = match.sgdbName;
+      await saveDesktopDraft(row); renderDesktop();
+    }
+    result.lines.forEach(log);
+  });
+}
+
+async function renderDesktopIconChoices() {
+  const m = S.modal;
+  const exe = await window.api.desktopIcon(m.row.exe);
+  if (S.modal !== m) return;
+  const slot = $('#art-stock');
+  slot.hidden = false;
+  slot.replaceChildren(artThumb({ url: exe, width: 256, height: 256 }, 'Executable icon', { exeIcon: true, current: !m.row.icon }));
+  const choice = m.row.iconChoice;
+  const url = choice?.file ? await localArtPreview(choice.file) : choice?.url
+    || (m.row.icon ? await desktopIconPreview(m.row) : null);
+  if (S.modal !== m || !url || choice?.exeIcon) return;
+  const current = $('#art-choice');
+  current.hidden = false;
+  current.replaceChildren(artThumb({ ...choice, url, width: 256, height: 256 }, 'Current icon', choice || { current: true, keepIcon: true }));
+  $$('#art-grid > .thumb').forEach((cell) => { cell.hidden = cell._broken || sameArtwork(choice, cell._art); });
+}
+
+function wireDesktop() {
+  $('#desktop-refresh').onclick = handleAction('Refresh Desktop', refreshDesktop);
+  $('#desktop-find').onclick = () => doFindExecutables({ rows: S.desktop.rows, add: async (games) => {
+    await savePatch({ desktop_executables: [...(S.cfg.desktop_executables || []), ...games] });
+    await refreshDesktop();
+  } });
+  for (const id of ['desktop-filter', 'desktop-hide']) $('#' + id).addEventListener('input', () => renderDesktop(false));
+  $('#desktop-all').onchange = (e) => { desktopVisible().forEach((row) => { row.checked = e.target.checked; }); renderDesktop(false); };
+  $('#desktop-games tbody').onclick = (e) => {
+    const row = S.desktop.rows.find((item) => item.id === e.target.closest('tr')?.dataset.key);
+    if (!row) return;
+    if (e.target.closest('.c-add')) { row.checked = !row.checked; renderDesktop(false); }
+    else { S.desktop.detail = row.id; renderDesktop(); }
+  };
+  $('#desktop-match').onclick = handleAction('Match Desktop games', async () => {
+    const d = S.desktop;
+    if (d.busy) return;
+    d.busy = true; renderDesktop(false);
+    try {
+      const rows = d.rows.filter((row) => row.checked);
+      const result = await window.api.matchAuto({ rows: rows.map((row) => ({ ...row })), force: true, persist: false });
+      for (let i = 0; i < rows.length; i++) if (result.rows[i]?.sgdbId) {
+        rows[i].sgdbId = result.rows[i].sgdbId; rows[i].display = rows[i].sgdbName = result.rows[i].sgdbName;
+        await saveDesktopDraft(rows[i]);
+      }
+      result.lines.forEach(log);
+    } finally { d.busy = false; renderDesktop(); }
+  });
+  $('#desktop-download').onclick = handleAction('Download Desktop icons', async () => {
+    const d = S.desktop;
+    if (d.busy) return;
+    d.busy = true; renderDesktop(false);
+    try {
+      const results = await window.api.desktopDownload(d.rows.filter((row) => row.checked));
+      for (const result of results) {
+        const row = d.rows.find((item) => item.id === result.id);
+        if (result.skipped) { log(`${row.display}: ${result.skipped}`); continue; }
+        if (result.error) { log(`${row.display}: ${result.error}`); continue; }
+        row.iconChoice = result.choice; row.art = { icon: result.choice };
+        await saveDesktopDraft(row);
+        log(`${row.display}: SGDB icon #${result.choice.id} downloaded.`);
+      }
+      status(`${results.filter((result) => result.choice).length} icon(s) downloaded; ${results.filter((result) => result.skipped).length} skipped; ${results.filter((result) => result.error).length} failed.`);
+    } finally { d.busy = false; renderDesktop(); }
+  });
+  $('#desktop-add').onclick = handleAction('Add to Desktop', async () => {
+    const d = S.desktop;
+    if (d.busy) return;
+    d.busy = true; renderDesktop(false);
+    try {
+      await desktopSave;
+      const rows = d.rows.filter((row) => row.checked);
+      const updates = rows.filter((row) => row.shortcut).length;
+      if (!await confirmDlg('Add selected to Desktop', `Create ${rows.length - updates} shortcut(s) and update ${updates} existing shortcut(s)?`)) return;
+      d.applying = true;
+      rows.forEach((row) => { row.saving = true; });
+      renderDesktop(false);
+      const results = await window.api.desktopApply(rows);
+      await syncCfg();
+      for (const result of results) {
+        const row = d.rows.find((item) => item.id === result.id);
+        if (result.ok || result.refreshed) {
+          if (d.detail === row.id) d.detail = result.row?.id || null;
+          if (result.row) Object.assign(row, result.row, { draft: null, art: {}, error: '', saved: result.ok, checked: row.checked });
+          else d.rows = d.rows.filter(item => item !== row);
+        } else row.error = result.error;
+        log(`${row.display}: ${result.ok ? 'Desktop shortcut saved.' : result.error}`);
+        if (result.warning) log(result.warning);
+      }
+      const refreshed = results.filter((result) => result.refreshed).length;
+      status(`${results.filter((result) => result.ok).length} shortcut(s) saved; ${results.filter((result) => !result.ok && !result.refreshed).length} failed.`);
+      if (refreshed) toast('Shortcut refreshed. Review changes and apply again.');
+    } finally {
+      d.busy = false; d.applying = false;
+      d.rows.forEach((row) => { row.saving = false; });
+      renderDesktop();
+    }
+  });
+}
+
 // ------------------------------------------------------- artwork modal
 const ART_TABS = [['wide', 'Wide Capsule'], ['grid', 'Vertical Grid'], ['hero', 'Hero'], ['logo', 'Logo'], ['icon', 'Icon']];
+const modalTabs = () => S.modal?.row.source === 'desktop' ? [['icon', 'Icon']] : ART_TABS;
 let artModalMotion = 0;
 
 async function openArtModal(row, focusKind) {
@@ -1399,6 +1656,8 @@ async function openArtModal(row, focusKind) {
     games: [],
   };
   $('#art-title').textContent = `Artwork - ${row.display}`;
+  $('#art-url').hidden = row.source === 'desktop';
+  $('#art-clear').hidden = row.source === 'desktop';
   $('#art-q').value = row.query || row.display;
   $('#art-id').value = row.sgdbId || '';
   $('#art-games').innerHTML = '';
@@ -1414,7 +1673,7 @@ async function openArtModal(row, focusKind) {
   overlay.hidden = false;
   overlay.inert = false;
   if (!S.cfg.api_key || !row.sgdbId) renderArtGrid();
-  if (!S.cfg.api_key) artStatus('Add your SteamGridDB API key first in Settings.');
+  if (!S.cfg.api_key) artStatus(row.source === 'desktop' ? 'Choose the executable icon or a local image.' : 'Add your SteamGridDB API key first in Settings.');
   else if (row.sgdbId) loadArtTabs();
   else if (row.source === 'steam') {
     const m = S.modal;
@@ -1426,8 +1685,8 @@ async function openArtModal(row, focusKind) {
       m.games = [game];
       $('#art-id').value = game.id;
       await loadArtTabs();
-    } else artStatus('No SGDB match for this Steam AppID. Search for a game manually.');
-  } else artStatus('Pick an SGDB match, then choose art per tab.');
+    } else await artSearch();
+  } else await artSearch();
 }
 
 function closeArtModal(save) {
@@ -1453,6 +1712,16 @@ function closeArtModal(save) {
     }).catch(() => {});
   }
   if (save) {
+    if (m.row.source === 'desktop') {
+      m.row.iconChoice = m.sel.icon || null;
+      m.row.art = { ...m.sel };
+      m.row.sgdbId = m.sgdbId;
+      const match = m.games.find((game) => game.id === m.sgdbId);
+      if (match) { m.row.display = m.row.sgdbName = match.name; m.row.sgdbId = match.id; }
+      handleAction('Save Desktop changes', () => saveDesktopDraft(m.row))();
+      renderDesktop();
+      return;
+    }
     if (m.sgdbId && m.sgdbId !== m.row.sgdbId) {
       m.row.sgdbId = m.sgdbId;
       m.row.sgdbName = m.games.find((game) => game.id === m.sgdbId)?.name || '(picked)';
@@ -1472,7 +1741,7 @@ function renderArtTabs() {
   const m = S.modal;
   const host = $('#art-tabs');
   host.innerHTML = '';
-  for (const [kind, label] of ART_TABS) {
+  for (const [kind, label] of modalTabs()) {
     const b = document.createElement('button');
     b.className = `tab${m.tab === kind ? ' on' : ''}`;
     b.textContent = label;
@@ -1503,7 +1772,7 @@ async function openArtPreview(item) {
   const m = S.modal;
   const kind = m.tab;
   if (!item) return;
-  const src = item.thumb || item.url || (item.file ? await window.api.artPreviewFile(item.file) : null);
+  const src = item.thumb || item.url || (item.file ? await localArtPreview(item.file) : null);
   if (S.modal !== m || m.tab !== kind) return;
   m.previewItem = item;
   m.galleryScroll = $('.thumbScroll').scrollTop;
@@ -1538,16 +1807,18 @@ async function loadArtTabs() {
   artStatus(`Loading artwork for SGDB ${m.sgdbId}…`);
   renderArtGrid(true);
   try {
-    const jobs = ART_TABS.map(async ([kind]) => {
+    const tabs = modalTabs();
+    const jobs = tabs.map(async ([kind]) => {
       const key = `${m.sgdbId}:${kind}`;
       if (!m.cache[key]) {
-        m.cache[key] = await window.api.artList({ sgdbId: m.sgdbId, kind, filters: filters() });
+        m.cache[key] = await window.api.artList({ sgdbId: m.sgdbId, kind,
+          filters: { ...filters(), ...(m.row.source === 'desktop' ? { animated: false } : {}) } });
       }
     });
     await Promise.all(jobs);
-    if (!S.modal || S.modal.sgdbId !== m.sgdbId) return; // user moved on
+    if (S.modal !== m) return;
     let total = 0;
-    for (const [kind] of ART_TABS) total += (m.cache[`${m.sgdbId}:${kind}`] || []).length;
+    for (const [kind] of tabs) total += (m.cache[`${m.sgdbId}:${kind}`] || []).length;
     artStatus(`SGDB ${m.sgdbId}: ${total} images. Click to select per type.`);
     renderArtTabs();
     renderArtGrid();
@@ -1557,7 +1828,8 @@ async function loadArtTabs() {
 }
 
 function sameArtwork(a, b) {
-  return !!(a && b && ((a.file && a.file === b.file) || (a.url && a.url === b.url)));
+  return !!(a && b && ((a.file && a.file === b.file) || (a.url && a.url === b.url)
+    || (a.exeIcon && b.exeIcon) || (a.keepIcon && b.keepIcon)));
 }
 
 function isPicked(kind, item) {
@@ -1603,9 +1875,12 @@ function renderArtGrid(loading = false) {
     slot.hidden = true;
     grid.appendChild(slot);
   }
-  m.current[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind }).catch(() => null);
-  m.stock[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind, stock: true }).catch(() => null);
-  handleAction('Artwork preview', renderArtChoice)();
+  if (m.row.source === 'desktop') handleAction('Icon preview', renderDesktopIconChoices)();
+  else {
+    m.current[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind }).catch(() => null);
+    m.stock[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind, stock: true }).catch(() => null);
+    handleAction('Artwork preview', renderArtChoice)();
+  }
   if (!S.cfg.api_key) return;
   if (loading || !m.sgdbId) {
     grid.insertAdjacentHTML('beforeend', `<div class="muted">${m.sgdbId ? 'Loading…' : 'Search or enter an SGDB game ID first.'}</div>`);
@@ -1657,9 +1932,11 @@ async function artSearch() {
   const m = S.modal;
   const q = $('#art-q').value.trim();
   if (!q) return;
+  const search = m.search = (m.search || 0) + 1;
   artStatus(`Searching SGDB for '${q}'…`);
   try {
     const games = await window.api.sgdbSearch(q);
+    if (S.modal !== m || m.search !== search) return;
     m.games = games;
     const sel = $('#art-games');
     sel.innerHTML = '';
@@ -1677,7 +1954,7 @@ async function artSearch() {
     artStatus(`Matched '${g.name}' (${g.id}). Loading artwork…`);
     await loadArtTabs();
   } catch (e) {
-    artStatus(`Search failed: ${e.message || e}`);
+    if (S.modal === m && m.search === search) artStatus(`Search failed: ${e.message || e}`);
   }
 }
 
@@ -1691,6 +1968,8 @@ async function artLoadId() {
 
 // ------------------------------------------------------------------ boot
 function wireToolbar() {
+  wireDesktop();
+  $('#onboarding-skip').addEventListener('click', () => { S.onboardingStep = 1; S.skippedSteam = true; renderOnboarding(); });
   $('#onboarding-continue').addEventListener('click', handleAction('Setup', async () => {
     const button = $('#onboarding-continue');
     if (button.disabled) return;
@@ -1701,11 +1980,12 @@ function wireToolbar() {
         toast('Choose a valid Steam installation and account first.');
         return;
       }
+      if (S.onboardingStep === 0) S.skippedSteam = false;
       if (S.onboardingStep < 2) { S.onboardingStep++; renderOnboarding(); return; }
       const completed = S.cfg.onboarded;
-      if (!completed) await savePatch({ onboarded: true });
-      navReset('library');
-      if (!completed) await loadLibrary();
+      const steamReady = !S.skippedSteam && S.cfg.steam_user_id && await window.api.steamVerify(S.cfg.steam_path);
+      if (!completed) await savePatch({ onboarded: true, startup_library: steamReady ? 'steam' : 'desktop' });
+      navReset(steamReady ? 'library' : 'desktop');
     } finally { button.disabled = false; }
   }));
   $('#onboarding-back').addEventListener('click', () => { S.onboardingStep--; renderOnboarding(); });
@@ -1727,7 +2007,6 @@ function wireToolbar() {
     dockToggle.textContent = collapsed ? 'Show log' : 'Hide log';
   });
   $('#btn-refresh').addEventListener('click', handleAction('Refresh', doRefresh));
-  $('#btn-scan').addEventListener('click', doScan);
   $('#btn-find-executables').addEventListener('click', doFindExecutables);
   $('#btn-match').addEventListener('click', handleAction('Auto-match', doAutoMatch));
   $('#btn-download').addEventListener('click', handleAction('Artwork download', doDownloadArt));
@@ -1738,7 +2017,6 @@ function wireToolbar() {
   $('#side-restart').addEventListener('click', doRestartSteam);
   $('#sel-all').addEventListener('change', (e) => { S.rows.forEach((r) => { r.checked = e.target.checked; }); renderRows(); });
   $('#btn-clear').addEventListener('click', handleAction('Clear', doClear));
-  $('#unresolved-only').addEventListener('change', (e) => { S.unresolvedOnly = e.target.checked; renderRows(); });
   $('#hide-owned').addEventListener('change', (e) => {
     S.hideOwned = e.target.checked;
     renderRows();
@@ -1857,7 +2135,7 @@ function wireToolbar() {
   });
   $('#art-file').addEventListener('click', handleAction('Artwork preview', async () => {
     const m = S.modal;
-    const p = await window.api.filesPickImage();
+    const p = await (m.tab === 'icon' ? window.api.desktopPickIcon() : window.api.filesPickImage());
     if (p) {
       if (S.modal !== m) return;
       closeArtPreview();
@@ -1903,14 +2181,14 @@ function wireToolbar() {
 
 async function applyDetails() {
   const r = cur();
-  if (!r) return;
-  if (r.source === 'steam') { toast('Steam store games cannot be edited here - Steam manages them.'); return; }
+  if (!r) return false;
+  if (r.source === 'steam') { toast('Steam store games cannot be edited here - Steam manages them.'); return false; }
   const name = $('#d-name').value.trim();
   const exe = $('#d-exe-pick').value.trim();
   if (r.fromExecutableSearch && exe && folderKey(exe) !== folderKey(r.folder)) {
     if (S.rows.some((other) => other !== r && other.exe && folderKey(other.exe) === folderKey(exe))) {
       toast('That executable is already listed.');
-      return;
+      return false;
     }
     const oldKey = folderKey(r.folder);
     const newKey = folderKey(exe);
@@ -1943,6 +2221,7 @@ async function applyDetails() {
     sgdb_map: S.cfg.sgdb_map, sgdb_cache: S.cfg.sgdb_cache });
   await refreshSteamState();
   log(`Updated '${r.display}'.`);
+  return true;
 }
 
 async function sgdbSearch() {
@@ -2061,18 +2340,11 @@ async function boot() {
     : false;
   if (!S.cfg.onboarded) {
     navReset('onboarding');
-  } else if (!steamOk) {
-    navReset('settings');
+  } else if (!steamOk || ['desktop', 'xbox'].includes(S.cfg.startup_library)) {
+    navReset(S.cfg.startup_library === 'xbox' ? 'xbox' : 'desktop');
   } else {
     navReset('library');
-    await loadLibrary();
   }
-}
-
-async function loadLibrary() {
-  await syncSteamLibrary();
-  if ((S.cfg.games_roots || []).length) await handleAction('Scan', doScan)();
-  else status('Browse your Steam library or add a games folder in Settings.');
 }
 
 document.addEventListener('DOMContentLoaded', () => {

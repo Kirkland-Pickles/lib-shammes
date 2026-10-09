@@ -4,6 +4,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   isDevelopment: () => ipcRenderer.invoke('app:is-development'),
+  desktopScan: () => ipcRenderer.invoke('desktop:scan'),
+  desktopApply: (rows) => ipcRenderer.invoke('desktop:apply', rows),
+  desktopDownload: (rows) => ipcRenderer.invoke('desktop:download', rows),
+  desktopIcon: (file, index) => ipcRenderer.invoke('desktop:icon', file, index),
+  desktopPickIcon: () => ipcRenderer.invoke('desktop:pick-icon'),
   // config
   cfgGet: () => ipcRenderer.invoke('cfg:get'),
   cfgSet: (patch) => ipcRenderer.invoke('cfg:set', patch),

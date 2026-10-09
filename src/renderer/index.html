@@ -8,7 +8,6 @@
 </head>
 <body>
 <svg class="icon-defs" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
-  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5h6l2 2h10v12H3Z"/></symbol>
   <symbol id="i-find" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 6 6"/></symbol>
   <symbol id="i-match" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 6 6M7.5 10l1.5 1.5 3-3"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 17v4h16v-4"/></symbol>
@@ -51,6 +50,7 @@
       <button class="text-btn" id="onboarding-close" hidden>Back to library</button>
       <span class="spacer"></span>
       <button class="btn primary" id="onboarding-continue">Next</button>
+      <button class="btn" id="onboarding-skip">Skip Steam</button>
     </div>
   </section>
   <!-- LIBRARY -->
@@ -69,7 +69,6 @@
     <div id="lib-banner" class="banner" hidden></div>
     <div class="commandbar">
       <div class="command-group" role="group" aria-label="Find games">
-        <button class="btn sm" id="btn-scan"><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>Scan folders</button>
         <button class="btn sm" id="btn-find-executables"><svg class="icon" aria-hidden="true"><use href="#i-find"/></svg>Find executables</button>
       </div>
       <div class="command-group" role="group" aria-label="Artwork actions">
@@ -90,7 +89,6 @@
         <label class="check filter-toggle"><input type="checkbox" id="sel-all"> Select all</label>
       </div>
       <div class="view-tools">
-        <label class="check filter-toggle"><input type="checkbox" id="unresolved-only"> Needs review</label>
         <label class="check filter-toggle" title="Hide games installed through Steam"><input type="checkbox" id="hide-owned"> Hide games installed in Steam</label>
         <button class="btn sm" id="btn-clear">Clear</button>
       </div>
@@ -174,12 +172,27 @@
     </div>
   </section>
 
-  <!-- DESKTOP SHORTCUTS (stub for later) -->
   <section class="page" id="page-desktop">
-    <div class="page-stub">
-      <img src="../assets/app-icon.svg" alt="" class="stub-mark">
-      <h1>Desktop library</h1>
-      <p class="sub">Not available yet</p>
+    <header class="library-head"><span id="desktop-count" class="library-count"></span>
+      <button class="btn primary" id="desktop-add">Add selected to Desktop</button></header>
+    <div class="commandbar"><div class="command-group">
+      <button class="btn sm" id="desktop-find"><svg class="icon" aria-hidden="true"><use href="#i-find"/></svg>Find executables</button>
+    </div><div class="command-group">
+      <button class="btn sm" id="desktop-match"><svg class="icon" aria-hidden="true"><use href="#i-match"/></svg>Match selected</button>
+      <button class="btn sm" id="desktop-download"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Download artwork</button>
+    </div><div class="command-group">
+      <button class="btn sm" id="desktop-refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
+    </div></div>
+    <div class="list-tools">
+      <label class="check filter-toggle"><input type="checkbox" id="desktop-all">Select all</label>
+      <label class="check filter-toggle"><input type="checkbox" id="desktop-hide">Hide existing shortcuts</label>
+    </div>
+    <div class="library-workspace">
+      <div class="list-panel">
+        <div class="panel-head"><input type="text" id="desktop-filter" class="search-field" placeholder="Filter games…" aria-label="Filter Desktop games"></div>
+        <div class="list-wrap"><table id="desktop-games"><thead><tr><th class="c-add"></th><th>Game</th><th>Shortcut / arguments</th><th class="c-st">Status</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <aside class="detail" id="desktop-detail"></aside>
     </div>
   </section>
 

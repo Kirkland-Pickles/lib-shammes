@@ -10,7 +10,7 @@ const steam = require('../src/main/steam');
 const store = require('../src/main/store');
 const { SGDBClient } = require('../src/main/sgdb');
 
-function main(t, metadata = {}) {
+function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save = () => {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'native-art-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const cfg = { ...structuredClone(store.DEFAULTS), steam_path: root, steam_user_id: '1' };
@@ -20,15 +20,16 @@ function main(t, metadata = {}) {
   const filename = path.join(__dirname, '../src/main/main.js');
   const realRequire = createRequire(filename);
   const mocks = {
+    './desktop': { createDesktop: (options) => ({ ...realRequire('./desktop').createDesktop(options), ...desktopOverrides }) },
     electron: {
       app: { isPackaged: true, whenReady: () => ({ then() {} }), on() {} },
       Menu: { setApplicationMenu() {} }, ipcMain: { handle: (name, fn) => handlers.set(name, fn) },
     },
-    './store': { ...store, load: () => cfg, save() {}, configDir: () => path.join(root, 'appdata'),
+    './store': { ...store, load: () => cfg, save, configDir: () => path.join(root, 'appdata'),
       loadChanges: () => structuredClone(changes), saveChanges: (value) => { changes = structuredClone(value); } },
     './steam': { ...steam, normalizeSteamPath: (value) => value,
       loadEntries: () => { calls.push('read shortcuts'); return []; },
-      saveEntries: () => { calls.push('write shortcuts'); throw new Error('Native artwork must not write shortcuts'); } },
+      saveEntries: () => { calls.push('write shortcuts'); throw new Error('Native artwork must not write shortcuts'); }, ...steamOverrides },
     './sgdb': { SGDBClient: class {
       steamMetadata = async () => { calls.push('metadata'); if (metadata instanceof Error) throw metadata; return metadata; };
       gridsVertical = async () => [{ id: 9, url: 'https://test.invalid/art.jpg' }];
@@ -41,7 +42,7 @@ function main(t, metadata = {}) {
     require: (name) => mocks[name] || realRequire(name), __dirname: path.dirname(filename),
     process: { argv: [], platform: process.platform }, Buffer,
   }, { filename });
-  return { root, calls, grid: steam.gridDir(root, '1'), changes: () => changes,
+  return { root, calls, cfg, grid: steam.gridDir(root, '1'), changes: () => changes,
     download: (row = native(), options = {}) => handlers.get('art:download')(null, { rows: [row], kinds: ['grid'], onlyMissing: false, ...options }),
     invoke: (name, req) => handlers.get(name)(null, req) };
 }
@@ -49,6 +50,80 @@ function main(t, metadata = {}) {
 function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
+
+it('returns saved Desktop shortcuts when config persistence fails', async (t) => {
+  const row = { id: 'link:saved', display: 'Game', shortcut: 'saved.lnk' };
+  const env = main(t, {}, { apply: async () => [{ id: 'exe:new', ok: true, row }] }, {}, () => { throw new Error('config denied'); });
+  const [result] = await env.invoke('desktop:apply', []);
+  assert.equal(result.ok, true);
+  assert.equal(result.row.shortcut, row.shortcut);
+  assert.match(result.warning, /config denied/);
+  assert.equal(env.cfg.desktop_overrides[row.id].display, 'Game');
+});
+
+it('retains explicitly added executables separately from scan roots and ignores missing files', async (t) => {
+  const env = main(t);
+  const exe = path.join(env.root, 'manual.exe');
+  fs.writeFileSync(exe, 'fixture');
+  env.invoke('cfg:set', { steam_executables: [{ folder: exe, exePath: exe }, { folder: exe, exePath: exe },
+    { exePath: path.join(env.root, 'missing.exe') }] });
+  const rows = await env.invoke('scan:start', { roots: [] });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].exePath, exe);
+  assert.equal(env.cfg.desktop_executables.length, 0);
+});
+
+it('replaces all Desktop icon choices when skipping is off without writing shortcuts', async (t) => {
+  let downloaded = 0;
+  const env = main(t, {}, { cacheIcon: async () => { downloaded++; return 'cached.ico'; } });
+  const rows = [{ id: 'new', sgdbId: 7 }, { id: 'existing', sgdbId: 7, icon: 'custom.ico' },
+    { id: 'manual', sgdbId: 7, iconChoice: { file: 'chosen.ico' } },
+    { id: 'exe', sgdbId: 7, iconChoice: { exeIcon: true } },
+    { id: 'current', sgdbId: 7, iconChoice: { keepIcon: true } }, { id: 'unmatched' }];
+  let results = await env.invoke('desktop:download', rows);
+  assert.equal(results.filter((row) => row.choice).length, 1);
+  assert.equal(results[0].id, 'new');
+  assert.equal(results[0].choice.file, 'cached.ico');
+  assert.equal(results[0].choice.automatic, true);
+  assert.ok(results.find((row) => row.id === 'manual').skipped);
+  assert.ok(results.find((row) => row.id === 'existing').skipped);
+  env.cfg.only_missing = false;
+  results = await env.invoke('desktop:download', rows);
+  assert.deepEqual(Array.from(results.filter((row) => row.choice), (row) => row.id), ['new', 'existing', 'manual', 'exe', 'current']);
+  assert.ok(results.filter((row) => row.choice).every((row) => row.choice.automatic && row.choice.id === 9));
+  assert.equal(downloaded, 6);
+  assert.deepEqual(env.calls, []);
+});
+
+it('updates an app-managed shortcut from the Steam list without adding a duplicate', async (t) => {
+  const entries = [steam.buildEntry({ appName: 'Old name', exePath: 'C:/Games/game.exe', tags: [steam.MANAGED_TAG] })];
+  let writes = 0;
+  const env = main(t, {}, {}, { loadEntries: () => entries, saveEntries: () => { writes++; return null; } });
+  const result = await env.invoke('steam:add', { rows: [{ source: 'shortcut', managed: true,
+    shortcutIdx: 0, appid: entries[0].appid, folder: 'shortcut://fixture', display: 'New name', exe: 'C:/Games/game.exe', art: {} }], kinds: [] });
+  assert.equal(result.added, 0);
+  assert.equal(result.updated, 1);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].AppName, 'New name');
+  assert.equal(writes, 1);
+});
+
+it('converts executable icon choices to image bytes for native and non-Steam games', async (t) => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB7kAAAAASUVORK5CYII=', 'base64');
+  for (const source of ['steam', 'folder']) {
+    const env = main(t, { icon: 'a'.repeat(40) }, { preview: async (file, index) => {
+      assert.equal(file, 'chosen.exe'); assert.equal(index, 0);
+      return `data:image/png;base64,${png.toString('base64')}`;
+    } });
+    const row = { ...native({ icon: { file: 'chosen.exe' } }), source, exe: 'C:/Games/game.exe' };
+    const result = await env.download(row, { kinds: ['icon'] });
+    assert.equal(result.saved, 1);
+    assert.equal(result.failed, 0);
+    const dest = source === 'steam' ? result.rows[0].art.icon.appliedFile
+      : steam.artDest(env.grid, steam.gridStemFor(steam.quoteExe(row.exe), row.display), 'icon', '.png');
+    assert.deepEqual(fs.readFileSync(dest), png);
+  }
+});
 
 it('reads current artwork from the Steam cache without SGDB and prefers custom artwork', async (t) => {
   const env = main(t, new Error('metadata unavailable'));

@@ -10,11 +10,16 @@ const filename = path.join(__dirname, '../src/main/main.js');
 const source = fs.readFileSync(filename, 'utf8');
 const realRequire = createRequire(filename);
 
-async function uninstall(flags = [], { running = false, backupFails = false, fileFails = false, dataFails = false } = {}) {
+async function uninstall(flags = [], { running = false, backupFails = false, fileFails = false, dataFails = false, iconFails = false } = {}) {
   const calls = [];
   let boot;
   const plan = { removeAppids: [1], restoreFields: [], restoreFiles: [], deleteFiles: [{ path: 'art.png' }], skippedFiles: [] };
   const mocks = {
+    './desktop': { createDesktop: () => ({ cleanup: async () => {
+      calls.push(['icons']);
+      if (iconFails instanceof Error) throw iconFails;
+      return iconFails ? ['locked shortcut'] : [];
+    } }) },
     electron: {
       app: {
         isPackaged: true, whenReady: () => ({ then: (fn) => { boot = fn; } }), on() {},
@@ -75,7 +80,18 @@ it('can delete app data without purging Steam', async () => {
   const calls = await uninstall(['--delete-app-data']);
   assert.ok(calls.some(([action]) => action === 'wipe'));
   assert.ok(!calls.some(([action]) => action === 'purge'));
+  assert.ok(!calls.some(([action]) => action === 'icons'));
   assert.deepEqual(calls.at(-1), ['exit', 0]);
+});
+
+it('only cleans desktop icons when selected and reports retained icons', async () => {
+  for (const iconFails of [false, true, new Error('unreadable icon records')]) {
+    const calls = await uninstall(['--delete-desktop-icons'], { iconFails });
+    assert.ok(calls.some(([action]) => action === 'icons'));
+    assert.ok(!calls.some(([action]) => action === 'wipe' || action === 'purge'));
+    assert.equal(calls.some(([action]) => action === 'warning'), !!iconFails);
+    assert.deepEqual(calls.at(-1), ['exit', 0]);
+  }
 });
 
 it('continues uninstall and warns when app data cannot be deleted', async () => {
