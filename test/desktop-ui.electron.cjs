@@ -43,7 +43,11 @@ const handlers = {
         row: externalChange === 'removed' ? null : { ...row, args: '-external', signature: 'changed', iconChoice: null } };
     });
   },
-  'art:list': (req) => { artRequests.push(req); return []; },
+  'art:list': (req) => {
+    artRequests.push(req);
+    return Array.from({ length: req.page ? 2 : 30 }, (_, i) => ({ id: req.page * 30 + i + 1,
+      url: `${icon}#${req.page * 30 + i}`, thumb: icon, width: 2, height: 2 }));
+  },
   'sgdb:search': () => { searches++; return pendingSearches
     ? new Promise((resolve) => pendingSearches.push(resolve)) : [{ id: 17, name: 'Matched game' }]; },
   'desktop:download': (selected) => selected.map((row) => ({ id: row.id, choice: { id: 9, file: 'C:\\Icons\\downloaded.ico', automatic: true } })),
@@ -128,6 +132,13 @@ app.whenReady().then(async () => {
   await wait(() => artRequests.length > 0);
   assert.ok(artRequests.every(req => req.kind === 'icon' && req.filters.animated === false));
   assert.equal(searches, 1);
+  await wait("document.querySelectorAll('#art-grid > .thumb').length === 30");
+  await run("globalThis.firstTile = document.querySelector('#art-grid > .thumb'); firstTile.click()");
+  await click('#art-more');
+  await wait("document.querySelectorAll('#art-grid > .thumb').length === 32");
+  assert.equal(await run("firstTile === document.querySelector('#art-grid > .thumb') && firstTile.classList.contains('picked')"), true);
+  assert.equal(await run("document.querySelector('#art-more')"), null);
+  assert.deepEqual(artRequests.map(req => req.page), [0, 1]);
   await click('#art-apply');
   await wait(() => cfg.desktop_overrides['link:1']?.sgdbId === 17);
   assert.ok(await run("document.querySelector('#desktop-detail').textContent.includes('Matched game · 17')"));

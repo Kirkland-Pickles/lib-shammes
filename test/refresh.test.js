@@ -41,6 +41,30 @@ it('allows existing app-managed shortcut rows through the Add/update action', ()
   assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:null, managed:true})", context), false);
 });
 
+it('loads only the active artwork tab, reuses its request, and ignores stale completion', async () => {
+  const requests = [];
+  const { context, state, button } = renderer({ artList: req => new Promise(resolve => requests.push({ req, resolve })) });
+  vm.runInContext('globalThis.renders = []; renderArtGrid = (...args) => renders.push(args);', context);
+  state.cfg = { api_key: 'fixture' };
+  state.modal = { sgdbId: 7, tab: 'grid', row: {}, cache: {} };
+  const first = vm.runInContext('loadArtTabs()', context);
+  const repeated = vm.runInContext('loadArtTabs()', context);
+  assert.equal(requests.length, 1);
+  state.modal.tab = 'hero';
+  const hero = vm.runInContext('loadArtTabs()', context);
+  requests[1].resolve([{ url: 'hero' }]);
+  await hero;
+  const rendered = context.renders.length;
+  requests[0].resolve([{ url: 'grid' }]);
+  await Promise.all([first, repeated]);
+  assert.equal(context.renders.length, rendered);
+  assert.match(button.textContent, /1 images/);
+  state.modal.tab = 'grid';
+  await vm.runInContext('loadArtTabs()', context);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests.map(({ req }) => [req.kind, req.page]), [['grid', 0], ['hero', 0]]);
+});
+
 it('rebuilds scanned and Steam rows while keeping staged artwork for surviving games', async () => {
   let reads = 0;
   const { state, refresh, button } = renderer({

@@ -1747,7 +1747,7 @@ function renderArtTabs() {
     b.textContent = label;
     const picked = m.sel[kind];
     if (picked) b.textContent += ' ★';
-    b.addEventListener('click', () => { $('#art-url-entry').hidden = true; m.tab = kind; renderArtTabs(); renderArtGrid(); });
+    b.addEventListener('click', () => { $('#art-url-entry').hidden = true; m.tab = kind; renderArtTabs(); loadArtTabs(); });
     host.appendChild(b);
   }
   $$('#art-grid .thumb').forEach((cell) => {
@@ -1801,29 +1801,39 @@ function filters() {
   return { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor };
 }
 
-async function loadArtTabs() {
+async function loadArtTabs(more = false) {
   const m = S.modal;
-  if (!m || !m.sgdbId) return;
-  artStatus(`Loading artwork for SGDB ${m.sgdbId}…`);
-  renderArtGrid(true);
+  if (!m) return;
+  if (!m.sgdbId || !S.cfg.api_key) { renderArtGrid(); return; }
+  const { sgdbId, tab: kind } = m;
+  const key = `${sgdbId}:${kind}`;
+  const page = m.cache[key] ||= { items: [], next: 0, more: true, pending: null };
+  const start = more ? page.items.length : 0;
+  if (!more && (!page.next || page.pending)) renderArtGrid(true);
+  if (more && (!page.more || page.pending)) return;
+  if (!page.next || more || page.pending) {
+    artStatus(`Loading artwork for SGDB ${sgdbId}…`);
+    if ($('#art-more')) $('#art-more').disabled = true;
+  }
   try {
-    const tabs = modalTabs();
-    const jobs = tabs.map(async ([kind]) => {
-      const key = `${m.sgdbId}:${kind}`;
-      if (!m.cache[key]) {
-        m.cache[key] = await window.api.artList({ sgdbId: m.sgdbId, kind,
-          filters: { ...filters(), ...(m.row.source === 'desktop' ? { animated: false } : {}) } });
-      }
-    });
-    await Promise.all(jobs);
-    if (S.modal !== m) return;
-    let total = 0;
-    for (const [kind] of tabs) total += (m.cache[`${m.sgdbId}:${kind}`] || []).length;
-    artStatus(`SGDB ${m.sgdbId}: ${total} images. Click to select per type.`);
-    renderArtTabs();
-    renderArtGrid();
+    if (!page.pending && (!page.next || more)) {
+      page.pending = window.api.artList({ sgdbId, kind, page: page.next,
+        filters: { ...filters(), ...(m.row.source === 'desktop' ? { animated: false } : {}) } })
+        .then(items => {
+          const urls = new Set(page.items.map(item => item.url));
+          page.items.push(...items.filter(item => !urls.has(item.url)));
+          page.next++;
+          page.more = items.length === 30;
+        }).finally(() => { page.pending = null; });
+    }
+    await page.pending;
+    if (S.modal !== m || m.sgdbId !== sgdbId || m.tab !== kind) return;
+    artStatus(`SGDB ${sgdbId}: ${page.items.length} images. Click to select per type.`);
+    renderArtGrid(false, start);
   } catch (e) {
+    if (S.modal !== m || m.sgdbId !== sgdbId || m.tab !== kind) return;
     artStatus(`Load failed: ${e.message || e}`);
+    if ($('#art-more')) $('#art-more').disabled = false;
   }
 }
 
@@ -1862,14 +1872,15 @@ async function renderArtChoice() {
   $$('#art-grid > .thumb').forEach((cell) => { cell.hidden = cell._broken || sameArtwork(choice, cell._art); });
 }
 
-function renderArtGrid(loading = false) {
+function renderArtGrid(loading = false, start = 0) {
   closeArtPreview();
   const m = S.modal;
   const grid = $('#art-grid');
-  grid.innerHTML = '';
+  if (!start) grid.innerHTML = '';
+  else $('#art-more')?.remove();
   if (!m) return;
   const kind = m.tab;
-  for (const id of ['art-stock', 'art-choice']) {
+  for (const id of start ? [] : ['art-stock', 'art-choice']) {
     const slot = document.createElement('div');
     slot.id = id;
     slot.hidden = true;
@@ -1886,12 +1897,21 @@ function renderArtGrid(loading = false) {
     grid.insertAdjacentHTML('beforeend', `<div class="muted">${m.sgdbId ? 'Loading…' : 'Search or enter an SGDB game ID first.'}</div>`);
     return;
   }
-  const items = m.cache[`${m.sgdbId}:${m.tab}`] || [];
+  const page = m.cache[`${m.sgdbId}:${m.tab}`];
+  const items = page?.items || [];
   if (!items.length) {
     grid.insertAdjacentHTML('beforeend', '<div class="muted">No SGDB images of this type.</div>');
     return;
   }
-  for (const im of items) grid.appendChild(artThumb(im));
+  for (const im of items.slice(start)) grid.appendChild(artThumb(im));
+  if (page.more) {
+    const button = document.createElement('button');
+    button.id = 'art-more';
+    button.className = 'btn';
+    button.textContent = 'Load more';
+    button.addEventListener('click', () => loadArtTabs(true));
+    grid.appendChild(button);
+  }
 }
 
 function artThumb(im, label = '', selection = im) {

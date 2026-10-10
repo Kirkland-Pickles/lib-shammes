@@ -110,13 +110,14 @@ class SGDBClient {
     throw new SGDBError('Could not check stock Steam artwork.');
   }
 
-  buildParams({ dimensions, types, nsfw, humor, limit = 50 } = {}) {
+  buildParams({ dimensions, types, nsfw, humor, limit = 50, page = 0 } = {}) {
     const p = new URLSearchParams();
     if (dimensions) p.set('dimensions', dimensions);
     if (types) p.set('types', types);
     if (nsfw) p.set('nsfw', nsfw);
     if (humor) p.set('humor', humor);
     p.set('limit', String(limit));
+    p.set('page', String(page));
     return p.toString();
   }
 

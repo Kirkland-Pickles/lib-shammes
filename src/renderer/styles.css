@@ -437,6 +437,7 @@ td.c-st { text-align: left; }
 .tab.on::after { transform: scaleX(1); }
 .thumbScroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 4px; }
 #art-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 12px; align-items: start; }
+#art-more { grid-column: 1 / -1; justify-self: center; }
 .thumb { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 6px;
   padding: 5px; cursor: pointer; transition: border-color .18s, transform .3s var(--ease); }
 .thumb:nth-child(-n+8) { animation: thumb-arrive .4s var(--ease) backwards; }

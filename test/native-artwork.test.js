@@ -168,6 +168,19 @@ it('checks stock artwork by the original Steam AppID, not the chosen SGDB listin
   await assert.rejects(client.steamMetadata(789), /Could not check stock/);
 });
 
+it('passes artwork pagination and filters to SGDB', async () => {
+  const client = new SGDBClient('fixture');
+  client._getJson = async url => {
+    const parsed = new URL(url, 'https://www.steamgriddb.com');
+    assert.equal(parsed.pathname, '/icons/game/7');
+    assert.equal(parsed.searchParams.get('page'), '2');
+    assert.equal(parsed.searchParams.get('limit'), '30');
+    assert.equal(parsed.searchParams.get('types'), 'static');
+    return [];
+  };
+  await client.icons(7, { page: 2, limit: 30, types: 'static' });
+});
+
 it('skips stock and custom artwork when onlyMissing is on', async (t) => {
   for (const stock of [{ library_capsule: 'capsule.jpg' }, { library_capsule_full: { image2x: { english: 'capsule.jpg' } } }]) {
     const env = main(t, stock);

@@ -509,6 +509,7 @@ ipcMain.handle('art:list', async (_e, req) => {
     nsfw: filters.nsfw ? 'any' : 'false',
     humor: filters.humor ? 'any' : 'false',
     limit: 30,
+    page: Number.isSafeInteger(req.page) && req.page >= 0 ? req.page : 0,
   };
   if (kind === 'wide') return c.gridsWide(sgdbId, o);
   if (kind === 'grid') return c.gridsVertical(sgdbId, o);
