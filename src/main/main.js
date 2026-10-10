@@ -553,21 +553,20 @@ ipcMain.handle('match:auto', async (_e, req) => {
       lines.push(`  ${row.display}: Steam ${row.steamAppid} not on SGDB, trying title search…`);
     }
     try {
-      // Accept the first SGDB result only when its token recall clears the threshold.
       const query = strips.toSearchQuery(row.query || row.display);
-      if (query.replace(/[^a-z0-9]/gi, '').length < 3) {
+      if (query.replace(/[^\p{L}\p{N}]/gu, '').length < 3) {
         lines.push(`  ${row.display}: query too vague, skipped`);
         continue;
       }
       const games = await c.searchGame(query);
-      const top = games[0];
-      if (top && resolveMod.titleSimilarity(query, top.name) >= resolveMod.MIN_TITLE_RECALL) {
+      const top = resolveMod.chooseTitleMatch(query, games);
+      if (top) {
         row.sgdbId = top.id; row.sgdbName = top.name;
         if (persist) store.rememberSgdb(cfg, row.folder, top.id);
         lines.push(`  ${row.display} -> ${top.name} [${top.id}] (title search)`);
         ok++;
-      } else if (top) {
-        lines.push(`  ${row.display}: no close match (top was '${top.name}')`);
+      } else if (games.length) {
+        lines.push(`  ${row.display}: no clear match; choose a match manually.`);
       } else {
         lines.push(`  ${row.display}: no match`);
       }

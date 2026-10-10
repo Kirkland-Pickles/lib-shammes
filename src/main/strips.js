@@ -64,6 +64,8 @@ function toSearchQuery(name) {
   s = s.replace(/\(\s*\)|\[\s*\]/g, ' ');
   s = pass(s);
   s = s.replace(/\b(v\d[\d.]*|build\d+|update\d+|rev\d+)\b/gi, ' ');
+  s = s.replace(/\b(?:win(?:32|64)|x(?:86|64)|shipping)\b/gi, ' ');
+  s = s.replace(/(\p{Lu})(\p{Lu}\p{Ll})/gu, '$1 $2').replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2');
   return s.replace(/\s+/g, ' ').replace(/^[\s\-_.]+|[\s\-_.]+$/g, '');
 }
 

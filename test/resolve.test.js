@@ -99,15 +99,28 @@ describe('search fallback rule', () => {
       'Another Sample Title');
   });
 
-  it('scores query recall against candidate names', () => {
+  it('normalizes joined words, punctuation, accents and sequel numbers', () => {
+    assert.equal(strips.toSearchQuery('CONTROLResonant-Win64-Shipping.exe'), 'CONTROL Resonant');
     assert.equal(
       resolve.titleSimilarity('Sample Title', 'Sample: Title'), 1);
-    assert.equal(
-      resolve.titleSimilarity('Sample Title', 'The Sample Title: Extended Edition'), 1);
-    assert.ok(
-      resolve.titleSimilarity('MyCoolGame123', 'Something Else Entirely')
-      < resolve.MIN_TITLE_RECALL);
+    for (const [query, name] of [['CONTROLResonant', 'CONTROL Resonant'], ['controlresonant', 'CONTROL Resonant'],
+      ['God of War Ragnarok', 'God of War Ragnarök'], ['DarkSouls3', 'DARK SOULS III'],
+      ['Assassins Creed', 'Assassin’s Creed'], ['龍が如く', '龍が如く']]) {
+      assert.equal(resolve.titleSimilarity(query, name), 1, query);
+    }
     assert.equal(resolve.titleSimilarity('', 'Anything'), 0);
+  });
+
+  it('ranks all results and leaves ambiguous titles, editions and sequels unmatched', () => {
+    const match = (query, names) => resolve.chooseTitleMatch(query, names.map((name, id) => ({ id, name })))?.name;
+    assert.equal(match('CONTROLResonant', ['Control', 'CONTROL Resonant']), 'CONTROL Resonant');
+    assert.equal(match('Cyberpuk 2077', ['Cyberpunk 2077', 'Cyberpunk 2077: Phantom Liberty']), 'Cyberpunk 2077');
+    for (const [query, names] of [['Control', ['Control 2']], ['Dark Souls II', ['Dark Souls III']],
+      ['Game', ['Game Demo']], ['Sample Title', ['Sample Title: Extended Edition']],
+      ['Doom', ['Doom', 'DOOM']], ['Witcher', ['The Witcher 3']], ['Game 2025', ['Game 2024']]]) {
+      assert.equal(match(query, names), undefined, query);
+    }
+    assert.equal(match('Sample Title', ['Sample Title: Extended Edition', 'Sample Title']), 'Sample Title');
   });
 });
 

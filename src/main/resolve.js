@@ -583,18 +583,42 @@ function ident(title, steamAppid, confidence, method) {
   return { title, steamAppid, confidence, method, parsed: method !== 'folder' };
 }
 
-// Score exact query-token recall. Extra candidate words do not lower the score.
-function titleSimilarity(query, candidate) {
-  const q = new Set(String(query).toLowerCase().match(/[a-z0-9]+/g) || []);
-  if (!q.size) return 0;
-  const c = new Set(String(candidate).toLowerCase().match(/[a-z0-9]+/g) || []);
-  let hit = 0;
-  for (const t of q) if (c.has(t)) hit++;
-  return hit / q.size;
+function titleTokens(title) {
+  const roman = { i: '1', ii: '2', iii: '3', iv: '4', v: '5', vi: '6', vii: '7', viii: '8', ix: '9', x: '10' };
+  return (strips.toSearchQuery(title).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
+    .replace(/['’™®]/g, '').match(/\p{L}+|\d+/gu) || [])
+    .filter(token => !['the', 'a', 'an'].includes(token)).map(token => roman[token] || token);
 }
 
-// Minimum token recall required for automatic acceptance.
-const MIN_TITLE_RECALL = 0.5;
+function titleSimilarity(query, candidate) {
+  const q = titleTokens(query), c = titleTokens(candidate);
+  if (!q.length || !c.length) return 0;
+  if (q.filter(t => /^\d+$/.test(t)).join() !== c.filter(t => /^\d+$/.test(t)).join()) return 0;
+  const a = q.join(''), b = c.join('');
+  if (a === b) return 1;
+  const qs = new Set(q), cs = new Set(c);
+  const common = [...qs].filter(token => cs.has(token)).length;
+  if (common === qs.size && common === cs.size) return 0.98;
+  // A missing subtitle is not a typo, even when the titles share most words.
+  if (common === Math.min(qs.size, cs.size)) return 0;
+  if (Math.min(a.length, b.length) < 8 || Math.abs(a.length - b.length) > 2) return 0;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) current[j] = Math.min(current[j - 1] + 1, previous[j] + 1,
+      previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    previous = current;
+  }
+  return 1 - previous[b.length] / Math.max(a.length, b.length);
+}
+
+function chooseTitleMatch(query, games) {
+  const ranked = [...new Map(games.map(game => [game.id, game])).values()]
+    .map(game => ({ game, score: titleSimilarity(query, game.name) })).sort((a, b) => b.score - a.score);
+  const [first, second] = ranked;
+  if (!first || first.score < 0.9 || (second && first.score - second.score < 0.08)) return null;
+  return first.game;
+}
 
 function resolveFolder(folderName, cleanFn) {
   const key = normalizeKey(folderName);
@@ -645,4 +669,4 @@ function resolveExeStem(stem) {
   return null;
 }
 
-module.exports = { ALIASES, EXE_ALIASES, normalizeKey, resolveFolder, resolveExeStem, titleSimilarity, MIN_TITLE_RECALL };
+module.exports = { ALIASES, EXE_ALIASES, normalizeKey, resolveFolder, resolveExeStem, titleSimilarity, chooseTitleMatch };
