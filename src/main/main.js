@@ -270,7 +270,7 @@ async function uninstallCleanup() {
     let failures;
     try { failures = await desktop.cleanup(); }
     catch (e) { failures = [e.message]; }
-    if (failures.length) await dialog.showMessageBox({ type: 'warning', title: 'Some desktop icons remain',
+    if (failures.length) await dialog.showMessageBox({ type: 'warning', title: 'Some shortcut icons remain',
       message: 'Icons still needed by shortcuts were kept.', detail: failures.join('\n'), buttons: ['OK'] });
   }
   if (process.argv.includes('--delete-app-data')) {
@@ -418,14 +418,14 @@ ipcMain.handle('desktop:scan', async () => {
   desktopJob = true;
   try {
     const games = cfg.games_roots.length ? scanFolders({ roots: cfg.games_roots }) : [];
-    return await desktop.discover([...games, ...savedExecutables('desktop')]);
+    return await desktop.discover([...games, ...savedExecutables('desktop')], cfg.desktop_destination);
   } finally { desktopJob = false; }
 });
 ipcMain.handle('desktop:apply', async (_e, rows) => {
   if (desktopJob) throw new Error('Desktop library is busy.');
   desktopJob = true;
   try {
-    const results = await desktop.apply(rows, (i, total, name) => progress(i, total, `Saving Desktop shortcut ${i + 1}/${total}: ${name}`));
+    const results = await desktop.apply(rows, (i, total, name) => progress(i, total, `Saving shortcut ${i + 1}/${total}: ${name}`));
     for (const result of results) if (result.ok || result.refreshed) {
       delete cfg.desktop_overrides[result.id];
       if (result.ok) cfg.desktop_overrides[result.row.id] = { display: result.row.display, sgdbId: result.row.sgdbId, sgdbName: result.row.sgdbName, signature: result.row.signature };

@@ -1413,7 +1413,7 @@ function saveDesktopDraft(row) {
 async function refreshDesktop(force = true) {
   const d = S.desktop;
   if (d.busy) return;
-  const key = JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.desktop_executables]);
+  const key = JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.desktop_executables, S.cfg.desktop_destination]);
   if (!force && d.loadedKey === key) return;
   d.busy = true;
   renderDesktop();
@@ -1445,11 +1445,15 @@ function desktopVisible() {
 function renderDesktop(detail = true) {
   const d = S.desktop;
   const visible = desktopVisible();
+  $('#desktop-destination').value = S.cfg.desktop_destination || 'desktop';
+  $('#desktop-destination').disabled = d.busy;
+  $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? 'Add selected to Start menu'
+    : S.cfg.desktop_destination === 'both' ? 'Add selected shortcuts' : 'Add selected to Desktop';
   $('#desktop-count').textContent = `${visible.length} games · ${d.rows.filter((row) => row.checked).length} selected`;
   $('#desktop-games tbody').innerHTML = visible.map((row) => `<tr data-key="${esc(row.id)}" class="${row.id === d.detail ? 'sel' : ''}">
     <td class="c-add"><input type="checkbox" class="row-check" aria-label="Select ${esc(row.display)}" ${row.checked ? 'checked' : ''}></td>
     <td><div class="game-name">${esc(row.display)}</div><div class="cell-meta" title="${esc(row.exe)}">${esc(row.exe)}</div></td>
-    <td title="${esc(row.shortcut || '')}"><div class="cell-main">${esc(row.shortcut || 'New shortcut')}</div><div class="cell-meta">${esc(row.args)}</div></td>
+    <td title="${esc(row.shortcut || '')}"><div class="cell-main">${esc(row.shortcut || (row.destination === 'start-menu' ? 'New Start-menu shortcut' : 'New Desktop shortcut'))}</div><div class="cell-meta">${esc(row.args)}</div></td>
     <td title="${esc(row.error || '')}">${row.saving ? 'Saving…' : row.error ? 'Error' : row.saved ? 'Saved' : row.shortcut ? 'Existing' : 'Not added'}${needsReview(row) ? '<div class="cell-meta">Not matched</div>' : ''}</td></tr>`).join('');
   for (const id of ['desktop-add', 'desktop-refresh', 'desktop-find', 'desktop-match', 'desktop-download']) $('#' + id).disabled = d.busy;
   $('#desktop-add').disabled ||= !d.rows.some((row) => row.checked);
@@ -1561,6 +1565,10 @@ async function renderDesktopIconChoices() {
 }
 
 function wireDesktop() {
+  $('#desktop-destination').onchange = handleAction('Change shortcut destination', async () => {
+    await savePatch({ desktop_destination: $('#desktop-destination').value });
+    await refreshDesktop();
+  });
   $('#desktop-refresh').onclick = handleAction('Refresh Desktop', refreshDesktop);
   $('#desktop-find').onclick = () => doFindExecutables({ rows: S.desktop.rows, add: async (games) => {
     await savePatch({ desktop_executables: [...(S.cfg.desktop_executables || []), ...games] });
@@ -1613,7 +1621,7 @@ function wireDesktop() {
       await desktopSave;
       const rows = d.rows.filter((row) => row.checked);
       const updates = rows.filter((row) => row.shortcut).length;
-      if (!await confirmDlg('Add selected to Desktop', `Create ${rows.length - updates} shortcut(s) and update ${updates} existing shortcut(s)?`)) return;
+      if (!await confirmDlg($('#desktop-add').textContent, `Create ${rows.length - updates} shortcut(s) and update ${updates} existing shortcut(s)?`)) return;
       d.applying = true;
       rows.forEach((row) => { row.saving = true; });
       renderDesktop(false);
@@ -1626,7 +1634,7 @@ function wireDesktop() {
           if (result.row) Object.assign(row, result.row, { draft: null, art: {}, error: '', saved: result.ok, checked: row.checked });
           else d.rows = d.rows.filter(item => item !== row);
         } else row.error = result.error;
-        log(`${row.display}: ${result.ok ? 'Desktop shortcut saved.' : result.error}`);
+        log(`${row.display}: ${result.ok ? 'Shortcut saved.' : result.error}`);
         if (result.warning) log(result.warning);
       }
       const refreshed = results.filter((result) => result.refreshed).length;

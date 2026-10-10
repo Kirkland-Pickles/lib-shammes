@@ -36,13 +36,30 @@ function shortcutName(name) {
   return clean;
 }
 
-async function sharedDesktop() {
+async function knownFolder(name) {
   const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Environment]::GetFolderPath('CommonDesktopDirectory')"],
+    `[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Environment]::GetFolderPath('${name}')`],
   { windowsHide: true, timeout: 10000 });
   const folder = stdout.trim();
-  if (!path.isAbsolute(folder)) throw new Error('Could not locate the shared Desktop.');
+  if (!path.isAbsolute(folder)) throw new Error(`Could not locate Windows ${name} folder.`);
   return folder;
+}
+const sharedDesktop = () => knownFolder('CommonDesktopDirectory');
+
+function inPrograms(file, dir) {
+  const relative = path.win32.relative(pathKey(dir), pathKey(file));
+  return !!relative && !relative.startsWith('..') && !path.win32.isAbsolute(relative)
+    && relative.split('\\')[0] !== 'startup';
+}
+
+function shortcutFiles(dir, recursive = false) {
+  const files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isFile() && /\.lnk$/i.test(entry.name)) files.push(file);
+    else if (recursive && entry.isDirectory() && entry.name.toLowerCase() !== 'startup') files.push(...shortcutFiles(file, true));
+  }
+  return files;
 }
 
 async function notifyShell(changes) {
@@ -56,11 +73,14 @@ async function notifyShell(changes) {
     { windowsHide: true, timeout: 20000 });
 }
 
-function createDesktop({ app, shell, nativeImage, personal, shared, iconDir, elevate }) {
+function createDesktop({ app, shell, nativeImage, personal, shared, startMenu, sharedStartMenu, iconDir, elevate }) {
   const iconPreviews = new Map();
   let commonDesktop;
   const common = () => commonDesktop ||= shared ? Promise.resolve(shared) : sharedDesktop().catch((e) => { commonDesktop = null; throw e; });
-  const roots = async () => [...new Set([personal || app.getPath('desktop'), await common()])];
+  let menuFolders;
+  const menus = () => menuFolders ||= (personal ? Promise.resolve([startMenu, sharedStartMenu].filter(Boolean))
+    : Promise.all([knownFolder('Programs'), knownFolder('CommonPrograms')])).catch(e => { menuFolders = null; throw e; });
+  const roots = async () => [...new Set([personal || app.getPath('desktop'), await common(), ...await menus()])];
   const cacheDir = () => iconDir || path.join(process.env.LOCALAPPDATA, 'Lib Shammes', 'Desktop icons');
   const manifestPath = () => path.join(cacheDir(), 'shortcuts.json');
   const ownsIcon = (file) => !!file && pathKey(path.dirname(file)) === pathKey(cacheDir()) && /^[a-f0-9]{64}\.ico$/.test(path.basename(file));
@@ -89,7 +109,9 @@ function createDesktop({ app, shell, nativeImage, personal, shared, iconDir, ele
     return { ...shell.readShortcutLink(file), admin: !!(flags & RUN_AS_ADMIN),
       signature: createHash('sha256').update(bytes).digest('hex') };
   }
-  async function discover(games) {
+  async function discover(games, destination = 'desktop') {
+    if (!['desktop', 'start-menu', 'both'].includes(destination)) throw new Error('Choose a shortcut destination.');
+    const programs = await menus();
     const byExe = new Map();
     for (const game of games) if (game.exePath && !byExe.has(pathKey(game.exePath))) byExe.set(pathKey(game.exePath), game);
     const primary = new Map(byExe);
@@ -100,26 +122,30 @@ function createDesktop({ app, shell, nativeImage, personal, shared, iconDir, ele
     const rows = [];
     const warnings = [];
     for (const dir of await roots()) {
+      const type = programs.includes(dir) ? 'start-menu' : 'desktop';
+      if (destination !== 'both' && destination !== type) continue;
       let files;
-      try { files = fs.readdirSync(dir); }
+      try { files = shortcutFiles(dir, type === 'start-menu'); }
       catch (e) { if (e.code !== 'ENOENT') warnings.push(`${dir}: ${e.message}`); continue; }
-      for (const name of files.filter((name) => /\.lnk$/i.test(name))) {
-        const file = path.join(dir, name);
+      for (const file of files) {
         try {
           const details = read(file);
           const key = pathKey(details.target);
           const game = byExe.get(key);
           if (!game) continue;
-          found.add(pathKey(game.exePath));
+          found.add(`${type}:${pathKey(game.exePath)}`);
           rows.push({ ...game, id: `link:${pathKey(file)}`, shortcut: file, signature: details.signature,
+            destination: type,
             display: path.basename(file, path.extname(file)), exe: details.target, cwd: details.cwd,
             args: details.args, admin: details.admin, icon: details.icon, iconIndex: details.iconIndex });
         } catch (e) { warnings.push(`${file}: ${e.message}`); }
       }
     }
-    for (const [key, game] of primary) if (!found.has(key)) rows.push({ ...game, id: `exe:${key}`,
-      display: game.query || game.displayName, exe: game.exePath, cwd: path.dirname(game.exePath),
-      args: '', admin: false, icon: '', iconIndex: 0 });
+    for (const type of destination === 'both' ? ['desktop', 'start-menu'] : [destination]) {
+      for (const [key, game] of primary) if (!found.has(`${type}:${key}`)) rows.push({ ...game, id: `${type === 'desktop' ? '' : 'start:'}exe:${key}`, destination: type,
+        display: game.query || game.displayName, exe: game.exePath, cwd: path.dirname(game.exePath),
+        args: '', admin: false, icon: '', iconIndex: 0 });
+    }
     return { rows, warnings };
   }
   function validateTarget(exe) {
@@ -130,14 +156,17 @@ function createDesktop({ app, shell, nativeImage, personal, shared, iconDir, ele
   async function write(row) {
     validateTarget(row.exe);
     const desktopRoots = await roots();
+    const programs = await menus();
     const original = row.shortcut || null;
-    if (original && (!desktopRoots.some((dir) => pathKey(dir) === pathKey(path.dirname(original)))
+    if (original && (!desktopRoots.some((dir) => programs.includes(dir) ? inPrograms(original, dir) : pathKey(dir) === pathKey(path.dirname(original)))
       || path.extname(original).toLowerCase() !== '.lnk' || fs.lstatSync(original).isSymbolicLink())) {
-      throw new Error('Shortcut is not on the Desktop. Refresh and try again.');
+      throw new Error('Shortcut is not on the Desktop or Start menu. Refresh and try again.');
     }
     const before = original ? read(original) : null;
     if (before && before.signature !== row.signature) throw Object.assign(new Error('Shortcut refreshed. Review changes and apply again.'), { code: 'DESKTOP_CHANGED' });
-    const dir = original ? path.dirname(original) : desktopRoots[0];
+    const dir = original ? path.dirname(original) : row.destination === 'start-menu' ? programs[0] : desktopRoots[0];
+    if (!dir) throw new Error('Start menu folder is unavailable.');
+    if (!original) fs.mkdirSync(dir, { recursive: true });
     const name = shortcutName(row.display);
     let destination = path.join(dir, `${name}.lnk`);
     for (let suffix = 2; fs.existsSync(destination) && pathKey(destination) !== pathKey(original); suffix++) {
@@ -191,7 +220,8 @@ function createDesktop({ app, shell, nativeImage, personal, shared, iconDir, ele
     try { return await write(row); }
     catch (e) {
       if (!elevate || !['EACCES', 'EPERM'].includes(e.code) || !row.shortcut) throw e;
-      if (pathKey(path.dirname(row.shortcut)) !== pathKey(await common())) throw e;
+      const sharedPrograms = (await menus())[1];
+      if (pathKey(path.dirname(row.shortcut)) !== pathKey(await common()) && !(sharedPrograms && inPrograms(row.shortcut, sharedPrograms))) throw e;
       return elevate(row);
     }
   }
@@ -294,11 +324,10 @@ function createDesktop({ app, shell, nativeImage, personal, shared, iconDir, ele
     const changes = [];
     const dirs = await roots();
     for (const dir of dirs) {
-      let names;
-      try { names = fs.readdirSync(dir); }
+      let files;
+      try { files = shortcutFiles(dir, (await menus()).includes(dir)); }
       catch (e) { if (e.code === 'ENOENT') continue; throw e; }
-      for (const name of names.filter((name) => /\.lnk$/i.test(name))) {
-        const file = path.join(dir, name);
+      for (const file of files) {
         try {
           const link = read(file);
           const owned = Object.keys(records).find((icon) => pathKey(icon) === pathKey(link.icon));
@@ -367,4 +396,4 @@ function createDesktop({ app, shell, nativeImage, personal, shared, iconDir, ele
     preview };
 }
 
-module.exports = { createDesktop, pathKey, linkFlags, shortcutName, sharedDesktop };
+module.exports = { createDesktop, pathKey, linkFlags, shortcutName, sharedDesktop, knownFolder, inPrograms };

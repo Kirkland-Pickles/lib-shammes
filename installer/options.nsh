@@ -90,7 +90,7 @@
   !macro customUnInstallSection
     Section /o "un.Undo Steam changes" undoSteam
     SectionEnd
-    Section /o "un.Delete desktop icons" deleteDesktopIcons
+    Section /o "un.Delete Desktop and Start-menu icons" deleteDesktopIcons
     SectionEnd
     Section "un.Delete settings, saved matches, and undo history" deleteData
     SectionEnd

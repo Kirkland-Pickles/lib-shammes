@@ -3,7 +3,7 @@ const net = require('net');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const { execFile } = require('child_process');
-const { createDesktop, pathKey, sharedDesktop } = require('./desktop');
+const { createDesktop, pathKey, sharedDesktop, knownFolder, inPrograms } = require('./desktop');
 
 function elevateShortcut(app, row) {
   return new Promise((resolve, reject) => {
@@ -52,6 +52,7 @@ function elevateShortcut(app, row) {
 async function runShortcutHelper(app, shell, nativeImage, pipe) {
   if (!/^\\\\\.\\pipe\\lib-shammes-desktop-[a-f0-9-]{36}$/.test(pipe || '')) throw new Error('Invalid shortcut helper request.');
   const common = await sharedDesktop();
+  const programs = await knownFolder('CommonPrograms');
   await new Promise((resolve, reject) => {
     const socket = net.connect(pipe);
     let request = '';
@@ -67,8 +68,8 @@ async function runShortcutHelper(app, shell, nativeImage, pipe) {
       received = true;
       try {
         const row = JSON.parse(request);
-        if (!row.shortcut || pathKey(path.dirname(row.shortcut)) !== pathKey(common)) throw new Error('Only existing shared Desktop shortcuts can be updated.');
-        const desktop = createDesktop({ app, shell, nativeImage, personal: common, shared: common });
+        if (!row.shortcut || (pathKey(path.dirname(row.shortcut)) !== pathKey(common) && !inPrograms(row.shortcut, programs))) throw new Error('Only existing shared Desktop or Start-menu shortcuts can be updated.');
+        const desktop = createDesktop({ app, shell, nativeImage, personal: common, shared: common, startMenu: programs, sharedStartMenu: programs });
         const saved = await desktop.write(row);
         socket.end(JSON.stringify({ row: saved }) + '\n');
       } catch (e) { socket.end(JSON.stringify({ error: e.message, code: e.code }) + '\n'); }

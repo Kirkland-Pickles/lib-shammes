@@ -234,6 +234,16 @@ app.whenReady().then(async () => {
   await wait("document.querySelector('#status').textContent.includes('updated')");
   assert.equal(steamRequest.rows[0].display, 'New name');
   assert.equal(steamRequest.autoArt, false);
+  await click('[data-page=desktop]');
+  await idle();
+  await change('#desktop-destination', 'start-menu');
+  await wait(() => cfg.desktop_destination === 'start-menu');
+  await idle();
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Add selected to Start menu');
+  await change('#desktop-destination', 'both');
+  await wait(() => cfg.desktop_destination === 'both');
+  await idle();
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Add selected shortcuts');
   console.log('Desktop fixture checks passed');
   win.destroy();
   app.exit(0);

@@ -29,6 +29,7 @@ const DEFAULTS = {
   title_map: {},
   desktop_overrides: {},
   desktop_executables: [],
+  desktop_destination: 'desktop',
   steam_executables: [],
   startup_library: 'steam',
   onboarded: false,
