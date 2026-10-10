@@ -116,6 +116,7 @@ app.whenReady().then(async () => {
   assert.equal(await run("document.querySelector('#art-search').disabled"), true);
   await click('#art-cancel');
   await click('[data-page=settings]');
+  assert.equal(await run("document.querySelector('.steam-controls').hidden"), false);
   await change('#settings-cards [data-r=key]', 'fixture');
   await wait(() => cfg.api_key === 'fixture');
   await click('#settings-cards [data-k=include_animated]');
