@@ -216,7 +216,6 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
 .banner[hidden] { display: none; }
 .checklist {
   display: flex; gap: 8px; align-items: center;
-  border-bottom: 1px solid var(--line);
   padding: 6px 0 10px; margin-bottom: 9px; flex-wrap: wrap;
 }
 .checklist[hidden] { display: none; }
