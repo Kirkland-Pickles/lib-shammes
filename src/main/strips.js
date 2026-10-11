@@ -57,6 +57,7 @@ function toSearchQuery(name) {
     return s;
   };
   let s = String(name || '').replace(/\.exe$/i, '');
+  s = s.replace(/[-_. ](?:win(?:32|64)|x(?:86|64))(?:[-_. ]shipping)?$/i, '');
   // Strip dotted version tokens before replacing separators. Bare numeric tokens remain.
   s = s.replace(/\bv\d[\d.]*\b|\bbuild\d+\b|\bupdate\d+\b|\brev\d+\b/gi, ' ');
   s = pass(s);
@@ -64,7 +65,6 @@ function toSearchQuery(name) {
   s = s.replace(/\(\s*\)|\[\s*\]/g, ' ');
   s = pass(s);
   s = s.replace(/\b(v\d[\d.]*|build\d+|update\d+|rev\d+)\b/gi, ' ');
-  s = s.replace(/\b(?:win(?:32|64)|x(?:86|64)|shipping)\b/gi, ' ');
   s = s.replace(/(\p{Lu})(\p{Lu}\p{Ll})/gu, '$1 $2').replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2');
   return s.replace(/\s+/g, ' ').replace(/^[\s\-_.]+|[\s\-_.]+$/g, '');
 }

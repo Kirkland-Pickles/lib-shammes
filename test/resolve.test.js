@@ -101,6 +101,8 @@ describe('search fallback rule', () => {
 
   it('normalizes joined words, punctuation, accents and sequel numbers', () => {
     assert.equal(strips.toSearchQuery('CONTROLResonant-Win64-Shipping.exe'), 'CONTROL Resonant');
+    assert.equal(strips.toSearchQuery('Shipping Manager'), 'Shipping Manager');
+    assert.equal(strips.toSearchQuery('Shipping Manager-Win64-Shipping.exe'), 'Shipping Manager');
     assert.equal(
       resolve.titleSimilarity('Sample Title', 'Sample: Title'), 1);
     for (const [query, name] of [['CONTROLResonant', 'CONTROL Resonant'], ['controlresonant', 'CONTROL Resonant'],
