@@ -28,6 +28,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
     './store': { ...store, load: () => cfg, save, configDir: () => path.join(root, 'appdata'),
       loadChanges: () => structuredClone(changes), saveChanges: (value) => { changes = structuredClone(value); } },
     './steam': { ...steam, normalizeSteamPath: (value) => value,
+      isSteamRunning: async () => false,
       loadEntries: () => { calls.push('read shortcuts'); return []; },
       saveEntries: () => { calls.push('write shortcuts'); throw new Error('Native artwork must not write shortcuts'); }, ...steamOverrides },
     './sgdb': { SGDBClient: class {
@@ -50,6 +51,50 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
 function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
+
+it('closes Steam before writing artwork and reopens it once afterward', async t => {
+  const events = [];
+  const env = main(t, {}, {}, {
+    isSteamRunning: async () => true,
+    closeSteam: async () => events.push('closed'),
+    launchSteam: async () => { assert.ok(env.calls.includes('download')); events.push('opened'); },
+  });
+  const result = await env.download();
+  assert.equal(result.saved, 1);
+  assert.deepEqual(events, ['closed', 'opened']);
+});
+
+it('does not write when Steam refuses to close', async t => {
+  const env = main(t, {}, {}, {
+    isSteamRunning: async () => true,
+    closeSteam: async () => { throw new Error('Steam did not exit'); },
+    launchSteam: async () => assert.fail('must not launch another client'),
+  });
+  await assert.rejects(env.download(), /Steam did not exit/);
+  assert.deepEqual(env.calls, []);
+});
+
+it('keeps a successful artwork result when reopening Steam fails', async t => {
+  const env = main(t, {}, {}, {
+    isSteamRunning: async () => true, closeSteam: async () => {},
+    launchSteam: async () => { throw new Error('launch denied'); },
+  });
+  const result = await env.download();
+  assert.equal(result.saved, 1);
+  assert.match(result.warning, /launch denied/);
+});
+
+it('reopens Steam after a failed write and releases the write lock', async t => {
+  let reopened = 0;
+  const env = main(t, {}, {}, {
+    isSteamRunning: async () => true, closeSteam: async () => {},
+    launchSteam: async () => { reopened++; },
+    loadEntries: () => { throw new Error('unreadable shortcuts'); },
+  });
+  await assert.rejects(env.download({ ...native(), source: 'folder' }), /unreadable shortcuts/);
+  assert.equal(reopened, 1);
+  assert.equal((await env.download()).saved, 1);
+});
 
 it('returns saved Desktop shortcuts when config persistence fails', async (t) => {
   const row = { id: 'link:saved', display: 'Game', shortcut: 'saved.lnk' };

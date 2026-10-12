@@ -402,8 +402,15 @@ async function launchSteam(steamPath) {
   const exe = path.join(steamPath, 'steam.exe');
   if (!hasSteamExe(steamPath)) throw new Error(`No steam.exe in ${steamPath} - check Settings.`);
   const child = spawn(exe, [], { detached: true, stdio: 'ignore', windowsHide: true });
+  await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
   child.unref();
   return { launched: true, lines: ['Steam launching…'] };
+}
+
+async function closeSteam(steamPath) {
+  if (!hasSteamExe(steamPath)) throw new Error('Choose a valid Steam installation before applying changes.');
+  await execFileAsync(path.join(steamPath, 'steam.exe'), ['-shutdown'], { timeout: 10000 });
+  if (!await waitSteamGone()) throw new Error('Steam did not exit. Close it before applying changes. Nothing was written.');
 }
 
 /** Restart Steam. Stop a running client, wait for exit, then launch. */
@@ -557,6 +564,6 @@ module.exports = {
   crc32, shortcutId, appidSigned, quoteExe,
   loadEntries, backupShortcuts, buildEntry, findByExe, isManagedEntry, upsertEntry, saveEntries,
   gridStemFor, gridStemFromEntry, artDest, currentArtwork, clearConflictingExts, isSteamRunning,
-  killSteam, launchSteam, restartSteam, findStaleShortcuts,
+  killSteam, closeSteam, launchSteam, restartSteam, findStaleShortcuts,
   listInstalledGames, planPurge,
 };

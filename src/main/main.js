@@ -668,7 +668,41 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
   return { line: `  ${row.display} [${kind}]: saved ${path.basename(dest)} (${src}).`, saved: true };
 }
 
-ipcMain.handle('art:download', async (_e, req) => {
+let steamWriteBusy = false;
+async function withSteamClosed(write) {
+  if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
+  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
+  steamWriteBusy = true;
+  const steamPath = cfg.steam_path;
+  let reopen = false;
+  let result;
+  let failure;
+  try {
+    if (await steam.isSteamRunning()) {
+      progress(0, 0, 'Closing Steam…');
+      await steam.closeSteam(steamPath);
+      reopen = true;
+    }
+    result = await write();
+  } catch (e) {
+    failure = e;
+  } finally {
+    if (reopen) {
+      try { await steam.launchSteam(steamPath); }
+      catch (e) {
+        const warning = `Steam could not reopen: ${e.message || e}. Open Steam manually.`;
+        if (failure) failure.message += ` ${warning}`;
+        else { result.warning = warning; (result.lines ||= []).push(warning); }
+      }
+    }
+    steamWriteBusy = false;
+  }
+  if (failure) throw failure;
+  return result;
+}
+
+ipcMain.handle('art:download', (_e, req) => withSteamClosed(() => downloadArtwork(req)));
+async function downloadArtwork(req) {
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
   const kinds = (req && Array.isArray(req.kinds) ? req.kinds : []).filter((kind) => Object.hasOwn(steam.ART_SUFFIXES, kind));
@@ -760,10 +794,21 @@ ipcMain.handle('art:download', async (_e, req) => {
   store.saveChanges(changes);
   progress(0, 0, `${saved} artwork saved, ${failed} failed.`);
   return { rows, lines, saved, failed };
-});
+}
 
 // ------------------------------------------------------------ steam add/rm
-ipcMain.handle('steam:add', async (_e, req) => {
+ipcMain.handle('steam:add', (_e, req) => withSteamClosed(async () => {
+  const result = await addSteam(req);
+  if (req.nativeRows?.length) {
+    const native = await downloadArtwork({ rows: req.nativeRows, kinds: [], onlyMissing: true, filters: req.filters });
+    result.nativeRows = native.rows;
+    result.artworkSaved += native.saved;
+    result.artworkFailed += native.failed;
+    result.lines.push(...native.lines);
+  }
+  return result;
+}));
+async function addSteam(req) {
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
   const autoArt = !!(req && req.autoArt);
@@ -871,9 +916,9 @@ ipcMain.handle('steam:add', async (_e, req) => {
   lines.push(shortcutsChanged
     ? `Saved shortcuts.vdf: ${added} added, ${updated} updated.`
     : 'No shortcut changes needed.');
-  progress(0, 0, `Done: ${added} added, ${updated} updated, ${artworkSaved} artwork saved. Restart Steam!`);
+  progress(0, 0, `Done: ${added} added, ${updated} updated, ${artworkSaved} artwork saved.`);
   return { rows, lines, added, updated, artworkSaved, artworkFailed };
-});
+}
 
 ipcMain.handle('steam:remove', async (_e, req) => {
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');

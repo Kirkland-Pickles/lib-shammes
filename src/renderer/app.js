@@ -1177,12 +1177,12 @@ async function writeArtwork(rows, kinds) {
   return result;
 }
 
-function reportArtwork({ saved, failed }, success) {
+function reportArtwork({ saved, failed, warning }, success) {
   const message = failed ? `${saved} artwork saved, ${failed} failed. Check the log.`
     : saved ? success : 'No artwork changed. Check the log for skipped images.';
   log(message);
   status(message);
-  toast(message);
+  toast(warning ? `${message} ${warning}` : message);
 }
 
 async function doDownloadArt() {
@@ -1191,8 +1191,9 @@ async function doDownloadArt() {
   if (needKey()) return;
   const kinds = wantedKinds();
   if (!kinds.length && !rows.some((r) => Object.keys(r.art).length)) { toast('Tick at least one artwork type (Settings).'); return; }
+  if (!await confirmDlg('Apply artwork', 'Apply artwork to the selected games? Steam will close and reopen if it is running.')) return;
   status(`Downloading art for ${rows.length} games…`);
-  reportArtwork(await writeArtwork(rows, kinds), 'Art download completed. Restart Steam.');
+  reportArtwork(await writeArtwork(rows, kinds), 'Artwork applied to Steam.');
 }
 
 function wantedKinds() {
@@ -1221,9 +1222,9 @@ async function doAddToSteam() {
   if (!eligible.length) {
     if (native.length) {
       if (!nativeArt.length) { toast('Choose artwork first.'); return; }
-      if (!await confirmDlg('Apply artwork to Steam', 'Apply the artwork you chose to the selected Steam games?')) return;
+      if (!await confirmDlg('Apply artwork to Steam', 'Apply the artwork you chose to the selected Steam games? Steam will close and reopen if it is running.')) return;
       status(`Applying artwork to ${nativeArt.length} Steam games…`);
-      reportArtwork(await writeArtwork(nativeArt, []), 'Artwork applied to Steam. Restart Steam to see it.');
+      reportArtwork(await writeArtwork(nativeArt, []), 'Artwork applied to Steam.');
       return;
     }
     toast('No selected games with a .exe.'); return;
@@ -1232,11 +1233,7 @@ async function doAddToSteam() {
   let summary = updates ? `Add ${eligible.length - updates} game(s) and update ${updates} existing Steam shortcut(s)?`
     : `Add ${eligible.length} selected game(s) to Steam as non-Steam shortcuts?`;
   if (nativeArt.length) summary += '\n\nChosen artwork will also be applied to the selected native Steam games.';
-  if (!await confirmDlg('Add to Steam', summary)) return;
-  if (await window.api.steamRunning()) {
-    if (!await confirmDlg('Steam is running',
-      'Shortcuts can still be written, but you MUST fully exit Steam (tray - Exit) and reopen it afterwards. Continue?')) return;
-  }
+  if (!await confirmDlg('Add to Steam', `${summary}\n\nSteam will close and reopen if it is running.`)) return;
   let autoArt = false;
   let missingArt = false;
   if (S.cfg.api_key) {
@@ -1262,8 +1259,9 @@ async function doAddToSteam() {
   status(`Adding ${eligible.length} games to Steam…`);
   log(`Adding ${eligible.length} games…`);
   try {
-    const { rows: back, lines, added, updated, artworkSaved, artworkFailed = 0 } = await window.api.steamAdd({
+    const { rows: back, nativeRows = [], lines, added, updated, artworkSaved, artworkFailed = 0, warning } = await window.api.steamAdd({
       rows: eligible.map(rowPayload),
+      nativeRows: nativeArt.map(rowPayload),
       autoArt,
       kinds,
       filters: { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor },
@@ -1282,15 +1280,19 @@ async function doAddToSteam() {
     await syncCfg();
     lines.forEach(log);
     renderRows();
-    const nativeResult = nativeArt.length ? await writeArtwork(nativeArt, []) : { saved: 0, failed: 0 };
-    const failed = artworkFailed + nativeResult.failed;
-    const changed = added + updated + artworkSaved + nativeResult.saved;
-    const message = changed || failed ? `${added} added, ${updated} updated, ${artworkSaved + nativeResult.saved} artwork saved.`
-      + (failed ? ` ${failed} failed. Check the log.` : ' Restart Steam to see them.')
+    for (const row of nativeRows) {
+      const original = S.rows.find(r => r.folder === row.folder);
+      if (original) original.art = row.art;
+    }
+    if (S.detailKey) renderDetail();
+    const failed = artworkFailed;
+    const changed = added + updated + artworkSaved;
+    const message = changed || failed ? `${added} added, ${updated} updated, ${artworkSaved} artwork saved.`
+      + (failed ? ` ${failed} failed. Check the log.` : '')
       : 'No changes were made. Check the log.';
     log(message);
     status(message);
-    toast(message);
+    toast(warning ? `${message} ${warning}` : message);
   } catch (e) {
     log(`FAILED: ${e.message || e}`);
     toast(`Write failed: ${e.message || e}`);
