@@ -548,7 +548,7 @@ ipcMain.handle('art:prepare', async (_e, req) => {
       try {
         if (cfg.only_missing && (row.art[kind] || steam.currentArtwork(cfg.steam_path, cfg.steam_user_id, row, kind))) continue;
         if (cfg.only_missing && row.source === 'steam') {
-          metadata ||= await client().steamMetadata(row.steamAppid);
+          metadata ||= await client().steamMetadata(row.steamAppid).catch(() => ({}));
           if (hasStockArtwork(metadata, kind)) continue;
         }
         const image = sgdbMod.chooseArtwork(await listArtwork({ sgdbId: row.sgdbId, kind }), artworkFilters(kind));
@@ -639,7 +639,7 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
   }
   let metadata;
   if (native && ((!sel && onlyMissing) || kind === 'icon')) {
-    metadata = await native.metadata();
+    metadata = await native.metadata().catch(e => { if (kind === 'icon') throw e; return {}; });
     const stock = hasStockArtwork(metadata, kind);
     if (!sel && onlyMissing && stock) return { line: `${row.display} [${kind}]: stock Steam artwork present, skip.`, saved: false };
     if (kind === 'icon' && !/^[a-f0-9]{40}$/i.test(metadata.icon || '')) throw new Error('Steam icon cache filename is unavailable.');

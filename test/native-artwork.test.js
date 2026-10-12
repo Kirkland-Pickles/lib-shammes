@@ -53,6 +53,12 @@ function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
 
+it('continues when stock detection fails and reports only artwork actually written', async t => {
+  const env = main(t, new Error('offline metadata'));
+  const result = await env.download(native(), { onlyMissing: true });
+  assert.equal(result.saved, 1);
+});
+
 it('keeps the Steam account and app data fixed until an artwork write finishes', async t => {
   let release;
   const env = main(t, {}, {}, { isSteamRunning: () => new Promise(resolve => { release = resolve; }) });
