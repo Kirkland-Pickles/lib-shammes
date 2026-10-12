@@ -274,16 +274,16 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 #art-q { width: min(250px, 32vw); }
 #art-games { flex: 1; min-width: 170px; }
 #art-id { width: 100px; }
-#art-filters { flex: 0 0 auto; margin: 9px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+#art-filters { flex: 0 0 auto; margin: 0 0 9px; border-bottom: 1px solid var(--line); }
 #art-filters summary { padding: 8px 0; color: var(--fg); cursor: pointer; font-weight: 600; }
 #art-filter-reset { margin: 0 0 9px; }
-#art-filter-fields { max-height: min(160px, 23vh); overflow: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; padding: 3px 0 9px; }
+#art-filter-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; padding: 3px 0 9px; }
 #art-filter-fields fieldset { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px; border: 0; }
 #art-filter-fields legend { margin-bottom: 5px; color: var(--muted); font-size: 8pt; }
-#art-filter-fields .check { min-height: 25px; }
-#art-filter-fields .filter-dimensions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); }
-.tabs { display: flex; overflow-x: auto; min-height: 39px; align-items: stretch; gap: 4px; border-bottom: 1px solid var(--line); }
-.tab { position: relative; min-height: 38px; padding: 0 13px; border: 0; border-radius: 0; color: var(--muted); background: transparent; white-space: nowrap; }
+#art-filter-fields .check { min-height: 22px; }
+#art-filter-fields .filter-dimensions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); }
+.tabs { display: flex; flex: 0 0 auto; flex-wrap: wrap; min-height: 39px; align-items: stretch; gap: 4px; border-bottom: 1px solid var(--line); }
+.tab { position: relative; min-height: 38px; padding: 8px 13px 10px; border: 0; border-radius: 0; color: var(--muted); background: transparent; white-space: nowrap; }
 .tab:hover { color: var(--fg); background: transparent; }
 .tab.on { color: var(--accent); font-weight: 650; }
 .tab.on::after { position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; background: var(--accent); content: ""; }
