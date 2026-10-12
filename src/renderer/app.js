@@ -1184,7 +1184,12 @@ async function writeArtwork(rows, kinds) {
   const byFolder = new Map(result.rows.map((r) => [r.folder, r]));
   for (const r of S.rows) {
     const u = byFolder.get(r.folder);
-    if (u) r.art = { ...r.art, ...u.art };
+    if (u) {
+      r.art = { ...r.art, ...u.art };
+      for (const kind of u.appliedKinds || []) if (!u.art[kind]) delete r.art[kind];
+      r.pendingArt = !!u.failedKinds?.length;
+      r.artApplied ||= !!u.appliedKinds?.length;
+    }
   }
   result.lines.forEach(log);
   if (S.detailKey) renderDetail();
@@ -1305,16 +1310,19 @@ async function doAddToSteam() {
         r.appid = u.appid;
         r.managed = u.managed;
         r.inSteam = true;
+        r.pendingArt = !!u.failedKinds?.length;
+        r.pendingDetails = false;
+        r.artApplied = !!Object.keys(u.art || {}).length || r.artApplied;
         if (u.art) r.art = u.art;
       }
     }
     await syncCfg();
     lines.forEach(log);
-    renderRows();
     for (const row of nativeRows) {
       const original = S.rows.find(r => r.folder === row.folder);
-      if (original) original.art = row.art;
+      if (original) { original.art = row.art; original.pendingArt = !!row.failedKinds?.length; original.artApplied ||= !!row.appliedKinds?.length; }
     }
+    renderRows();
     if (S.detailKey) renderDetail();
     const failed = artworkFailed;
     const changed = added + updated + artworkSaved;
@@ -1696,7 +1704,7 @@ function wireDesktop() {
 
 // ------------------------------------------------------- artwork modal
 const ART_TABS = [['wide', 'Wide Capsule'], ['grid', 'Vertical Grid'], ['hero', 'Hero'], ['logo', 'Logo'], ['icon', 'Icon']];
-const modalTabs = () => S.modal?.row.source === 'desktop' ? [['icon', 'Icon']] : ART_TABS;
+const modalTabs = () => S.modal?.row.source === 'desktop' ? [['icon', 'Icon']] : [...ART_TABS, ['manage', 'Manage']];
 let artModalMotion = 0;
 
 function pickerFilters(kind) {
@@ -1713,6 +1721,12 @@ function renderArtFilters() {
   const m = S.modal;
   if (!m) return;
   const kind = m.tab;
+  $('#art-filters').hidden = kind === 'manage';
+  $('#art-clear').hidden = m.row.source === 'desktop' || kind === 'manage';
+  $('#art-clear').textContent = m.row.source === 'steam' || m.row.inSteam ? 'Restore default' : 'Clear selection';
+  $('#art-file').hidden = kind === 'manage';
+  $('#art-url').hidden = m.row.source === 'desktop' || kind === 'manage';
+  if (kind === 'manage') return;
   const values = pickerFilters(kind);
   const styles = kind === 'logo' ? ['official', 'white', 'black', 'custom']
     : kind === 'icon' ? ['official', 'custom']
@@ -1765,6 +1779,8 @@ function renderArtFilters() {
 async function openArtModal(row, focusKind) {
   S.modal = {
     row, tab: focusKind || 'grid',
+    focusKind: focusKind || 'grid',
+    returnFocus: document.activeElement,
     sgdbId: row.sgdbId || null,
     cache: {},           // `${sgdbId}:${kind}` -> items
     current: {},
@@ -1773,6 +1789,11 @@ async function openArtModal(row, focusKind) {
     games: [],
   };
   $('#art-title').textContent = `Artwork - ${row.display}`;
+  const writesSteam = row.source !== 'desktop' && (row.source === 'steam' || row.inSteam);
+  $('#art-apply').textContent = writesSteam ? 'Apply to Steam' : 'Apply selection';
+  $('#art-apply-note').textContent = writesSteam
+    ? 'Steam closes while artwork is applied, then reopens if it was running.'
+    : 'Select images, then apply your choices.';
   $('#art-url').hidden = row.source === 'desktop';
   $('#art-clear').hidden = row.source === 'desktop';
   $('#art-q').value = row.query || row.display;
@@ -1790,6 +1811,8 @@ async function openArtModal(row, focusKind) {
   overlay.classList.remove('closing');
   overlay.hidden = false;
   overlay.inert = false;
+  const focusTarget = $('#art-q').disabled ? $('#art-file') : $('#art-q');
+  focusTarget.focus({ preventScroll: true });
   if (!S.cfg.api_key || !row.sgdbId) renderArtGrid();
   if (!S.cfg.api_key) artStatus(row.source === 'desktop' ? 'Choose the executable icon or a local image.' : 'Add your SteamGridDB API key first in Settings.');
   else if (row.sgdbId) loadArtTabs();
@@ -1839,6 +1862,7 @@ function closeArtModal(save) {
       if (match) { m.row.display = m.row.sgdbName = match.name; m.row.sgdbId = match.id; }
       handleAction('Save Desktop changes', () => saveDesktopDraft(m.row))();
       renderDesktop();
+      restoreArtFocus(m);
       return;
     }
     if (m.sgdbId && m.sgdbId !== m.row.sgdbId) {
@@ -1852,6 +1876,63 @@ function closeArtModal(save) {
     renderDetail();
     log(`'${m.row.display}': artwork selection updated.`);
   }
+  restoreArtFocus(m);
+}
+
+async function applyArtModal() {
+  const m = S.modal;
+  if (!m || m.applying) return;
+  if (m.row.source === 'desktop' || !m.row.inSteam && m.row.source !== 'steam') {
+    closeArtModal(true);
+    return;
+  }
+  const changed = Object.fromEntries(Object.entries(m.sel).filter(([kind, image]) =>
+    JSON.stringify(image) !== JSON.stringify(m.row.art?.[kind])));
+  if (!Object.keys(changed).length && m.logoPosition === undefined) { closeArtModal(true); return; }
+  m.applying = true;
+  $('#art-apply').disabled = true;
+  $('#art-modal').inert = true;
+  try {
+    const payload = { ...rowPayload(m.row), sgdbId: m.sgdbId, art: changed,
+      ...(m.logoPosition !== undefined ? { logoPosition: m.logoPosition } : {}) };
+    const result = await window.api.artDownload({ rows: [payload], kinds: [], onlyMissing: false });
+    result.lines.forEach(line => log(line, 'library'));
+    const applied = result.rows[0]?.art || {};
+    m.row.art ||= {};
+    for (const kind of result.rows[0]?.appliedKinds || []) {
+      if (applied[kind]) m.row.art[kind] = applied[kind];
+      else delete m.row.art[kind];
+    }
+    m.row.artApplied ||= result.saved > 0;
+    S.cardArtCache?.clear();
+    S.previewCache = {};
+    renderRows(); renderDetail();
+    if (result.failed) {
+      for (const kind of result.rows[0]?.appliedKinds || []) {
+        if (m.row.art[kind]) m.sel[kind] = m.row.art[kind];
+        else delete m.sel[kind];
+      }
+      artStatus('Some artwork could not be applied. Check the log and try again.');
+      return;
+    }
+    m.sel = { ...m.row.art };
+    m.row.pendingArt = false;
+    await syncCfg();
+    m.applying = false;
+    closeArtModal(true);
+    reportArtwork(result, 'Artwork applied to Steam.');
+  } finally {
+    m.applying = false;
+    $('#art-apply').disabled = false;
+    $('#art-modal').inert = false;
+  }
+}
+
+function restoreArtFocus(m) {
+  const target = m.returnFocus?.isConnected ? m.returnFocus
+    : m.row.source === 'desktop' ? $('#desktop-detail [data-desktop="icon"]')
+      : m.focusKind ? $(`#art-rows [data-art-kind="${m.focusKind}"]`) : $('#detail-choose-art');
+  if (target?.isConnected) target.focus({ preventScroll: true });
 }
 
 function artStatus(t) { $('#art-status').textContent = t; }
@@ -1923,6 +2004,7 @@ function filters() {
 async function loadArtTabs(more = false) {
   const m = S.modal;
   if (!m) return;
+  if (m.tab === 'manage') { await renderArtManage(); return; }
   if (!m.sgdbId || !S.cfg.api_key) { renderArtGrid(); return; }
   const { sgdbId, tab: kind } = m;
   const key = artworkCacheKey(m);
@@ -1959,6 +2041,45 @@ async function loadArtTabs(more = false) {
 function sameArtwork(a, b) {
   return !!(a && b && ((a.file && a.file === b.file) || (a.url && a.url === b.url)
     || (a.exeIcon && b.exeIcon) || (a.keepIcon && b.keepIcon)));
+}
+
+async function stockArtwork(m, kind) {
+  m.stock[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind, stock: true }).catch(() => null);
+  return m.stock[kind];
+}
+
+async function renderArtManage() {
+  const m = S.modal;
+  m.moreObserver?.disconnect();
+  closeArtPreview();
+  const grid = $('#art-grid');
+  grid.replaceChildren();
+  artStatus('Review artwork by type. Restore removes custom artwork when you apply.');
+  await Promise.all(ART_TABS.map(async ([kind, label]) => {
+    const cell = document.createElement('div');
+    cell.className = 'manage-artwork';
+    cell.innerHTML = `<strong>${label}</strong><img alt="${esc(label)}" hidden><span class="muted small">Loading…</span>
+      <div class="row"><button class="btn sm" data-manage="change">Change</button><button class="btn sm" data-manage="restore">${m.row.source === 'steam' || m.row.inSteam ? 'Restore default' : 'Clear selection'}</button></div>`;
+    grid.appendChild(cell);
+    $('[data-manage="change"]', cell).onclick = () => { m.tab = kind; renderArtTabs(); renderArtFilters(); loadArtTabs(); };
+    $('[data-manage="restore"]', cell).onclick = () => {
+      restoreArtKind(kind);
+      $('span', cell).textContent = m.sel[kind]?.reset ? 'Default artwork will be restored.' : 'Selection cleared.';
+      renderArtTabs();
+    };
+    const choice = m.sel[kind];
+    const current = choice?.reset ? await stockArtwork(m, kind)
+      : choice?.file || choice?.url ? choice : await window.api.artCurrent({ row: rowPayload(m.row), kind }).catch(() => null);
+    if (S.modal !== m || m.tab !== 'manage' || !cell.isConnected) return;
+    $('span', cell).textContent = choice?.reset ? 'Default artwork will be restored.'
+      : choice && !choice.appliedFile ? 'Selected artwork' : current ? 'Current artwork' : 'No custom artwork';
+    if (current) {
+      const image = $('img', cell);
+      image.onload = () => { image.hidden = false; };
+      image.onerror = () => { image.hidden = true; $('span', cell).textContent = 'Preview could not load.'; };
+      image.src = current.thumb || current.url || await localArtPreview(current.file).catch(() => null) || '';
+    }
+  }));
 }
 
 function isPicked(kind, item) {
@@ -2073,6 +2194,14 @@ function pickArt(kind, item) {
   S.modal.sel[kind] = item.file ? { file: item.file, appliedFile: item.appliedFile } : item;
   artStatus(item.id ? `${kind}: selected #${item.id} by ${item.author}.`
     : `${kind}: ${item.file ? 'local file' : 'custom URL'} set.`);
+  renderArtTabs();
+}
+
+function restoreArtKind(kind) {
+  const m = S.modal;
+  if (m.row.source === 'steam' || m.row.inSteam) m.sel[kind] = { reset: true };
+  else delete m.sel[kind];
+  artStatus(m.sel[kind]?.reset ? `${kind}: default artwork will be restored when you apply.` : `${kind}: selection cleared.`);
   renderArtTabs();
 }
 
@@ -2298,14 +2427,11 @@ function wireToolbar() {
     }
   }));
   $('#art-clear').addEventListener('click', () => {
-    const m = S.modal;
-    delete m.sel[m.tab];
-    renderArtTabs();
-    artStatus(`${m.tab}: cleared (default top result will be used).`);
+    restoreArtKind(S.modal.tab);
     closeArtPreview();
   });
   $('#art-cancel').addEventListener('click', () => closeArtModal(false));
-  $('#art-apply').addEventListener('click', () => closeArtModal(true));
+  $('#art-apply').addEventListener('click', handleAction('Apply artwork', applyArtModal));
   $('#art-overlay').addEventListener('click', (e) => {
     if (e.target.id === 'art-overlay') closeArtModal(false);
   });

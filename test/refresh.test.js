@@ -15,6 +15,28 @@ function renderer(api) {
   return { context, button, state: vm.runInContext('S', context), refresh: () => vm.runInContext('doRefresh()', context) };
 }
 
+it('keeps failed picker choices available and retries only types that were not applied', async () => {
+  const requests = [];
+  const { context, state } = renderer({ artDownload: async req => {
+    requests.push(req);
+    const kind = requests.length === 1 ? 'grid' : 'hero';
+    return { rows: [{ ...req.rows[0], art: { ...req.rows[0].art, [kind]: { ...req.rows[0].art[kind], appliedFile: `${kind}.png` } },
+      appliedKinds: [kind] }], saved: 1, failed: requests.length === 1 ? 1 : 0, lines: [] };
+  } });
+  vm.runInContext('log = () => {}; syncCfg = async () => {}; reportArtwork = () => {}; closeArtModal = () => { S.modal = null; };', context);
+  state.cfg = {};
+  const row = { source: 'steam', steamAppid: 123, art: {} };
+  state.modal = { row, sel: { grid: { url: 'grid' }, hero: { url: 'hero' } } };
+  await vm.runInContext('applyArtModal()', context);
+  assert.equal(row.art.grid.appliedFile, 'grid.png');
+  assert.equal(row.art.hero, undefined);
+  assert.ok(state.modal);
+  await vm.runInContext('applyArtModal()', context);
+  assert.deepEqual(Object.keys(requests[1].rows[0].art), ['hero']);
+  assert.equal(row.art.hero.appliedFile, 'hero.png');
+  assert.equal(state.modal, null);
+});
+
 it('keeps newer artwork search results when an older request finishes last', async () => {
   const pending = [];
   const { context, state } = renderer({ sgdbSearch: () => new Promise(resolve => pending.push(resolve)) });
@@ -51,6 +73,19 @@ it('targets the open game unless multiple selection is explicitly enabled', () =
   state.bulk = false;
   state.detailKey = null;
   assert.equal(vm.runInContext('checkedRows().length', context), 0);
+});
+
+it('keeps failed artwork pending while recording successful writes', async () => {
+  const { context, state } = renderer({ artDownload: async req => ({ rows: [{ ...req.rows[0],
+    art: { hero: req.rows[0].art.hero }, appliedKinds: ['grid'], failedKinds: ['hero'] }], lines: [] }) });
+  vm.runInContext('log = () => {};', context);
+  state.cfg = {};
+  state.rows = [{ source: 'steam', folder: 'steam:1', steamAppid: 1, art: { grid: { url: 'grid' }, hero: { url: 'hero' } } }];
+  await vm.runInContext('writeArtwork(S.rows, [])', context);
+  assert.equal(state.rows[0].pendingArt, true);
+  assert.equal(state.rows[0].artApplied, true);
+  assert.equal(state.rows[0].art.hero.url, 'hero');
+  assert.equal(state.rows[0].art.grid, undefined);
 });
 
 it('loads only the active artwork tab, reuses its request, and ignores stale completion', async () => {

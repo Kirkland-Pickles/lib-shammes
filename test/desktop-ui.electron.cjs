@@ -12,6 +12,7 @@ let steamRequest;
 let steamEntries = [];
 let pendingSearches = null;
 const artRequests = [];
+const artworkWrites = [];
 const rows = [1, 2].map((i) => ({ id: `link:${i}`, shortcut: `C:\\Desktop\\Variant ${i}.lnk`, signature: 'original',
   display: `Variant ${i}`, exe: 'C:\\Games\\Game.exe', args: `-profile ${i}`, admin: false, icon: 'C:\\Icons\\game.ico', iconIndex: 0,
   confidence: 1, candidates: [{ path: 'C:\\Games\\Game.exe' }] }));
@@ -27,6 +28,13 @@ const handlers = {
   'desktop:icon': (file) => { assert.ok(!file.endsWith('.lnk')); return icon; },
   'art:preview-file': (file) => { assert.ok(['C:\\Icons\\game.ico', 'C:\\Icons\\downloaded.ico'].includes(file)); iconPreviews++; return file.endsWith('downloaded.ico') ? downloadedIcon : icon; },
   'art:current': () => null,
+  'art:download': (req) => {
+    artworkWrites.push(req);
+    return { rows: req.rows.map(row => ({ ...row,
+      art: { ...row.art, ...(row.art.grid ? { grid: { ...row.art.grid, appliedFile: 'C:\\Images\\applied-grid.png' } } : {}) },
+      appliedKinds: Object.keys(row.art), logoPositionApplied: row.logoPosition !== undefined })),
+      lines: ['Artwork applied to Steam.'], saved: req.rows.reduce((n, row) => n + Object.keys(row.art).length, 0), failed: 0 };
+  },
   'steam:read': () => steamEntries,
   'steam:games': () => [],
   'scan:start': () => [],

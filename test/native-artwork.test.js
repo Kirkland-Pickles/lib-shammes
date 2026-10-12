@@ -53,10 +53,53 @@ function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
 
+it('restores default artwork and keeps the previous image recoverable through Purge', async t => {
+  const env = main(t);
+  fs.mkdirSync(env.grid, { recursive: true });
+  const file = path.join(env.grid, '123p.png');
+  fs.writeFileSync(file, 'custom image');
+  const result = await env.download(native({ grid: { reset: true } }), { kinds: [] });
+  assert.equal(result.saved, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(result.rows[0].art.grid, undefined);
+  assert.equal(fs.existsSync(file), false);
+  assert.deepEqual(env.calls, []);
+  await env.invoke('steam:purge', { dryRun: false });
+  assert.equal(fs.readFileSync(file, 'utf8'), 'custom image');
+});
+
+it('backs up existing non-Steam artwork when applying a picker replacement', async t => {
+  const env = main(t);
+  const row = { source: 'folder', folder: 'fixture', display: 'Game', exe: 'C:/Games/game.exe',
+    art: { grid: { url: 'https://test.invalid/chosen.jpg' } } };
+  const stem = steam.gridStemFor(steam.quoteExe(row.exe), row.display);
+  fs.mkdirSync(env.grid, { recursive: true });
+  const original = path.join(env.grid, `${stem}p.png`);
+  fs.writeFileSync(original, 'original grid');
+  const result = await env.download(row, { kinds: [] });
+  assert.equal(result.saved, 1);
+  assert.equal(fs.existsSync(original), false);
+  await env.invoke('steam:purge', { dryRun: false });
+  assert.equal(fs.readFileSync(original, 'utf8'), 'original grid');
+  assert.equal(fs.existsSync(path.join(env.grid, `${stem}p.jpg`)), false);
+});
+
 it('continues when stock detection fails and reports only artwork actually written', async t => {
   const env = main(t, new Error('offline metadata'));
   const result = await env.download(native(), { onlyMissing: true });
   assert.equal(result.saved, 1);
+  assert.deepEqual(Array.from(result.rows[0].appliedKinds), ['grid']);
+});
+
+it('returns a successful restore separately from an icon that could not be restored', async t => {
+  const env = main(t);
+  const result = await env.download(native({ grid: { reset: true }, icon: { reset: true } }), { kinds: [] });
+  assert.equal(result.saved, 1);
+  assert.equal(result.failed, 1);
+  assert.deepEqual(Array.from(result.rows[0].appliedKinds), ['grid']);
+  assert.equal(result.rows[0].art.grid, undefined);
+  assert.equal(result.rows[0].art.icon.reset, true);
+  assert.deepEqual(Array.from(result.rows[0].failedKinds), ['icon']);
 });
 
 it('keeps the Steam account and app data fixed until an artwork write finishes', async t => {

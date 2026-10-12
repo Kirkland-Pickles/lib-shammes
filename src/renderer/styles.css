@@ -513,3 +513,7 @@ td.c-st { text-align: left; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; }
 }
+
+.manage-artwork { display: flex; min-width: 0; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); background: var(--panel-raised); }
+.manage-artwork img { width: 100%; height: 160px; object-fit: contain; }
+.manage-artwork .row { flex-wrap: wrap; margin-top: auto; }
