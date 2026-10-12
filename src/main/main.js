@@ -508,6 +508,7 @@ ipcMain.handle('resolve:name', async (_e, name) => {
 });
 
 ipcMain.handle('art:list', (_e, req) => listArtwork(req));
+ipcMain.handle('art:logo-position', (_e, row) => steam.logoPosition(cfg.steam_path, cfg.steam_user_id, row));
 function artworkFilters(kind, defaults = {}) {
   return { animated: cfg.include_animated, nsfw: cfg.include_nsfw, humor: cfg.include_humor,
     ...defaults, ...cfg.artwork_filters?.[kind] };
@@ -701,6 +702,16 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
     images.saveGridBytes(data, dest);
     steam.clearConflictingExts(dest);
   } finally { if (finish) finish(); }
+  if (kind === 'logo' && row.logoPosition === undefined) {
+    const file = path.join(gridFolder, `${stem}.json`);
+    if (!fs.existsSync(file)) {
+      const finishPosition = beforeWrite?.(file, false);
+      try {
+        store.writeFileAtomic(file, JSON.stringify({ nVersion: 1,
+          logoPosition: { pinnedPosition: 'BottomLeft', nWidthPct: 50, nHeightPct: 50 } }));
+      } finally { if (finishPosition) finishPosition(); }
+    }
+  }
   row.art[kind] = { ...row.art[kind], appliedFile: dest };
   return { line: `  ${row.display} [${kind}]: saved ${path.basename(dest)} (${src}).`, saved: true };
 }
@@ -851,6 +862,27 @@ async function downloadArtwork(req) {
         row.failedKinds.push(kind);
         lines.push(`  ${row.display} [${kind}]: ${String((err && err.message) || err)}`);
       }
+    }
+    if (row.logoPosition !== undefined) {
+      try {
+        const position = row.logoPosition;
+        if (position && (!['BottomLeft', 'UpperLeft', 'CenterCenter', 'UpperCenter', 'BottomCenter'].includes(position.pinnedPosition)
+          || ![position.nWidthPct, position.nHeightPct].every(n => Number.isFinite(n) && n >= 1 && n <= 100))) {
+          throw new Error('Choose a valid logo position and size.');
+        }
+        const file = path.join(gridFolder, `${stem}.json`);
+        let data = {};
+        try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        const finish = beforeWrite(file, false);
+        try {
+          if (position) data.logoPosition = position;
+          else delete data.logoPosition;
+          store.writeFileAtomic(file, JSON.stringify({ nVersion: 1, ...data }));
+        } finally { finish(); }
+        saved++;
+        row.logoPositionApplied = true;
+        lines.push(`${row.display}: logo position saved.`);
+      } catch (e) { failed++; lines.push(`${row.display}: ${e.message}`); }
     }
   }
   if (shortcutsChanged) {

@@ -84,6 +84,25 @@ it('backs up existing non-Steam artwork when applying a picker replacement', asy
   assert.equal(fs.existsSync(path.join(env.grid, `${stem}p.jpg`)), false);
 });
 
+it('preserves other logo settings and backs up positioning across edits and reset', async t => {
+  const env = main(t);
+  fs.mkdirSync(env.grid, { recursive: true });
+  const file = path.join(env.grid, '123.json');
+  const initial = { nVersion: 1, logoPosition: { pinnedPosition: 'BottomLeft', nWidthPct: 50, nHeightPct: 50 }, other: true };
+  fs.writeFileSync(file, JSON.stringify(initial));
+  const row = native();
+  row.logoPosition = { pinnedPosition: 'CenterCenter', nWidthPct: 60, nHeightPct: 40 };
+  let result = await env.download(row, { kinds: [] });
+  assert.equal(result.saved, 1);
+  assert.equal(JSON.parse(fs.readFileSync(file)).other, true);
+  row.logoPosition = null;
+  result = await env.download(row, { kinds: [] });
+  assert.equal(result.saved, 1);
+  assert.equal(JSON.parse(fs.readFileSync(file)).logoPosition, undefined);
+  await env.invoke('steam:purge', { dryRun: false });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file)), initial);
+});
+
 it('continues when stock detection fails and reports only artwork actually written', async t => {
   const env = main(t, new Error('offline metadata'));
   const result = await env.download(native(), { onlyMissing: true });

@@ -304,6 +304,24 @@ function artDest(gridFolder, stem, kind, ext) {
   return path.join(gridFolder, `${stem}${ART_SUFFIXES[kind]}${e}`);
 }
 
+function artworkStem(steamPath, userId, row) {
+  if (row?.source === 'steam') {
+    const appid = Number(row.steamAppid);
+    return Number.isInteger(appid) && appid > 0 && appid <= 0xffffffff ? String(appid) : null;
+  }
+  const entries = loadEntries(steamPath, userId);
+  const entry = row?.appid != null ? entries.find(e => Number(e.appid) === Number(row.appid))
+    : row?.exe ? entries[findByExe(entries, row.exe)] : null;
+  return entry ? gridStemFromEntry(entry) : row?.exe && row.display ? gridStemFor(quoteExe(row.exe), row.display) : null;
+}
+
+function logoPosition(steamPath, userId, row) {
+  const stem = artworkStem(steamPath, userId, row);
+  if (!stem) return null;
+  try { return JSON.parse(fs.readFileSync(path.join(gridDir(steamPath, userId), `${stem}.json`), 'utf8')).logoPosition || null; }
+  catch (e) { if (e.code === 'ENOENT') return null; throw new Error('Could not read the existing logo position.'); }
+}
+
 function currentArtwork(steamPath, userId, row, kind, stock = false) {
   if (!steamPath || !userId || !row || !Object.hasOwn(ART_SUFFIXES, kind)) return null;
   const native = row.source === 'steam';
@@ -564,7 +582,7 @@ module.exports = {
   findSteamPath, getUserIds, shortcutsPath, gridDir, parseLibraryFolders,
   crc32, shortcutId, appidSigned, quoteExe,
   loadEntries, backupShortcuts, buildEntry, findByExe, isManagedEntry, upsertEntry, saveEntries,
-  gridStemFor, gridStemFromEntry, artDest, currentArtwork, clearConflictingExts, isSteamRunning,
+  gridStemFor, gridStemFromEntry, artDest, artworkStem, logoPosition, currentArtwork, clearConflictingExts, isSteamRunning,
   killSteam, closeSteam, launchSteam, restartSteam, findStaleShortcuts,
   listInstalledGames, planPurge,
 };

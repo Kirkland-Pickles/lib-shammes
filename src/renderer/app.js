@@ -1811,6 +1811,14 @@ async function openArtModal(row, focusKind) {
   overlay.classList.remove('closing');
   overlay.hidden = false;
   overlay.inert = false;
+  if (row.source !== 'desktop') {
+    const m = S.modal;
+    window.api.artLogoPosition(rowPayload(row)).then(position => {
+      if (S.modal !== m || m.logoPosition !== undefined) return;
+      m.initialLogoPosition = position;
+      renderLogoPosition();
+    }).catch(e => log(`Logo position: ${e.message}`));
+  }
   const focusTarget = $('#art-q').disabled ? $('#art-file') : $('#art-q');
   focusTarget.focus({ preventScroll: true });
   if (!S.cfg.api_key || !row.sgdbId) renderArtGrid();
@@ -1907,6 +1915,7 @@ async function applyArtModal() {
     S.cardArtCache?.clear();
     S.previewCache = {};
     renderRows(); renderDetail();
+    if (result.rows[0]?.logoPositionApplied) { m.initialLogoPosition = m.logoPosition; delete m.logoPosition; }
     if (result.failed) {
       for (const kind of result.rows[0]?.appliedKinds || []) {
         if (m.row.art[kind]) m.sel[kind] = m.row.art[kind];
@@ -1928,6 +1937,15 @@ async function applyArtModal() {
   }
 }
 
+function renderLogoPosition() {
+  const m = S.modal;
+  $('#art-logo-position').hidden = !m || m.row.source === 'desktop' || m.tab !== 'logo';
+  const position = m?.logoPosition !== undefined ? m.logoPosition : m?.initialLogoPosition;
+  $('#art-logo-anchor').value = position?.pinnedPosition || 'BottomLeft';
+  $('#art-logo-width').value = position?.nWidthPct || 50;
+  $('#art-logo-height').value = position?.nHeightPct || 50;
+}
+
 function restoreArtFocus(m) {
   const target = m.returnFocus?.isConnected ? m.returnFocus
     : m.row.source === 'desktop' ? $('#desktop-detail [data-desktop="icon"]')
@@ -1940,6 +1958,7 @@ function artStatus(t) { $('#art-status').textContent = t; }
 function renderArtTabs() {
   const m = S.modal;
   const host = $('#art-tabs');
+  renderLogoPosition();
   host.innerHTML = '';
   for (const [kind, label] of modalTabs()) {
     const b = document.createElement('button');
@@ -2432,6 +2451,11 @@ function wireToolbar() {
   });
   $('#art-cancel').addEventListener('click', () => closeArtModal(false));
   $('#art-apply').addEventListener('click', handleAction('Apply artwork', applyArtModal));
+  for (const id of ['art-logo-anchor', 'art-logo-width', 'art-logo-height']) $('#' + id).addEventListener('change', () => {
+    S.modal.logoPosition = { pinnedPosition: $('#art-logo-anchor').value,
+      nWidthPct: Number($('#art-logo-width').value), nHeightPct: Number($('#art-logo-height').value) };
+  });
+  $('#art-logo-reset').addEventListener('click', () => { S.modal.logoPosition = null; renderLogoPosition(); });
   $('#art-overlay').addEventListener('click', (e) => {
     if (e.target.id === 'art-overlay') closeArtModal(false);
   });
