@@ -258,7 +258,8 @@ function purgeSteam(opts) {
   return { ...plan, lines, failedFiles, executed: true, backup: bak ? path.basename(bak) : null };
 }
 
-ipcMain.handle('steam:purge', (_e, opts) => purgeSteam(opts));
+ipcMain.handle('steam:purge', (_e, opts) => opts?.dryRun === false
+  ? withSteamClosed(() => purgeSteam(opts)) : purgeSteam(opts));
 
 async function uninstallCleanup() {
   if (process.argv.includes('--purge-steam')) {
@@ -947,7 +948,7 @@ async function addSteam(req) {
   return { rows, lines, added, updated, artworkSaved, artworkFailed };
 }
 
-ipcMain.handle('steam:remove', async (_e, req) => {
+ipcMain.handle('steam:remove', (_e, req) => withSteamClosed(() => {
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
   let entries = steam.loadEntries(cfg.steam_path, cfg.steam_user_id);
@@ -972,7 +973,7 @@ ipcMain.handle('steam:remove', async (_e, req) => {
   entries = entries.filter((_, i) => !uniqueIdxs.includes(i));
   const bak = steam.saveEntries(cfg.steam_path, cfg.steam_user_id, entries);
   return { removed: uniqueIdxs.length, backup: bak ? path.basename(bak) : null };
-});
+}));
 
 // ------------------------------------------------------------------ boot
 app.whenReady().then(async () => {

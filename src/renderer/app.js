@@ -259,7 +259,7 @@ function steamCard() {
     <div class="row"><span class="muted">User:</span>
     <select data-r="user" style="flex:1"></select></div>
     <div class="status-line" data-r="status">Detecting…</div>
-    <div class="note">After adding games, fully exit Steam (tray - Exit) and reopen it, or use Restart Steam in Steam library.</div>`;
+    <div class="note">Steam closes while changes are applied and reopens afterward if it was running.</div>`;
   const q = (s) => d.querySelector(`[data-r="${s}"]`);
   const userLabel = (u) => (u.name && u.name !== u.id ? `${u.name} (${u.id})` : u.id);
   // Shown with steam.exe on the end (same as manual picking); stored as a
@@ -492,18 +492,18 @@ async function doPurge() {
   const sample = plan.names.slice(0, 8).map((n) => `• ${n}`).join('\n')
     + (plan.names.length > 8 ? `\n… and ${plan.names.length - 8} more` : '');
   const msg = `Remove everything this app changed in Steam?\n\n`
-    + `${plan.removeAppids.length} shortcut(s), ${plan.restoreFields.length} restored name(s)/icon(s), `
+    + `${plan.removeAppids.length} shortcut(s), ${plan.restoreFields.length} restored shortcut setting(s), `
     + `${plan.deleteFiles.length} art file(s), ${plan.restoreFiles.length} restored art file(s)`
     + (plan.skippedFiles.length ? `, ${plan.skippedFiles.length} user-changed file(s) kept` : '')
     + (sample ? `\n\n${sample}` : '')
-    + `\n\nShortcuts are backed up before changes. Your games and Steam itself are untouched.`;
+    + `\n\nShortcuts are backed up before changes. Your games and Steam itself are untouched. Steam will close and reopen if it is running.`;
   if (!await confirmDlg('Purge everything', msg)) return;
   const res = await window.api.steamPurge({ dryRun: false });
   (res.lines || []).forEach(log);
   await refreshSteamState();
   await syncSteamLibrary();
-  status('Purge complete - restart Steam.');
-  toast('Purge complete - restart Steam.');
+  status('Purge complete.');
+  toast(res.warning || 'Purge complete.');
 }
 
 // ---------------------------------------------------------------- library
@@ -1335,8 +1335,8 @@ async function doRemoveFromSteam() {
   const names = rows.slice(0, 12).map((r) => `• ${r.display}`).join('\n')
     + (rows.length > 12 ? `\n… and ${rows.length - 12} more` : '');
   if (!await confirmDlg('Remove from Steam',
-    `Remove ${rows.length} shortcuts?\n\n${names}\n\n(Art files are left alone.)`)) return;
-  const { removed, backup } = await window.api.steamRemove({
+    `Remove ${rows.length} shortcuts?\n\n${names}\n\nArt files are left alone. Steam will close and reopen if it is running.`)) return;
+  const { removed, backup, warning } = await window.api.steamRemove({
     rows: rows.map(rowPayload),
   });
   for (const r of rows) {
@@ -1347,8 +1347,9 @@ async function doRemoveFromSteam() {
   }
   await refreshSteamState();
   await syncSteamLibrary(); // drop shortcut rows whose entries just vanished
-  log(`Removed ${removed} shortcuts. Backup: ${backup || 'none'}. Restart Steam.`);
-  status(`Removed ${removed}. Restart Steam.`);
+  log(`Removed ${removed} shortcuts. Backup: ${backup || 'none'}.`);
+  status(`Removed ${removed}.`);
+  if (warning) { log(warning); toast(warning); }
 }
 
 async function steamPathOrToast() {
@@ -1417,14 +1418,15 @@ async function doPruneMissing() {  let stale;
   const names = stale.slice(0, 12).map((s) => `• ${s.display}`).join('\n')
     + (stale.length > 12 ? `\n… and ${stale.length - 12} more` : '');
   if (!await confirmDlg('Prune missing games',
-    `${stale.length} shortcut(s) the app added point at exes that no longer exist:\n\n${names}\n\nRemove them? (Art files are left alone.)`)) return;
-  const { removed, backup } = await window.api.steamRemove({
+    `${stale.length} shortcut(s) the app added point at exes that no longer exist:\n\n${names}\n\nRemove them? Art files are left alone. Steam will close and reopen if it is running.`)) return;
+  const { removed, backup, warning } = await window.api.steamRemove({
     rows: stale.map((s) => ({ display: s.display, exe: s.exe })),
   });
   await refreshSteamState();
   await syncSteamLibrary();
-  log(`Pruned ${removed} stale shortcuts. Backup: ${backup || 'none'}. Restart Steam.`);
-  status(`Pruned ${removed}. Restart Steam.`);
+  log(`Pruned ${removed} stale shortcuts. Backup: ${backup || 'none'}.`);
+  status(`Pruned ${removed}.`);
+  if (warning) { log(warning); toast(warning); }
 }
 
 let desktopSave = Promise.resolve();

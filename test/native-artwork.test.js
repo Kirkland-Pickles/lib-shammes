@@ -97,6 +97,25 @@ it('reopens Steam after a failed write and releases the write lock', async t => 
   assert.equal((await env.download()).saved, 1);
 });
 
+it('closes Steam for removal and Purge writes, but not a Purge preview', async t => {
+  for (const operation of ['steam:remove', 'steam:purge']) {
+    const events = [];
+    const entry = steam.buildEntry({ appName: 'Fixture', exePath: 'C:/Fixture/game.exe', tags: [steam.MANAGED_TAG] });
+    const env = main(t, {}, {}, {
+      isSteamRunning: async () => true,
+      closeSteam: async () => { events.push('close'); },
+      launchSteam: async () => { events.push('open'); },
+      loadEntries: () => { events.push('read'); return [entry]; },
+      saveEntries: (_path, _user, entries) => { assert.equal(entries.length, 0); events.push('write'); return null; },
+    });
+    await env.invoke('steam:purge', { dryRun: true });
+    assert.deepEqual(events, ['read']);
+    events.length = 0;
+    await env.invoke(operation, { dryRun: false, rows: [{ exe: 'C:/Fixture/game.exe' }] });
+    assert.deepEqual(events, ['close', 'read', 'write', 'open']);
+  }
+});
+
 it('returns saved Desktop shortcuts when config persistence fails', async (t) => {
   const row = { id: 'link:saved', display: 'Game', shortcut: 'saved.lnk' };
   const env = main(t, {}, { apply: async () => [{ id: 'exe:new', ok: true, row }] }, {}, () => { throw new Error('config denied'); });
