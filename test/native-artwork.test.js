@@ -53,6 +53,12 @@ function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
 
+it('times out an SGDB response that stalls after its headers arrive', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url, { signal }) => ({ ok: true, status: 200,
+    json: () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }));
+  await assert.rejects(new SGDBClient('fixture', 10).searchGame('Game'), /Network error/);
+});
+
 it('closes Steam before writing artwork and reopens it once afterward', async t => {
   const events = [];
   const env = main(t, {}, {}, {

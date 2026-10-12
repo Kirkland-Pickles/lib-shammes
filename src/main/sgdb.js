@@ -52,32 +52,35 @@ class SGDBClient {
     }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    let res;
     try {
-      res = await fetch(`${BASE_URL}${path}`, {
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          Accept: 'application/json',
-          'User-Agent': 'LibShammes/0.9.1',
-        },
-        signal: ctrl.signal,
-      });
-    } catch (e) {
-      throw new SGDBError(`Network error: ${e.message || e}`);
+      let res;
+      try {
+        res = await fetch(`${BASE_URL}${path}`, {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            Accept: 'application/json',
+            'User-Agent': 'LibShammes/0.9.1',
+          },
+          signal: ctrl.signal,
+        });
+      } catch (e) {
+        throw new SGDBError(`Network error: ${e.message || e}`);
+      }
+      if (res.status === 401) throw new SGDBError('Invalid SteamGridDB API key (401).', 401);
+      if (res.status === 404) return [];
+      if (res.status === 429) throw new SGDBError('SteamGridDB rate limit hit (429). Wait a minute and retry.', 429);
+      if (!res.ok) throw new SGDBError(`SteamGridDB error ${res.status}.`, res.status);
+      let payload;
+      try {
+        payload = await res.json();
+      } catch (e) {
+        if (ctrl.signal.aborted) throw new SGDBError(`Network error: ${e.message || e}`);
+        throw new SGDBError('SteamGridDB returned invalid JSON.');
+      }
+      return (payload && typeof payload === 'object' && 'data' in payload) ? payload.data : payload;
     } finally {
       clearTimeout(timer);
     }
-    if (res.status === 401) throw new SGDBError('Invalid SteamGridDB API key (401).', 401);
-    if (res.status === 404) return [];
-    if (res.status === 429) throw new SGDBError('SteamGridDB rate limit hit (429). Wait a minute and retry.', 429);
-    if (!res.ok) throw new SGDBError(`SteamGridDB error ${res.status}.`, res.status);
-    let payload;
-    try {
-      payload = await res.json();
-    } catch {
-      throw new SGDBError('SteamGridDB returned invalid JSON.');
-    }
-    return (payload && typeof payload === 'object' && 'data' in payload) ? payload.data : payload;
   }
 
   async searchGame(query) {
