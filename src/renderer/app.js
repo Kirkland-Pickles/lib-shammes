@@ -1715,7 +1715,9 @@ function renderArtFilters() {
     : ['alternate', ...(kind === 'hero' ? [] : ['white_logo', 'no_logo']), 'blurred', 'material'];
   const dimensions = kind === 'grid' ? ['600x900', '342x482', '660x930', '512x512', '1024x1024']
     : kind === 'wide' ? ['460x215', '920x430', '512x512', '1024x1024']
-    : kind === 'hero' ? ['1920x620', '3840x1240', '1600x650'] : [];
+    : kind === 'hero' ? ['1920x620', '3840x1240', '1600x650']
+    : kind === 'icon' ? [1024, 768, 512, 310, 256, 194, 192, 180, 160, 152, 150, 144, 128, 120, 114,
+      100, 96, 90, 80, 76, 72, 64, 60, 57, 56, 54, 48, 40, 35, 32, 28, 24, 20, 16, 14, 10, 8].map(String) : [];
   const formats = kind === 'icon' ? ['image/png', 'image/vnd.microsoft.icon']
     : kind === 'logo' ? ['image/png', 'image/webp'] : ['image/png', 'image/jpeg', 'image/webp'];
   const labels = { static: 'Static', animated: 'Animated', untagged: 'Untagged', nsfw: 'Adult Content',
@@ -1726,9 +1728,10 @@ function renderArtFilters() {
   const host = $('#art-filter-fields');
   host.innerHTML = groups.filter(([, , options]) => options.length).map(([title, field, options]) =>
     `<fieldset><legend>${title}</legend>${options.map(value => {
-      const selected = field ? values[field]?.includes(value) ?? (field !== 'dimensions' || !value.includes('512') && !value.includes('1024')) : values[value];
+      const selected = field ? values[field]?.includes(value) ?? (field !== 'dimensions' || kind === 'icon' || !value.includes('512') && !value.includes('1024')) : values[value];
+      const label = field === 'dimensions' && kind === 'icon' ? `${value}x${value}` : labels[value] || value.charAt(0).toUpperCase() + value.slice(1);
       return `<label class="check"><input type="checkbox" data-filter="${field || value}" value="${value}" ${selected ? 'checked' : ''}
-        ${m.row.source === 'desktop' && ['static', 'animated'].includes(value) ? 'disabled' : ''}>${labels[value] || value.charAt(0).toUpperCase() + value.slice(1)}</label>`;
+        ${m.row.source === 'desktop' && ['static', 'animated'].includes(value) ? 'disabled' : ''}>${label}</label>`;
     }).join('')}</fieldset>`).join('');
   host.onchange = event => handleAction('Artwork filters', async () => {
     const inputs = [...event.target.closest('fieldset').querySelectorAll('input')];

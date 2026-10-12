@@ -318,7 +318,7 @@ it('requests selected content tags and animation types without mixing in untagge
   const env = main(t);
   await env.invoke('art:list', { sgdbId: 7, kind: 'icon', filters: {
     static: false, animated: true, untagged: false, nsfw: true, humor: true, epilepsy: false,
-    styles: ['custom'], mimes: ['image/png'],
+    styles: ['custom'], mimes: ['image/png'], dimensions: ['256'],
   } });
   const params = new URLSearchParams(new SGDBClient('fixture').buildParams(env.artworkQueries.at(-1)));
   assert.equal(params.get('types'), 'animated');
@@ -326,6 +326,7 @@ it('requests selected content tags and animation types without mixing in untagge
   assert.equal(params.get('nsfw'), 'any');
   assert.equal(params.get('styles'), 'custom');
   assert.equal(params.get('mimes'), 'image/png');
+  assert.equal(params.get('dimensions'), '256');
 });
 
 it('uses saved picker filters for preparation and automatic downloads, keeping Desktop icons static', async t => {
