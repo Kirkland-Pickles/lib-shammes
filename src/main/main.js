@@ -498,7 +498,8 @@ ipcMain.handle('resolve:name', async (_e, name) => {
   return resolveMod.resolveFolder(String(name || ''), scanner.cleanFolderName);
 });
 
-ipcMain.handle('art:list', async (_e, req) => {
+ipcMain.handle('art:list', (_e, req) => listArtwork(req));
+async function listArtwork(req) {
   const sgdbId = Number(req && req.sgdbId);
   if (!Number.isFinite(sgdbId) || sgdbId <= 0) throw new Error('Art list needs an SGDB game id.');
   const kind = req.kind;
@@ -520,6 +521,34 @@ ipcMain.handle('art:list', async (_e, req) => {
   if (kind === 'hero') return c.heroes(sgdbId, o);
   if (kind === 'logo') return c.logos(sgdbId, o);
   return c.icons(sgdbId, o);
+}
+
+ipcMain.handle('art:prepare', async (_e, req) => {
+  const rows = req.rows || [];
+  const lines = [];
+  let prepared = 0;
+  let failed = 0;
+  for (const row of rows) {
+    row.art ||= {};
+    let metadata;
+    for (const kind of req.kinds || []) {
+      if (!Object.hasOwn(steam.ART_SUFFIXES, kind) || !row.sgdbId) continue;
+      try {
+        if (cfg.only_missing && (row.art[kind] || steam.currentArtwork(cfg.steam_path, cfg.steam_user_id, row, kind))) continue;
+        if (cfg.only_missing && row.source === 'steam') {
+          metadata ||= await client().steamMetadata(row.steamAppid);
+          if (hasStockArtwork(metadata, kind)) continue;
+        }
+        const [image] = await listArtwork({ sgdbId: row.sgdbId, kind,
+          filters: { animated: cfg.include_animated, nsfw: cfg.include_nsfw, humor: cfg.include_humor,
+            ...cfg.artwork_filters?.[kind] } });
+        if (!image) { lines.push(`${row.display} [${kind}]: no matching artwork.`); continue; }
+        row.art[kind] = image;
+        prepared++;
+      } catch (e) { failed++; lines.push(`${row.display} [${kind}]: ${e.message || e}`); }
+    }
+  }
+  return { rows, lines, prepared, failed };
 });
 
 // ----------------------------------------------------------------- match
@@ -584,6 +613,13 @@ ipcMain.handle('match:auto', async (_e, req) => {
 });
 
 // ------------------------------------------------------------------- art
+function hasStockArtwork(metadata, kind) {
+  const key = { wide: 'header_image', grid: 'library_capsule', hero: 'library_hero', logo: 'library_logo', icon: 'icon' }[kind];
+  const full = metadata[`${key}_full`];
+  return !!(metadata[key] || (kind === 'icon' && metadata.clienticon)
+    || [full?.image || full, full?.image2x].some(map => Object.values(map || {}).some(value => typeof value === 'string' && value)));
+}
+
 async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes = null, journalFile = null, shortcut = null, native = null) {
   const journal = (p) => { if (changes && journalFile && p) journalFile(p); };
   const suffix = steam.ART_SUFFIXES[kind];
@@ -594,10 +630,7 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
   let metadata;
   if (native && ((!sel && onlyMissing) || kind === 'icon')) {
     metadata = await native.metadata();
-    const key = { wide: 'header_image', grid: 'library_capsule', hero: 'library_hero', logo: 'library_logo', icon: 'icon' }[kind];
-    const full = metadata[`${key}_full`];
-    const stock = metadata[key] || (kind === 'icon' && metadata.clienticon)
-      || [full?.image || full, full?.image2x].some((map) => Object.values(map || {}).some((value) => typeof value === 'string' && value));
+    const stock = hasStockArtwork(metadata, kind);
     if (!sel && onlyMissing && stock) return { line: `${row.display} [${kind}]: stock Steam artwork present, skip.`, saved: false };
     if (kind === 'icon' && !/^[a-f0-9]{40}$/i.test(metadata.icon || '')) throw new Error('Steam icon cache filename is unavailable.');
   }

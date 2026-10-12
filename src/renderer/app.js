@@ -554,8 +554,7 @@ function renderRows() {
   $('#btn-add').disabled = !S.rows.some((r) => r.checked && (r.source === 'steam' || canWriteShortcut(r)));
   $('#btn-remove').disabled = !S.rows.some((r) => r.checked && r.inSteam
     && (r.source === 'shortcut' || r.managed));
-  $('#btn-match').disabled = !S.rows.some((r) => r.checked);
-  $('#btn-download').disabled = !S.rows.some((r) => r.checked && (r.sgdbId || Object.keys(r.art).length));
+  $('#btn-download').disabled = S.preparingArt || !S.cfg.api_key || !S.rows.some(r => r.checked);
   if (focusedKey) [...body.rows].find((tr) => tr.dataset.key === focusedKey)?.querySelector('.row-check')?.focus();
   renderBanner();
 }
@@ -1126,9 +1125,9 @@ function needKey() {
   return false;
 }
 
-async function doAutoMatch() {
-  let rows = checkedRows().filter((r) => !r.sgdbId);
-  if (!rows.length) rows = checkedRows();
+async function doAutoMatch(selected = checkedRows()) {
+  let rows = selected.filter((r) => !r.sgdbId);
+  if (!rows.length) rows = selected;
   if (!rows.length) { toast('Nothing to match - scan a folder first.'); return; }
   if (needKey()) return;
   status(`Auto-matching ${rows.length} games…`);
@@ -1186,14 +1185,29 @@ function reportArtwork({ saved, failed, warning }, success) {
 }
 
 async function doDownloadArt() {
-  const rows = checkedRows().filter((r) => r.sgdbId || Object.keys(r.art).length);
-  if (!rows.length) { toast('No matched games selected - run Match selected first.'); return; }
-  if (needKey()) return;
+  if (S.preparingArt || needKey()) return;
+  const rows = checkedRows();
+  if (!rows.length) return;
   const kinds = wantedKinds();
-  if (!kinds.length && !rows.some((r) => Object.keys(r.art).length)) { toast('Tick at least one artwork type (Settings).'); return; }
-  if (!await confirmDlg('Apply artwork', 'Apply artwork to the selected games? Steam will close and reopen if it is running.')) return;
-  status(`Downloading art for ${rows.length} games…`);
-  reportArtwork(await writeArtwork(rows, kinds), 'Artwork applied to Steam.');
+  if (!kinds.length) { toast('Choose at least one artwork type in Settings.'); return; }
+  S.preparingArt = true;
+  renderRows();
+  try {
+    if (rows.some(row => !row.sgdbId)) await doAutoMatch(rows);
+    status('Finding artwork…');
+    const previous = new Map(rows.map(row => [row, { ...row.art }]));
+    const result = await window.api.artPrepare({ rows: rows.filter(row => row.sgdbId).map(rowPayload), kinds });
+    for (const updated of result.rows) {
+      const row = rows.find(row => row.folder === updated.folder);
+      if (row && S.rows.includes(row)) for (const [kind, choice] of Object.entries(updated.art)) {
+        if (row.art[kind] === previous.get(row)[kind]) row.art[kind] = choice;
+      }
+    }
+    result.lines.forEach(log);
+    const message = `${result.prepared} artwork choices ready. Review them, then apply to Steam.`
+      + (result.failed ? ` ${result.failed} failed. Check the log.` : '');
+    status(message); toast(message);
+  } finally { S.preparingArt = false; renderRows(); if (S.detailKey) renderDetail(); }
 }
 
 function wantedKinds() {
@@ -1457,10 +1471,9 @@ function renderDesktop(detail = true) {
     <td><div class="game-name">${esc(row.display)}</div><div class="cell-meta" title="${esc(row.exe)}">${esc(row.exe)}</div></td>
     <td title="${esc(row.shortcut || '')}"><div class="cell-main">${esc(row.shortcut || (row.destination === 'start-menu' ? 'New Start-menu shortcut' : 'New Desktop shortcut'))}</div><div class="cell-meta">${esc(row.args)}</div></td>
     <td title="${esc(row.error || '')}">${row.saving ? 'Saving…' : row.error ? 'Error' : row.saved ? 'Saved' : row.shortcut ? 'Existing' : 'Not added'}${needsReview(row) ? '<div class="cell-meta">Not matched</div>' : ''}</td></tr>`).join('');
-  for (const id of ['desktop-add', 'desktop-refresh', 'desktop-find', 'desktop-match', 'desktop-download']) $('#' + id).disabled = d.busy;
+  for (const id of ['desktop-add', 'desktop-refresh', 'desktop-find', 'desktop-download']) $('#' + id).disabled = d.busy;
   $('#desktop-add').disabled ||= !d.rows.some((row) => row.checked);
-  $('#desktop-match').disabled ||= !S.cfg.api_key || !d.rows.some((row) => row.checked);
-  $('#desktop-download').disabled ||= !S.cfg.api_key || !d.rows.some((row) => row.checked && row.sgdbId);
+  $('#desktop-download').disabled ||= !S.cfg.api_key || !d.rows.some((row) => row.checked);
   $('#desktop-all').checked = !!visible.length && visible.every((row) => row.checked);
   $('#desktop-all').indeterminate = visible.some((row) => row.checked) && !$('#desktop-all').checked;
   $('#desktop-games').inert = d.busy && !d.applying;
@@ -1584,25 +1597,21 @@ function wireDesktop() {
     if (e.target.closest('.c-add')) { row.checked = !row.checked; renderDesktop(false); }
     else { S.desktop.detail = row.id; renderDesktop(); }
   };
-  $('#desktop-match').onclick = handleAction('Match Desktop games', async () => {
+  $('#desktop-download').onclick = handleAction('Find Desktop icons', async () => {
     const d = S.desktop;
     if (d.busy) return;
     d.busy = true; renderDesktop(false);
     try {
-      const rows = d.rows.filter((row) => row.checked);
-      const result = await window.api.matchAuto({ rows: rows.map((row) => ({ ...row })), force: true, persist: false });
-      for (let i = 0; i < rows.length; i++) if (result.rows[i]?.sgdbId) {
-        rows[i].sgdbId = result.rows[i].sgdbId; rows[i].display = rows[i].sgdbName = result.rows[i].sgdbName;
-        await saveDesktopDraft(rows[i]);
+      const missing = d.rows.filter(row => row.checked && !row.sgdbId);
+      if (missing.length) {
+        const matched = await window.api.matchAuto({ rows: missing.map(row => ({ ...row })), persist: false });
+        for (let i = 0; i < missing.length; i++) if (matched.rows[i]?.sgdbId) {
+          missing[i].sgdbId = matched.rows[i].sgdbId;
+          missing[i].display = missing[i].sgdbName = matched.rows[i].sgdbName;
+          await saveDesktopDraft(missing[i]);
+        }
+        matched.lines.forEach(log);
       }
-      result.lines.forEach(log);
-    } finally { d.busy = false; renderDesktop(); }
-  });
-  $('#desktop-download').onclick = handleAction('Download Desktop icons', async () => {
-    const d = S.desktop;
-    if (d.busy) return;
-    d.busy = true; renderDesktop(false);
-    try {
       const results = await window.api.desktopDownload(d.rows.filter((row) => row.checked));
       for (const result of results) {
         const row = d.rows.find((item) => item.id === result.id);
@@ -2100,8 +2109,7 @@ function wireToolbar() {
   });
   $('#btn-refresh').addEventListener('click', handleAction('Refresh', doRefresh));
   $('#btn-find-executables').addEventListener('click', doFindExecutables);
-  $('#btn-match').addEventListener('click', handleAction('Auto-match', doAutoMatch));
-  $('#btn-download').addEventListener('click', handleAction('Artwork download', doDownloadArt));
+  $('#btn-download').addEventListener('click', handleAction('Find artwork', doDownloadArt));
   $('#btn-add').addEventListener('click', handleAction('Add to Steam', doAddToSteam));
   $('#btn-remove').addEventListener('click', handleAction('Shortcut removal', doRemoveFromSteam));
   $('#btn-prune').addEventListener('click', handleAction('Prune', doPruneMissing));

@@ -227,6 +227,26 @@ it('passes artwork pagination and filters to SGDB', async () => {
   await client.icons(7, { page: 2, limit: 30, types: 'static' });
 });
 
+it('prepares artwork choices without downloading or writing Steam files', async t => {
+  const env = main(t, {}, {}, { isSteamRunning: () => assert.fail('preparation must not stop Steam') });
+  env.cfg.only_missing = false;
+  const result = await env.invoke('art:prepare', { rows: [native()], kinds: ['grid'] });
+  assert.equal(result.prepared, 1);
+  assert.equal(result.rows[0].art.grid.id, 9);
+  assert.deepEqual(env.calls, []);
+  assert.deepEqual(env.changes(), store.blankChanges());
+  assert.equal(fs.existsSync(env.grid), false);
+});
+
+it('preserves stock and chosen artwork while preparing with skipping enabled', async t => {
+  const env = main(t, { library_capsule: 'stock.jpg' });
+  const choice = { file: 'picked.png' };
+  const result = await env.invoke('art:prepare', { rows: [native(), native({ grid: choice }, 456)], kinds: ['grid'] });
+  assert.equal(result.prepared, 0);
+  assert.equal(result.rows[1].art.grid, choice);
+  assert.deepEqual(env.calls, ['metadata']);
+});
+
 it('requests selected content tags and animation types without mixing in untagged artwork', async t => {
   const env = main(t);
   await env.invoke('art:list', { sgdbId: 7, kind: 'icon', filters: {

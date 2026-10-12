@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('api', {
   sgdbBySteam: (appid) => ipcRenderer.invoke('sgdb:by-steam', appid),
   resolveName: (name) => ipcRenderer.invoke('resolve:name', name),
   artList: (req) => ipcRenderer.invoke('art:list', req),
+  artPrepare: (req) => ipcRenderer.invoke('art:prepare', req),
   artPreviewFile: (file) => ipcRenderer.invoke('art:preview-file', file),
   artCurrent: (req) => ipcRenderer.invoke('art:current', req),
   // library ops (progress streams back on 'job:progress')
