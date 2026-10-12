@@ -1319,6 +1319,11 @@ async function doAddToSteam() {
         r.shortcutIdx = u.shortcutIdx;
         r.appid = u.appid;
         r.managed = u.managed;
+        if (r.source === 'shortcut') {
+          const focused = S.detailKey === rowKey(r);
+          r.folder = `shortcut://${u.appid}`;
+          if (focused) S.detailKey = rowKey(r);
+        }
         r.inSteam = true;
         r.pendingArt = !!u.failedKinds?.length;
         r.pendingDetails = false;

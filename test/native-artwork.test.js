@@ -303,12 +303,17 @@ it('updates launch settings without duplicates and retains their original values
   const original = steam.buildEntry({ appName: 'Game', exePath: 'C:/Games/game.exe', startDir: 'C:/Original', launchOptions: '--original', tags: [steam.MANAGED_TAG] });
   const entries = [{ ...original }];
   const env = main(t, {}, {}, { loadEntries: () => entries, saveEntries: () => null });
+  fs.mkdirSync(env.grid, { recursive: true });
+  fs.writeFileSync(path.join(env.grid, `${steam.gridStemFromEntry(original)}p.png`), 'original grid');
   const apply = (display, launchSettings) => env.invoke('steam:add', { kinds: [], rows: [{
-    source: 'shortcut', shortcutIdx: 0, appid: entries[0].appid, exe: 'C:/Games/game.exe', display, launchSettings,
+    source: 'shortcut', shortcutIdx: 0, appid: entries[0].appid, folder: `shortcut://${entries[0].appid}`,
+    sgdbId: 7, exe: 'C:/Games/game.exe', display, launchSettings,
   }] });
   await apply('Renamed');
+  assert.equal(fs.readFileSync(path.join(env.grid, `${steam.gridStemFromEntry(entries[0])}p.png`), 'utf8'), 'original grid');
   assert.equal(entries[0].StartDir, original.StartDir);
   assert.equal(entries[0].LaunchOptions, '--original');
+  assert.equal(store.sgdbIdFor(env.cfg, `shortcut://${entries[0].appid}`), 7);
   for (const launchOptions of ['--windowed "two words"', '']) {
     const result = await apply(`Game ${launchOptions}`, { startDir: 'C:/New directory', launchOptions });
     assert.equal(result.updated, 1);
@@ -323,6 +328,11 @@ it('updates launch settings without duplicates and retains their original values
     assert.equal(saved[0].before, original[field]);
     assert.equal(saved[0].appid, entries[0].appid);
   }
+  const copied = path.join(env.grid, `${steam.gridStemFromEntry(entries[0])}p.png`);
+  assert.equal(fs.readFileSync(copied, 'utf8'), 'original grid');
+  await env.invoke('steam:purge', { dryRun: false });
+  assert.equal(fs.existsSync(copied), false);
+  assert.equal(fs.readFileSync(path.join(env.grid, `${steam.gridStemFromEntry(original)}p.png`), 'utf8'), 'original grid');
 });
 
 it('converts executable icon choices to image bytes for native and non-Steam games', async (t) => {

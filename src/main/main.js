@@ -762,7 +762,7 @@ async function withSteamClosed(write) {
       catch (e) {
         const warning = `Steam could not reopen: ${e.message || e}. Open Steam manually.`;
         if (failure) failure.message += ` ${warning}`;
-        else { result.warning = warning; (result.lines ||= []).push(warning); }
+        else { result.warning = [result.warning, warning].filter(Boolean).join(' '); (result.lines ||= []).push(warning); }
       }
     }
     steamWriteBusy = false;
@@ -946,8 +946,8 @@ async function addSteam(req) {
   }
   const hasSelectedArt = rows.some((row) => row && row.art && Object.keys(row.art).length);
   const c = autoArt || hasSelectedArt ? client() : null;
-  const gridFolder = c ? steam.gridDir(sp, uid) : null;
-  if (gridFolder) fs.mkdirSync(gridFolder, { recursive: true });
+  const gridFolder = steam.gridDir(sp, uid);
+  if (c) fs.mkdirSync(gridFolder, { recursive: true });
   let added = 0;
   let updated = 0;
   let artworkSaved = 0;
@@ -955,6 +955,7 @@ async function addSteam(req) {
   let shortcutsChanged = false;
   const changes = store.loadChanges();
   const beforeWrite = artworkBackup(changes);
+  let cfgChanged = false;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || {};
     row.appliedKinds = [];
@@ -988,12 +989,36 @@ async function addSteam(req) {
       continue;
     }
     const shortcut = entries[r.index];
+    if (row.source === 'shortcut') {
+      const oldKey = store.folderKey(row.folder);
+      const newKey = store.folderKey(`shortcut://${shortcut.appid}`);
+      if (oldKey !== newKey) for (const key of ['title_map', 'exe_map', 'sgdb_map', 'sgdb_cache', 'steam_launch']) {
+        if (!Object.hasOwn(cfg[key], oldKey)) continue;
+        cfg[key][newKey] = cfg[key][oldKey];
+        delete cfg[key][oldKey];
+        cfgChanged = true;
+      }
+      if (row.sgdbId) { store.rememberSgdb(cfg, `shortcut://${shortcut.appid}`, row.sgdbId); cfgChanged = true; }
+    }
     row.shortcutIdx = r.index;
     row.appid = shortcut.appid;
     row.managed = steam.isManagedEntry(shortcut);
     if (r.updated) {
       shortcutsChanged = true;
       updated++; lines.push(`  updated '${row.display}'`);
+      if (steam.gridStemFromEntry(old) !== steam.gridStemFromEntry(shortcut)) {
+        const suffixes = [...Object.values(steam.ART_SUFFIXES).flatMap(suffix => steam.GRID_IMAGE_EXTS.map(ext => suffix + ext)), '_icon.ico', '.json'];
+        for (const suffix of suffixes) {
+          const source = path.join(gridFolder, steam.gridStemFromEntry(old) + suffix);
+          const dest = path.join(gridFolder, steam.gridStemFromEntry(shortcut) + suffix);
+          if (!fs.existsSync(source) || fs.existsSync(dest)) continue;
+          const finish = beforeWrite(dest, false);
+          try { fs.copyFileSync(source, dest); } finally { finish(); }
+        }
+      }
+      for (const item of changes.shortcuts) {
+        if (item.appid === old.appid) { item.appid = shortcut.appid; item.appName = shortcut.AppName; }
+      }
       for (const item of changes.fields) {
         if (item.appid === old.appid) item.appid = shortcut.appid;
       }
@@ -1040,7 +1065,12 @@ async function addSteam(req) {
     ? `Saved shortcuts.vdf: ${added} added, ${updated} updated.`
     : 'No shortcut changes needed.');
   progress(0, 0, `Done: ${added} added, ${updated} updated, ${artworkSaved} artwork saved.`);
-  return { rows, lines, added, updated, artworkSaved, artworkFailed };
+  let warning;
+  if (cfgChanged) {
+    try { store.save(cfg); }
+    catch (e) { warning = `App settings could not be saved: ${e.message}`; }
+  }
+  return { rows, lines, added, updated, artworkSaved, artworkFailed, warning };
 }
 
 ipcMain.handle('steam:remove', (_e, req) => withSteamClosed(() => {
