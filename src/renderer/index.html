@@ -56,7 +56,7 @@
   <section class="page" id="page-library">
     <header class="library-head">
       <div class="library-count"><span id="library-count">0 games</span><span>in view</span></div>
-      <button class="btn primary" id="btn-add">Add selected to Steam</button>
+      <button class="btn primary" id="btn-add">Apply to Steam</button>
     </header>
     <div class="checklist" hidden>
       <span class="cl-title">Get set up</span>
@@ -83,6 +83,7 @@
     </div>
     <div class="list-tools">
       <div class="selection-tools">
+        <button class="btn sm" id="select-multiple" aria-pressed="false">Select multiple</button>
         <span id="selection-count">0 selected</span>
         <label class="check filter-toggle"><input type="checkbox" id="sel-all"> Select all</label>
       </div>
@@ -164,7 +165,7 @@
   <section class="page" id="page-desktop">
     <header class="library-head"><span id="desktop-count" class="library-count"></span>
       <div class="row"><label class="theme-setting">Destination <select id="desktop-destination"><option value="desktop">Desktop</option><option value="start-menu">Start menu</option><option value="both">Desktop and Start menu</option></select></label>
-      <button class="btn primary" id="desktop-add">Add selected to Desktop</button></div></header>
+      <button class="btn primary" id="desktop-add">Apply to Desktop</button></div></header>
     <div class="commandbar"><div class="command-group">
       <button class="btn sm" id="desktop-find"><svg class="icon" aria-hidden="true"><use href="#i-find"/></svg>Find executables</button>
     </div><div class="command-group">
@@ -173,6 +174,7 @@
       <button class="btn sm" id="desktop-refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
     </div></div>
     <div class="list-tools">
+      <button class="btn sm" id="desktop-multiple" aria-pressed="false">Select multiple</button>
       <label class="check filter-toggle"><input type="checkbox" id="desktop-all">Select all</label>
       <label class="check filter-toggle"><input type="checkbox" id="desktop-hide">Hide existing shortcuts</label>
     </div>

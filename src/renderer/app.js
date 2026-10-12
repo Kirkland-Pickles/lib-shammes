@@ -543,7 +543,10 @@ function renderRows() {
     body.appendChild(tr);
     visible++;
   }
-  const checked = checkedRows().length;
+  const selected = checkedRows();
+  const checked = selected.length;
+  $('#page-library').classList.toggle('bulk-selection', !!S.bulk);
+  $('#select-multiple').setAttribute('aria-pressed', String(!!S.bulk));
   $('#sel-all').checked = S.rows.length > 0 && checked === S.rows.length;
   $('#sel-all').indeterminate = checked > 0 && checked < S.rows.length;
   $('#sel-all').disabled = !S.rows.length;
@@ -551,10 +554,10 @@ function renderRows() {
   $('#library-count').textContent = visible === S.rows.length
     ? `${visible} game${visible === 1 ? '' : 's'}`
     : `${visible} of ${S.rows.length}`;
-  $('#btn-add').disabled = !S.rows.some((r) => r.checked && (r.source === 'steam' || canWriteShortcut(r)));
-  $('#btn-remove').disabled = !S.rows.some((r) => r.checked && r.inSteam
+  $('#btn-add').disabled = !selected.some(r => r.source === 'steam' || canWriteShortcut(r));
+  $('#btn-remove').disabled = !selected.some((r) => r.inSteam
     && (r.source === 'shortcut' || r.managed));
-  $('#btn-download').disabled = S.preparingArt || !S.cfg.api_key || !S.rows.some(r => r.checked);
+  $('#btn-download').disabled = S.preparingArt || !S.cfg.api_key || !selected.length;
   if (focusedKey) [...body.rows].find((tr) => tr.dataset.key === focusedKey)?.querySelector('.row-check')?.focus();
   renderBanner();
 }
@@ -599,7 +602,7 @@ function renderBanner() {
 
 function selectRow(key) {
   S.detailKey = key;
-  $$('#games-body tr').forEach((tr) => tr.classList.toggle('sel', tr.dataset.key === key));
+  renderRows();
   renderDetail();
   const detail = $('#detail-content');
   detail.getAnimations().forEach((animation) => animation.cancel());
@@ -1220,7 +1223,7 @@ function canWriteShortcut(row) {
 }
 async function doAddToSteam() {
   const editing = cur();
-  if (editing?.checked && canWriteShortcut(editing)
+  if (checkedRows().includes(editing) && canWriteShortcut(editing)
     && ($('#d-name').value.trim() !== editing.display || $('#d-exe-pick').value.trim() !== editing.exe)) {
     if (!await applyDetails()) return;
   }
@@ -1316,7 +1319,7 @@ async function doAddToSteam() {
 async function doRemoveFromSteam() {
   const rows = checkedRows().filter((r) => r.inSteam
     && (r.source === 'shortcut' || r.managed));
-  const skipped = checkedRows().filter((r) => r.source === 'steam' && r.checked);
+  const skipped = checkedRows().filter((r) => r.source === 'steam');
   if (!rows.length) { toast('None of the checked games are in Steam.'); return; }
   if (skipped.length) log(`Skipping ${skipped.length} Steam store game(s) - those are not shortcuts.`);
   const names = rows.slice(0, 12).map((r) => `• ${r.display}`).join('\n')
@@ -1458,22 +1461,31 @@ function desktopVisible() {
     && `${row.display} ${row.exe} ${row.shortcut || ''} ${row.args}`.toLowerCase().includes(query));
 }
 
+function desktopSelected() {
+  const d = S.desktop;
+  return d.rows.filter(row => d.bulk ? row.checked : row.id === d.detail);
+}
+
 function renderDesktop(detail = true) {
   const d = S.desktop;
   const visible = desktopVisible();
+  const selected = desktopSelected();
+  $('#page-desktop').classList.toggle('bulk-selection', !!d.bulk);
+  $('#desktop-multiple').setAttribute('aria-pressed', String(!!d.bulk));
+  $('#desktop-multiple').disabled = d.busy;
   $('#desktop-destination').value = S.cfg.desktop_destination || 'desktop';
   $('#desktop-destination').disabled = d.busy;
-  $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? 'Add selected to Start menu'
-    : S.cfg.desktop_destination === 'both' ? 'Add selected shortcuts' : 'Add selected to Desktop';
-  $('#desktop-count').textContent = `${visible.length} games · ${d.rows.filter((row) => row.checked).length} selected`;
+  $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu'
+    : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop';
+  $('#desktop-count').textContent = `${visible.length} games${d.bulk ? ` · ${selected.length} selected` : ''}`;
   $('#desktop-games tbody').innerHTML = visible.map((row) => `<tr data-key="${esc(row.id)}" class="${row.id === d.detail ? 'sel' : ''}">
     <td class="c-add"><input type="checkbox" class="row-check" aria-label="Select ${esc(row.display)}" ${row.checked ? 'checked' : ''}></td>
     <td><div class="game-name">${esc(row.display)}</div><div class="cell-meta" title="${esc(row.exe)}">${esc(row.exe)}</div></td>
     <td title="${esc(row.shortcut || '')}"><div class="cell-main">${esc(row.shortcut || (row.destination === 'start-menu' ? 'New Start-menu shortcut' : 'New Desktop shortcut'))}</div><div class="cell-meta">${esc(row.args)}</div></td>
     <td title="${esc(row.error || '')}">${row.saving ? 'Saving…' : row.error ? 'Error' : row.saved ? 'Saved' : row.shortcut ? 'Existing' : 'Not added'}${needsReview(row) ? '<div class="cell-meta">Not matched</div>' : ''}</td></tr>`).join('');
   for (const id of ['desktop-add', 'desktop-refresh', 'desktop-find', 'desktop-download']) $('#' + id).disabled = d.busy;
-  $('#desktop-add').disabled ||= !d.rows.some((row) => row.checked);
-  $('#desktop-download').disabled ||= !S.cfg.api_key || !d.rows.some((row) => row.checked);
+  $('#desktop-add').disabled ||= !selected.length;
+  $('#desktop-download').disabled ||= !S.cfg.api_key || !selected.length;
   $('#desktop-all').checked = !!visible.length && visible.every((row) => row.checked);
   $('#desktop-all').indeterminate = visible.some((row) => row.checked) && !$('#desktop-all').checked;
   $('#desktop-games').inert = d.busy && !d.applying;
@@ -1591,6 +1603,12 @@ function wireDesktop() {
   } });
   for (const id of ['desktop-filter', 'desktop-hide']) $('#' + id).addEventListener('input', () => renderDesktop(false));
   $('#desktop-all').onchange = (e) => { desktopVisible().forEach((row) => { row.checked = e.target.checked; }); renderDesktop(false); };
+  $('#desktop-multiple').onclick = () => {
+    const d = S.desktop;
+    d.bulk = !d.bulk;
+    if (d.bulk) d.rows.forEach(row => { row.checked = row.id === d.detail; });
+    renderDesktop(false);
+  };
   $('#desktop-games tbody').onclick = (e) => {
     const row = S.desktop.rows.find((item) => item.id === e.target.closest('tr')?.dataset.key);
     if (!row) return;
@@ -1602,7 +1620,8 @@ function wireDesktop() {
     if (d.busy) return;
     d.busy = true; renderDesktop(false);
     try {
-      const missing = d.rows.filter(row => row.checked && !row.sgdbId);
+      const selected = desktopSelected();
+      const missing = selected.filter(row => !row.sgdbId);
       if (missing.length) {
         const matched = await window.api.matchAuto({ rows: missing.map(row => ({ ...row })), persist: false });
         for (let i = 0; i < missing.length; i++) if (matched.rows[i]?.sgdbId) {
@@ -1612,7 +1631,7 @@ function wireDesktop() {
         }
         matched.lines.forEach(log);
       }
-      const results = await window.api.desktopDownload(d.rows.filter((row) => row.checked));
+      const results = await window.api.desktopDownload(selected);
       for (const result of results) {
         const row = d.rows.find((item) => item.id === result.id);
         if (result.skipped) { log(`${row.display}: ${result.skipped}`); continue; }
@@ -1630,7 +1649,7 @@ function wireDesktop() {
     d.busy = true; renderDesktop(false);
     try {
       await desktopSave;
-      const rows = d.rows.filter((row) => row.checked);
+      const rows = desktopSelected();
       const updates = rows.filter((row) => row.shortcut).length;
       if (!await confirmDlg($('#desktop-add').textContent, `Create ${rows.length - updates} shortcut(s) and update ${updates} existing shortcut(s)?`)) return;
       d.applying = true;
@@ -2116,6 +2135,11 @@ function wireToolbar() {
   $('#side-kill').addEventListener('click', doKillSteam);
   $('#side-restart').addEventListener('click', doRestartSteam);
   $('#sel-all').addEventListener('change', (e) => { S.rows.forEach((r) => { r.checked = e.target.checked; }); renderRows(); });
+  $('#select-multiple').addEventListener('click', () => {
+    S.bulk = !S.bulk;
+    if (S.bulk) S.rows.forEach(row => { row.checked = row === cur(); });
+    renderRows();
+  });
   $('#btn-clear').addEventListener('click', handleAction('Clear', doClear));
   $('#hide-owned').addEventListener('change', (e) => {
     S.hideOwned = e.target.checked;
@@ -2411,7 +2435,7 @@ async function sgdbAutoOne() {
 }
 
 function checkedRows() {
-  return S.rows.filter((r) => r.checked);
+  return S.bulk ? S.rows.filter(r => r.checked) : [cur()].filter(Boolean);
 }
 
 async function boot() {

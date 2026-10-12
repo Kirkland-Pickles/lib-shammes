@@ -192,6 +192,10 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
   margin: 4px 0 10px; flex-wrap: wrap;
 }
 .selection-tools, .view-tools { display: flex; align-items: center; gap: 9px; min-width: 0; flex-wrap: wrap; }
+.page:not(.bulk-selection) .c-add,
+.page:not(.bulk-selection) #selection-count,
+.page:not(.bulk-selection) label:has(#sel-all, #desktop-all) { display: none; }
+#select-multiple[aria-pressed="true"], #desktop-multiple[aria-pressed="true"] { background: var(--sel); border-color: var(--accent); }
 .view-tools { border-left: 1px solid var(--line); padding-left: 12px; }
 #selection-count { display: inline-block; font-size: 8.5pt; color: var(--muted); min-width: 64px; }
 .filter-toggle { position: relative; min-height: var(--control-height); padding: 5px 9px; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--card); color: var(--muted); font-size: 8.5pt; white-space: nowrap; }

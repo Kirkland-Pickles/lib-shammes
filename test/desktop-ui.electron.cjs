@@ -86,6 +86,13 @@ app.whenReady().then(async () => {
   assert.equal(writes, 0);
   assert.equal(scans, 1);
   assert.equal(await run("document.querySelector('.steam-controls').hidden"), true);
+  assert.equal(await run("document.querySelector('#desktop-games .c-add').getBoundingClientRect().width"), 0);
+  await click('#desktop-games .game-name');
+  assert.equal(await run("document.querySelector('#desktop-add').disabled"), false);
+  await click('#desktop-multiple');
+  assert.deepEqual(await selection(), [true, false]);
+  await click('#desktop-games input');
+  assert.deepEqual(await selection(), [false, false]);
   await click('#desktop-games input');
   assert.deepEqual(await selection(), [true, false]);
   await click('#desktop-games .game-name');
@@ -252,11 +259,11 @@ app.whenReady().then(async () => {
   await change('#desktop-destination', 'start-menu');
   await wait(() => cfg.desktop_destination === 'start-menu');
   await idle();
-  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Add selected to Start menu');
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply to Start menu');
   await change('#desktop-destination', 'both');
   await wait(() => cfg.desktop_destination === 'both');
   await idle();
-  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Add selected shortcuts');
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply shortcuts');
   console.log('Desktop fixture checks passed');
   win.destroy();
   app.exit(0);

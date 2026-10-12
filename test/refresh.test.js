@@ -41,6 +41,18 @@ it('allows existing app-managed shortcut rows through the Add/update action', ()
   assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:null, managed:true})", context), false);
 });
 
+it('targets the open game unless multiple selection is explicitly enabled', () => {
+  const { context, state } = renderer({});
+  state.rows = [{ source: 'folder', folder: 'one', checked: true }, { source: 'folder', folder: 'two', checked: true }];
+  state.detailKey = 'folder:two';
+  assert.deepEqual(Array.from(vm.runInContext('checkedRows()', context)), [state.rows[1]]);
+  state.bulk = true;
+  assert.equal(vm.runInContext('checkedRows().length', context), 2);
+  state.bulk = false;
+  state.detailKey = null;
+  assert.equal(vm.runInContext('checkedRows().length', context), 0);
+});
+
 it('loads only the active artwork tab, reuses its request, and ignores stale completion', async () => {
   const requests = [];
   const { context, state, button } = renderer({ artList: req => new Promise(resolve => requests.push({ req, resolve })) });
