@@ -74,9 +74,23 @@ Lib Shammes supports wide capsules, vertical grids, heroes, logos, and icons.
 You can let it find artwork for selected games or open the artwork picker and
 choose each image yourself.
 
+For games already in Steam, the picker's **Apply to Steam** button writes all
+changed artwork types together. Choices for games not yet added stay pending
+until you add the game. Cancel leaves Steam unchanged.
+
+The main **Apply all to Steam** button applies all eligible games shown by your
+current filters. You can use **Select multiple** to limit it to specific games,
+or apply a single game from its details.
+
+**Manage** shows each artwork type and lets you restore its default. Official
+Steam artwork stays available in the picker when it can be found locally or
+fetched from Steam. The Logo tab also controls placement and size.
+
 By default, bulk artwork downloads skip files that are already present in
 Steam's grid folder. Animated, NSFW, and humor artwork are disabled by default
 and can be enabled separately in Settings.
+Automatic selection prefers the enabled adult/humor tags and varies among the
+top results; ordinary artwork uses the highest-ranked result.
 
 ## What it changes
 
@@ -84,6 +98,7 @@ Lib Shammes writes to the following local files and folders:
 
 - Shortcuts: `Steam\userdata\<user>\config\shortcuts.vdf`
 - Artwork: `Steam\userdata\<user>\config\grid\`
+- Native game icons: `Steam\appcache\librarycache\<appid>\`
 - Lib Shammes settings and change journal: `%APPDATA%\Lib Shammes\`
 
 Before changing an existing `shortcuts.vdf`, Lib Shammes makes a unique backup.
@@ -99,7 +114,9 @@ and delete its artwork files if they have not been changed since. Purge before
 using **Delete app data** if you want those changes undone. Deleting app data
 removes the settings, saved matches, and journal needed for a complete undo.
 
-Steam must be fully restarted before shortcut and artwork changes appear.
+When applying Steam changes, Lib Shammes closes Steam and reopens it afterward
+if it was running. Artwork replacements and logo positions are backed up in
+the change journal so Purge can restore them while preserving later user edits.
 
 ## Existing Steam entries
 
@@ -107,13 +124,14 @@ Existing non-Steam shortcuts appear beside scanned games. They can be matched,
 given artwork, or removed when you explicitly select them. Lib Shammes does not
 adopt them as app-managed shortcuts.
 
-Installed Steam games can also appear in the list, but Lib Shammes does not
-edit them at this point in its development.
+Installed Steam games appear in the list and support artwork changes. Their
+Steam-managed names and launchers remain unchanged.
 
 ## Requirements
 
 - Windows is the only supported platform.
-- Lib Shammes needs a SteamGridDB API key for matching and artwork.
+- A SteamGridDB API key is needed for online matching and SGDB artwork. Local
+  images, executable icons and Desktop shortcuts work without one.
 
 The API key is stored in `%APPDATA%\Lib Shammes\config.json` and is
 used for requests to SteamGridDB.
