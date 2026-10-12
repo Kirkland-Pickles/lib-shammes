@@ -88,6 +88,18 @@ it('keeps failed artwork pending while recording successful writes', async () =>
   assert.equal(state.rows[0].art.grid, undefined);
 });
 
+it('loads saved Steam-shortcut matches when there is no previous renderer state', async () => {
+  const { context, state, refresh } = renderer({
+    steamRead: async () => [{ exe: 'game.exe', appid: 10, index: 0, appName: 'Game', managed: true }],
+    steamGames: async () => [], resolveName: async () => null,
+  });
+  const key = vm.runInContext('folderKey("shortcut://10")', context);
+  state.cfg = { games_roots: [], sgdb_cache: { [key]: 7 } };
+  await refresh();
+  assert.equal(state.rows[0].sgdbId, 7);
+  assert.equal(state.rows[0].sgdbName, '(cached)');
+});
+
 it('loads only the active artwork tab, reuses its request, and ignores stale completion', async () => {
   const requests = [];
   const { context, state, button } = renderer({ artList: req => new Promise(resolve => requests.push({ req, resolve })) });
@@ -190,12 +202,13 @@ it('keeps native selections and artwork by AppID when games share a name', async
     steamRead: async () => [], steamGames: async () => [{ appid: 1, name: 'Renamed game' }, { appid: 2, name: 'Game' }],
   });
   state.cfg = { games_roots: [], sgdb_map: {}, sgdb_cache: {} };
-  state.rows = [{ source: 'steam', steamAppid: 1, display: 'Game', checked: true, sgdbId: 7, art: { grid: 'chosen' } },
+  state.rows = [{ source: 'steam', steamAppid: 1, display: 'Game', checked: true, sgdbId: 7, pendingArt: true, art: { grid: 'chosen' } },
     { source: 'steam', steamAppid: 2, display: 'Game', checked: false, art: {} }];
   await refresh();
   assert.equal(state.rows[0].checked, true);
   assert.equal(state.rows[0].sgdbId, 7);
   assert.equal(state.rows[0].art.grid, 'chosen');
+  assert.equal(state.rows[0].pendingArt, true);
   assert.equal(state.rows[1].checked, false);
   assert.equal(Object.keys(state.rows[1].art).length, 0);
 });

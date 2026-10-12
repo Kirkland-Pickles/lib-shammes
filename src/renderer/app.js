@@ -835,6 +835,8 @@ async function syncSteamLibrary(entries, installed) {
     const name = String(e.appName || '(unnamed)');
     if (exe && folderExe.has(exe.toLowerCase())) continue;
     const old = keep.get(`shortcut:${(exe || name).toLowerCase()}`);
+    const folder = `shortcut://${e.appid ?? e.index}`;
+    const sgdbId = old?.sgdbId || S.cfg.sgdb_map?.[folderKey(folder)] || S.cfg.sgdb_cache?.[folderKey(folder)] || null;
     let query = name;
     let steamAppid = null;
     try {
@@ -843,14 +845,15 @@ async function syncSteamLibrary(entries, installed) {
     } catch { /* display-only guess; matching does the real work */ }
     const startDir = String(e.startDir || parentDir(exe));
     S.rows.push({
-      folder: `shortcut://${e.appid ?? e.index}`, folderName: name, display: name,
+      folder, folderName: name, display: name,
       exe: exe || null, startDir, launchOptions: e.launchOptions || '',
       candidates: exe ? [{ path: exe, size: 0, depth: 0, score: 0, reason: 'existing shortcut' }] : [],
       score: 0, reason: 'already in Steam as a non-Steam shortcut', query,
       steamAppid, idMethod: 'shortcut', confidence: 0.5, source: 'shortcut',
-      checked: old ? old.checked : false, sgdbId: old ? old.sgdbId : null,
-      sgdbName: old ? old.sgdbName : '', inSteam: true, managed: !!e.managed,
+      checked: old ? old.checked : false, sgdbId,
+      sgdbName: old?.sgdbName || (sgdbId ? '(cached)' : ''), inSteam: true, managed: !!e.managed,
       shortcutIdx: e.index, appid: e.appid, art: old ? old.art || {} : {},
+      pendingArt: !!old?.pendingArt, pendingDetails: !!old?.pendingDetails, artApplied: !!old?.artApplied,
       defaults: { display: name, query, exe: exe || null, startDir },
     });
   }
@@ -865,6 +868,7 @@ async function syncSteamLibrary(entries, installed) {
       sgdbId: old ? old.sgdbId : (S.cfg.sgdb_map?.[`steam:${g.appid}`] || S.cfg.sgdb_cache?.[`steam:${g.appid}`] || null),
       sgdbName: old ? old.sgdbName : '', inSteam: true, managed: false,
       shortcutIdx: null, appid: null, art: old ? old.art || {} : {},
+      pendingArt: !!old?.pendingArt, artApplied: !!old?.artApplied,
     });
   }
   renderRows();
@@ -887,6 +891,9 @@ function scannedRows(games) {
       row.sgdbId = old.sgdbId;
       row.sgdbName = old.sgdbName;
       row.art = old.art || {};
+      row.pendingArt = !!old.pendingArt;
+      row.pendingDetails = !!old.pendingDetails;
+      row.artApplied = !!old.artApplied;
       row.launchOptions = old.launchOptions || '';
     }
     // No exe, not even a candidate: not a game. Leave it out instead of
@@ -1085,10 +1092,10 @@ async function doClear() {
     delete patch.steam_launch[folderKey(row.folder)];
     if (row.source === 'steam') {
       for (const key of ['sgdb_map', 'sgdb_cache']) delete patch[key][folderKey(row.folder)];
-      resets.push([row, { art: {}, sgdbId: null, sgdbName: '' }, null]);
+      resets.push([row, { art: {}, sgdbId: null, sgdbName: '', pendingArt: false, pendingDetails: false, artApplied: false }, null]);
       continue;
     }
-    const reset = { ...row.defaults, art: {}, sgdbId: null, sgdbName: '' };
+    const reset = { ...row.defaults, art: {}, sgdbId: null, sgdbName: '', pendingArt: false, pendingDetails: false, artApplied: false };
     const entry = (row.appid != null && byAppid.get(Number(row.appid)))
       || (row.exe && byExe.get(folderKey(row.exe))) || (reset.exe && byExe.get(folderKey(reset.exe)));
     if (entry) {
@@ -1220,7 +1227,10 @@ async function doDownloadArt() {
     for (const updated of result.rows) {
       const row = rows.find(row => row.folder === updated.folder);
       if (row && S.rows.includes(row)) for (const [kind, choice] of Object.entries(updated.art)) {
-        if (row.art[kind] === previous.get(row)[kind]) row.art[kind] = choice;
+        if (row.art[kind] === previous.get(row)[kind] && JSON.stringify(choice) !== JSON.stringify(row.art[kind])) {
+          row.art[kind] = choice;
+          row.pendingArt = true;
+        }
       }
     }
     result.lines.forEach(log);
@@ -1865,6 +1875,7 @@ function closeArtModal(save) {
     if (m.row.source === 'desktop') {
       m.row.iconChoice = m.sel.icon || null;
       m.row.art = { ...m.sel };
+      m.row.pendingArt = true;
       m.row.sgdbId = m.sgdbId;
       const match = m.games.find((game) => game.id === m.sgdbId);
       if (match) { m.row.display = m.row.sgdbName = match.name; m.row.sgdbId = match.id; }
@@ -1879,6 +1890,7 @@ function closeArtModal(save) {
       S.cfg.sgdb_map[folderKey(m.row.folder)] = m.sgdbId;
       savePatch({ sgdb_map: S.cfg.sgdb_map });
     }
+    const artworkChanged = JSON.stringify(m.row.art || {}) !== JSON.stringify(m.sel || {});
     m.row.art = { ...m.sel };
     renderRows();
     renderDetail();
@@ -2487,10 +2499,15 @@ async function applyDetails() {
   const r = cur();
   if (!r) return false;
   if (r.source === 'steam') { toast('Steam store games cannot be edited here - Steam manages them.'); return false; }
+  const oldLaunch = S.cfg.steam_launch?.[folderKey(r.folder)];
+  const oldStartDir = oldLaunch?.startDir ?? String(r.startDir || '').replace(/^"|"$/g, '');
+  const oldArgs = oldLaunch?.launchOptions ?? r.launchOptions ?? '';
   const name = $('#d-name').value.trim();
   const exe = $('#d-exe-pick').value.trim();
   let startDir = $('#d-startdir').value.trim();
   if (exe !== r.exe && folderKey(startDir) === folderKey(parentDir(r.exe || ''))) startDir = parentDir(exe);
+  const fieldsChanged = (!!name && name !== r.display) || (!!exe && exe !== r.exe)
+    || startDir !== oldStartDir || $('#d-args').value !== oldArgs;
   if (r.fromExecutableSearch && exe && folderKey(exe) !== folderKey(r.folder)) {
     if (S.rows.some((other) => other !== r && other.exe && folderKey(other.exe) === folderKey(exe))) {
       toast('That executable is already listed.');
@@ -2525,6 +2542,7 @@ async function applyDetails() {
   r.reason = 'manual';
   S.cfg.steam_launch ||= {};
   S.cfg.steam_launch[folderKey(r.folder)] = { startDir: startDir || parentDir(r.exe), launchOptions: $('#d-args').value };
+  if (fieldsChanged) r.pendingDetails = true;
   await savePatch({ title_map: S.cfg.title_map, exe_map: S.cfg.exe_map,
     sgdb_map: S.cfg.sgdb_map, sgdb_cache: S.cfg.sgdb_cache, steam_launch: S.cfg.steam_launch });
   await refreshSteamState();
