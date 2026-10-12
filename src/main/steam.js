@@ -357,10 +357,11 @@ function clearConflictingExts(dest) {
 }
 
 function isSteamRunning() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (process.platform !== 'win32') return resolve(false);
-    execFile('tasklist', ['/FI', 'IMAGENAME eq steam.exe'], (err, stdout) => {
-      resolve(!err && String(stdout || '').toLowerCase().includes('steam.exe'));
+    execFile('tasklist', ['/FI', 'IMAGENAME eq steam.exe'], { timeout: 10000, windowsHide: true }, (err, stdout) => {
+      if (err) return reject(new Error('Could not check whether Steam is running. Try again.'));
+      resolve(String(stdout || '').toLowerCase().includes('steam.exe'));
     });
   });
 }

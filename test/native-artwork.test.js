@@ -75,6 +75,28 @@ it('does not write when Steam refuses to close', async t => {
   assert.deepEqual(env.calls, []);
 });
 
+it('does not treat a failed Steam process check as a stopped client', async t => {
+  const filename = path.join(__dirname, '../src/main/steam.js');
+  const realRequire = createRequire(filename);
+  const module = { exports: {} };
+  let error = new Error('tasklist timed out');
+  let output = '';
+  vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
+    module, process: { platform: 'win32' },
+    require: name => name === 'child_process' ? { execFile: (_file, _args, options, callback) => {
+      assert.ok(options.timeout > 0);
+      callback(error, output);
+    } } : realRequire(name),
+  }, { filename });
+  const env = main(t, {}, {}, { isSteamRunning: module.exports.isSteamRunning });
+  await assert.rejects(env.download(), /Could not check whether Steam is running/);
+  assert.deepEqual(env.calls, []);
+  error = null;
+  assert.equal(await module.exports.isSteamRunning(), false);
+  output = 'steam.exe 1234 Console';
+  assert.equal(await module.exports.isSteamRunning(), true);
+});
+
 it('keeps a successful artwork result when reopening Steam fails', async t => {
   const env = main(t, {}, {}, {
     isSteamRunning: async () => true, closeSteam: async () => {},
