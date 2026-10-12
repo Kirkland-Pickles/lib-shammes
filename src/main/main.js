@@ -445,7 +445,6 @@ ipcMain.handle('desktop:download', async (_e, rows) => {
   desktopJob = true;
   const results = [];
   try {
-    const c = client();
     for (const row of rows) {
       try {
         if (!row.sgdbId) { results.push({ id: row.id, skipped: 'Not matched.' }); continue; }
@@ -453,8 +452,8 @@ ipcMain.handle('desktop:download', async (_e, rows) => {
           results.push({ id: row.id, skipped: 'Icon already present; skipping is enabled.' }); continue;
         }
         progress(results.length, rows.length, row.display);
-        const icon = (await c.icons(row.sgdbId, { types: 'static', nsfw: cfg.include_nsfw ? 'any' : 'false',
-          humor: cfg.include_humor ? 'any' : 'false', limit: 30 }))[0];
+        const [icon] = await listArtwork({ sgdbId: row.sgdbId, kind: 'icon',
+          filters: { ...artworkFilters('icon'), static: true, animated: false } });
         if (!icon) { results.push({ id: row.id, error: 'No icons found.' }); continue; }
         results.push({ id: row.id, choice: { ...icon, file: await desktop.cacheIcon(icon), automatic: true } });
       } catch (e) { results.push({ id: row.id, error: e.message }); }
@@ -499,12 +498,15 @@ ipcMain.handle('resolve:name', async (_e, name) => {
 });
 
 ipcMain.handle('art:list', (_e, req) => listArtwork(req));
-async function listArtwork(req) {
+function artworkFilters(kind, defaults = {}) {
+  return { animated: cfg.include_animated, nsfw: cfg.include_nsfw, humor: cfg.include_humor,
+    ...defaults, ...cfg.artwork_filters?.[kind] };
+}
+async function listArtwork(req, c = client()) {
   const sgdbId = Number(req && req.sgdbId);
   if (!Number.isFinite(sgdbId) || sgdbId <= 0) throw new Error('Art list needs an SGDB game id.');
   const kind = req.kind;
-  const filters = (req && req.filters) || {};
-  const c = client();
+  const filters = req.filters || artworkFilters(kind);
   const o = {
     types: [filters.static !== false && 'static', filters.animated && 'animated'].filter(Boolean).join(','),
     nsfw: filters.nsfw ? 'any' : 'false',
@@ -539,9 +541,7 @@ ipcMain.handle('art:prepare', async (_e, req) => {
           metadata ||= await client().steamMetadata(row.steamAppid);
           if (hasStockArtwork(metadata, kind)) continue;
         }
-        const [image] = await listArtwork({ sgdbId: row.sgdbId, kind,
-          filters: { animated: cfg.include_animated, nsfw: cfg.include_nsfw, humor: cfg.include_humor,
-            ...cfg.artwork_filters?.[kind] } });
+        const [image] = await listArtwork({ sgdbId: row.sgdbId, kind });
         if (!image) { lines.push(`${row.display} [${kind}]: no matching artwork.`); continue; }
         row.art[kind] = image;
         prepared++;
@@ -647,21 +647,8 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
     src = sel.custom ? 'custom URL' : `#${sel.id}`;
     srcUrl = sel.url;
   } else {
-    const o = {
-      types: filters.animated ? 'static,animated' : 'static',
-      nsfw: filters.nsfw ? 'any' : 'false',
-      humor: filters.humor ? 'any' : 'false',
-      limit: 30,
-    };
-    const items = kind === 'wide' ? await c.gridsWide(row.sgdbId, o)
-      : kind === 'grid' ? await c.gridsVertical(row.sgdbId, o)
-      : kind === 'hero' ? await c.heroes(row.sgdbId, o)
-      : kind === 'logo' ? await c.logos(row.sgdbId, o)
-      : await c.icons(row.sgdbId, o);
+    const items = await listArtwork({ sgdbId: row.sgdbId, kind, filters: artworkFilters(kind, filters) }, c);
     if (!items.length) return { line: `${row.display} [${kind}]: no image on SGDB.`, saved: false };
-    // items arrive score-sorted (community top-voted first): auto-download
-    // always takes that default, never a random pick. SGDB exposes no
-    // separate "default" flag, so top score IS the default.
     const img = items[0];
     row.art = row.art || {};
     data = await c.downloadBytes(img.url);

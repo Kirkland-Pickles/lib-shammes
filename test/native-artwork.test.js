@@ -287,6 +287,23 @@ it('requests selected content tags and animation types without mixing in untagge
   assert.equal(params.get('mimes'), 'image/png');
 });
 
+it('uses saved picker filters for preparation and automatic downloads, keeping Desktop icons static', async t => {
+  const env = main(t, { icon: 'a'.repeat(40) }, { cacheIcon: async () => 'cached.ico' });
+  env.cfg.only_missing = false;
+  env.cfg.artwork_filters.icon = { static: false, animated: true, untagged: false,
+    humor: true, nsfw: false, epilepsy: false, styles: ['custom'], mimes: ['image/png'] };
+  await env.invoke('art:list', { sgdbId: 7, kind: 'icon' });
+  const expected = env.artworkQueries.at(-1);
+  assert.equal(expected.oneoftag, 'humor');
+  assert.equal(expected.types, 'animated');
+  await env.invoke('art:prepare', { rows: [native()], kinds: ['icon'] });
+  assert.deepEqual(env.artworkQueries.at(-1), expected);
+  assert.equal((await env.download(native(), { kinds: ['icon'] })).saved, 1);
+  assert.deepEqual(env.artworkQueries.at(-1), expected);
+  await env.invoke('desktop:download', [{ id: 'desktop', sgdbId: 7 }]);
+  assert.deepEqual({ ...env.artworkQueries.at(-1) }, { ...expected, types: 'static' });
+});
+
 it('skips stock and custom artwork when onlyMissing is on', async (t) => {
   for (const stock of [{ library_capsule: 'capsule.jpg' }, { library_capsule_full: { image2x: { english: 'capsule.jpg' } } }]) {
     const env = main(t, stock);
