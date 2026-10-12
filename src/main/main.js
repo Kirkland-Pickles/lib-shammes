@@ -77,8 +77,9 @@ ipcMain.handle('cfg:set', (_e, patch) => {
   if (Object.prototype.hasOwnProperty.call(clean, 'steam_path')) {
     clean.steam_path = steam.normalizeSteamPath(clean.steam_path);
   }
-  Object.assign(cfg, clean);
-  store.save(cfg);
+  const next = { ...cfg, ...clean };
+  store.save(next);
+  Object.assign(cfg, next);
   if (clean.theme !== undefined) updateWindowTheme();
   return cfg;
 });

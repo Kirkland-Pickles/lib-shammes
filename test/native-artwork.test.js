@@ -59,6 +59,12 @@ it('times out an SGDB response that stalls after its headers arrive', async t =>
   await assert.rejects(new SGDBClient('fixture', 10).searchGame('Game'), /Network error/);
 });
 
+it('leaves the active config unchanged when a settings write fails', t => {
+  const env = main(t, {}, {}, {}, () => { throw new Error('settings locked'); });
+  assert.throws(() => env.invoke('cfg:set', { steam_user_id: '2' }), /settings locked/);
+  assert.equal(env.cfg.steam_user_id, '1');
+});
+
 it('closes Steam before writing artwork and reopens it once afterward', async t => {
   const events = [];
   const env = main(t, {}, {}, {
