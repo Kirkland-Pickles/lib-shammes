@@ -53,6 +53,17 @@ function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
 
+it('selects tagged artwork without changing ordinary top-ranked selection', () => {
+  const { chooseArtwork, officialArtworkUrls } = require('../src/main/sgdb');
+  const plain = { id: 1 }, humor = { id: 2, humor: true }, otherHumor = { id: 3, humor: true };
+  assert.equal(chooseArtwork([plain, humor], {}), plain);
+  assert.equal(chooseArtwork([plain, humor, otherHumor], { humor: true }, () => 0.99), otherHumor);
+  assert.equal(chooseArtwork([], { nsfw: true }), null);
+  const urls = officialArtworkUrls(123, 'grid', { library_capsule_full: { image: { english: 'https://cdn.cloudflare.steamstatic.com/capsule.jpg' } } });
+  assert.ok(urls.includes('https://cdn.cloudflare.steamstatic.com/capsule.jpg'));
+  assert.ok(!officialArtworkUrls(123, 'grid', { library_capsule: 'https://evilsteamstatic.com/image.jpg' }).includes('https://evilsteamstatic.com/image.jpg'));
+});
+
 it('restores default artwork and keeps the previous image recoverable through Purge', async t => {
   const env = main(t);
   fs.mkdirSync(env.grid, { recursive: true });

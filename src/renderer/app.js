@@ -2063,7 +2063,9 @@ function sameArtwork(a, b) {
 }
 
 async function stockArtwork(m, kind) {
-  m.stock[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind, stock: true }).catch(() => null);
+  m.stock[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind, stock: true })
+    .then(current => current || (m.row.source === 'steam' ? window.api.artOfficial({ row: rowPayload(m.row), kind }) : null))
+    .catch(e => { log(`Stock artwork: ${e.message}`); return null; });
   return m.stock[kind];
 }
 

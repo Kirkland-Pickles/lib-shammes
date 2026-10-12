@@ -49,6 +49,21 @@ function chooseArtwork(items, filters = {}, random = Math.random) {
   return pool[Math.floor(random() * pool.length)];
 }
 
+function officialArtworkUrls(appid, kind, metadata = {}) {
+  const key = { wide: 'header_image', grid: 'library_capsule', hero: 'library_hero', logo: 'library_logo', icon: 'icon' }[kind];
+  const full = metadata[`${key}_full`];
+  const urls = [metadata[key], ...[full?.image2x, full?.image || full].flatMap(map =>
+    typeof map === 'string' ? [map] : [map?.english, ...Object.values(map || {})])];
+  const name = { wide: 'header.jpg', grid: 'library_600x900.jpg', hero: 'library_hero.jpg', logo: 'logo.png' }[kind];
+  if (kind === 'icon' && /^[a-f0-9]{40}$/i.test(metadata.icon || '')) {
+    urls.push(`https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/${appid}/${metadata.icon}.jpg`);
+  } else if (name) urls.push(`https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appid}/${name}`);
+  return [...new Set(urls.filter(value => {
+    try { const url = new URL(value); return url.protocol === 'https:' && url.hostname.endsWith('.steamstatic.com'); }
+    catch { return false; }
+  }))];
+}
+
 class SGDBClient {
   constructor(apiKey, timeoutMs = 20000) {
     this.apiKey = String(apiKey || '').trim();
@@ -180,4 +195,4 @@ class SGDBClient {
   }
 }
 
-module.exports = { BASE_URL, SGDBError, SGDBClient, parseGame, parseImage, chooseArtwork };
+module.exports = { BASE_URL, SGDBError, SGDBClient, parseGame, parseImage, chooseArtwork, officialArtworkUrls };

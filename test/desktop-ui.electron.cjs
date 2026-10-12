@@ -28,6 +28,7 @@ const handlers = {
   'desktop:icon': (file) => { assert.ok(!file.endsWith('.lnk')); return icon; },
   'art:preview-file': (file) => { assert.ok(['C:\\Icons\\game.ico', 'C:\\Icons\\downloaded.ico'].includes(file)); iconPreviews++; return file.endsWith('downloaded.ico') ? downloadedIcon : icon; },
   'art:current': () => null,
+  'art:official': () => null,
   'art:logo-position': () => null,
   'art:download': (req) => {
     artworkWrites.push(req);

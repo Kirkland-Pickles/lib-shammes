@@ -363,6 +363,28 @@ async function previewFile(file, extension = path.extname(String(file))) {
   return `data:image/${type};base64,${bytes.toString('base64')}`;
 }
 ipcMain.handle('art:preview-file', (_e, file) => previewFile(file));
+ipcMain.handle('art:official', async (_e, req) => {
+  const appid = Number(req?.row?.steamAppid);
+  if (!Number.isSafeInteger(appid) || appid <= 0 || appid > 0xffffffff || !Object.hasOwn(steam.ART_SUFFIXES, req?.kind)) return null;
+  const dir = path.join(store.configDir(), 'official-artwork');
+  const file = path.join(dir, `${appid}-${req.kind}.png`);
+  if (fs.existsSync(file)) return { file, url: await previewFile(file) };
+  const c = client();
+  const metadata = cfg.api_key ? await c.steamMetadata(appid).catch(() => ({})) : {};
+  let lastError;
+  for (const url of sgdbMod.officialArtworkUrls(appid, req.kind, metadata)) {
+    try {
+      const bytes = await c.downloadBytes(url, 32 * 1024 * 1024);
+      const image = nativeImage.createFromBuffer(bytes);
+      if (image.isEmpty()) throw new Error('Steam returned an unreadable image.');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, image.toPNG());
+      return { file, url: await previewFile(file) };
+    } catch (e) { lastError = e; }
+  }
+  if (lastError) throw new Error(`Official artwork could not load: ${lastError.message}`);
+  return null;
+});
 ipcMain.handle('art:current', async (_e, req) => {
   let file = steam.currentArtwork(cfg.steam_path, cfg.steam_user_id, req?.row, req?.kind, !!req?.stock);
   const changes = req?.stock ? store.loadChanges().files : [];
