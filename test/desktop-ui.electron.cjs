@@ -156,7 +156,12 @@ app.whenReady().then(async () => {
   await click('#art-filter-fields input[data-filter=epilepsy]');
   await wait(() => artRequests.at(-1).filters.epilepsy === false);
   await click('#art-filter-fields input[data-filter=humor]');
-  assert.equal(await run("document.querySelector('input[data-filter=humor]').checked"), true);
+  await wait(() => artRequests.at(-1).filters.humor === false);
+  assert.equal(await run("document.querySelectorAll('#art-filter-fields fieldset:nth-child(2) input:checked').length"), 0);
+  await click('#art-filter-reset');
+  await wait("document.querySelector('#art-filter-fields input[data-filter=untagged]').checked");
+  assert.equal(await run("document.querySelector('#art-filter-fields input[data-filter=nsfw]').checked"), false);
+  assert.equal(await run("document.querySelector('#art-filter-fields input[data-filter=static]').checked"), true);
   await click('#art-filters summary');
   await click('#art-apply');
   await wait(() => cfg.desktop_overrides['link:1']?.sgdbId === 17);

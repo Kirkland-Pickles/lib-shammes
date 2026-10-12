@@ -1730,7 +1730,9 @@ function renderArtFilters() {
     }).join('')}</fieldset>`).join('');
   host.onchange = event => handleAction('Artwork filters', async () => {
     const inputs = [...event.target.closest('fieldset').querySelectorAll('input')];
-    if (!inputs.some(input => input.checked)) { event.target.checked = true; return; }
+    if (!inputs.some(input => input.checked) && ['static', 'animated'].includes(event.target.dataset.filter)) {
+      inputs.find(input => input !== event.target).checked = true;
+    }
     const next = { ...values };
     for (const input of host.querySelectorAll('input')) {
       const field = input.dataset.filter;
@@ -1742,6 +1744,13 @@ function renderArtFilters() {
     if (S.modal !== m || m.tab !== kind) return;
     await loadArtTabs();
   })();
+  $('#art-filter-reset').onclick = handleAction('Reset filters', async () => {
+    const filters = { ...S.cfg.artwork_filters, [kind]: { nsfw: pickerFilters(kind).nsfw } };
+    await savePatch({ artwork_filters: filters });
+    if (S.modal !== m || m.tab !== kind) return;
+    renderArtFilters();
+    await loadArtTabs();
+  });
 }
 
 async function openArtModal(row, focusKind) {
