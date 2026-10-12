@@ -1040,13 +1040,17 @@ function libraryKey() {
   return JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.steam_path, S.cfg.steam_user_id]);
 }
 function loadLibrary(force = false) {
+  if (S.applyingSteam || S.preparingArt) return Promise.resolve();
   const key = libraryKey();
   if (libraryLoad) return libraryLoad.then(() => libraryKey() !== loadedLibraryKey ? loadLibrary() : undefined);
   if (!force && key === loadedLibraryKey) return Promise.resolve();
   libraryLoad = refreshLibrary().then(() => { loadedLibraryKey = key; }).finally(() => { libraryLoad = null; });
   return libraryLoad;
 }
-function doRefresh() { return loadLibrary(true); }
+function doRefresh() {
+  if (S.applyingSteam || S.preparingArt) return Promise.resolve();
+  return loadLibrary(true);
+}
 
 async function refreshLibrary() {
   const button = $('#btn-refresh');

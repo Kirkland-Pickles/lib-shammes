@@ -53,6 +53,19 @@ function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
 
+it('keeps the Steam account and app data fixed until an artwork write finishes', async t => {
+  let release;
+  const env = main(t, {}, {}, { isSteamRunning: () => new Promise(resolve => { release = resolve; }) });
+  const writing = env.download();
+  assert.throws(() => env.invoke('cfg:set', { steam_user_id: '2' }), /already being applied/);
+  assert.throws(() => env.invoke('app:wipe-data'), /already being applied/);
+  assert.equal(env.cfg.steam_user_id, '1');
+  release(false);
+  await writing;
+  env.invoke('cfg:set', { steam_user_id: '2' });
+  assert.equal(env.cfg.steam_user_id, '2');
+});
+
 it('times out an SGDB response that stalls after its headers arrive', async t => {
   t.mock.method(globalThis, 'fetch', async (_url, { signal }) => ({ ok: true, status: 200,
     json: () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }));

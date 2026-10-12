@@ -74,6 +74,9 @@ ipcMain.handle('app:is-development', () => !app.isPackaged);
 ipcMain.handle('cfg:get', () => cfg);
 ipcMain.handle('cfg:set', (_e, patch) => {
   const clean = store.sanitizePatch(patch);
+  if (steamWriteBusy && ['steam_path', 'steam_user_id'].some(key => Object.hasOwn(clean, key) && clean[key] !== cfg[key])) {
+    throw new Error('Steam changes are already being applied.');
+  }
   if (Object.prototype.hasOwnProperty.call(clean, 'steam_path')) {
     clean.steam_path = steam.normalizeSteamPath(clean.steam_path);
   }
@@ -86,7 +89,9 @@ ipcMain.handle('cfg:set', (_e, patch) => {
 
 // ----------------------------------------------------------------- steam
 ipcMain.handle('steam:detect', async (_e, hint) => {
+  if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
   const found = await steam.findSteamPath(hint || cfg.steam_path || null);
+  if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
   if (found) {
     cfg.steam_path = found;
     const users = steam.getUserPersonas(found);
@@ -199,6 +204,7 @@ function wipeData() {
 }
 
 ipcMain.handle('app:wipe-data', () => {
+  if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
   const result = wipeData();
   setImmediate(() => { try { app.quit(); } catch { /* already going down */ } });
   return result;
