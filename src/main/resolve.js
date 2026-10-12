@@ -620,6 +620,14 @@ function chooseTitleMatch(query, games) {
   return first.game;
 }
 
+function identifyFromCatalog(game, catalog) {
+  if (game.steamAppid) return game;
+  const matches = catalog.filter(entry => titleSimilarity(game.displayName || game.title || game.display, entry.name) === 1);
+  if (matches.length !== 1) return game;
+  const match = matches[0];
+  return { ...game, displayName: match.name, query: match.name, steamAppid: match.appid, confidence: 1, idMethod: 'local-steam' };
+}
+
 function resolveFolder(folderName, cleanFn) {
   const key = normalizeKey(folderName);
   if (ALIASES[key]) {
@@ -669,4 +677,4 @@ function resolveExeStem(stem) {
   return null;
 }
 
-module.exports = { ALIASES, EXE_ALIASES, normalizeKey, resolveFolder, resolveExeStem, titleSimilarity, chooseTitleMatch };
+module.exports = { ALIASES, EXE_ALIASES, normalizeKey, resolveFolder, resolveExeStem, titleSimilarity, chooseTitleMatch, identifyFromCatalog };

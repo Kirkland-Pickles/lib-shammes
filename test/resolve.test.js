@@ -8,6 +8,13 @@ const os = require('os');
 const path = require('path');
 
 describe('resolve', () => {
+  it('uses exact unambiguous installed titles offline without guessing another edition or sequel', () => {
+    const catalog = [{ appid: 1, name: 'CONTROL Resonant' }, { appid: 2, name: 'Control' }, { appid: 3, name: 'Control 2' }];
+    const game = { displayName: 'CONTROLResonant', exePath: 'game.exe' };
+    assert.equal(resolve.identifyFromCatalog(game, catalog).steamAppid, 1);
+    assert.equal(resolve.identifyFromCatalog({ displayName: 'Control Ultimate Edition' }, catalog).steamAppid, undefined);
+    assert.equal(resolve.identifyFromCatalog(game, [...catalog, { appid: 4, name: 'CONTROL Resonant' }]), game);
+  });
   it('resolves exact aliases with Steam IDs', () => {
     const id = resolve.resolveFolder('rdr2', scanner.cleanFolderName);
     assert.equal(id.title, 'Red Dead Redemption 2');

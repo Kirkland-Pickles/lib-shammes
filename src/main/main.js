@@ -403,13 +403,15 @@ function scanFolders(req) {
     }
   }
   progress(0, 0, '');
-  return games;
+  const catalog = cfg.steam_path ? steam.listInstalledGames(cfg.steam_path) : [];
+  return games.map(game => resolveMod.identifyFromCatalog(game, catalog));
 }
 function savedExecutables(library) {
+  const catalog = cfg.steam_path ? steam.listInstalledGames(cfg.steam_path) : [];
   return (cfg[`${library}_executables`] || []).filter((game) => {
     try { return /\.exe$/i.test(game.exePath) && fs.statSync(game.exePath).isFile(); }
     catch { return false; }
-  });
+  }).map(game => resolveMod.identifyFromCatalog(game, catalog));
 }
 ipcMain.handle('scan:start', (_e, req) => {
   const games = req?.roots?.length ? scanFolders(req) : [];
