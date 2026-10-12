@@ -32,7 +32,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
       isSteamRunning: async () => false,
       loadEntries: () => { calls.push('read shortcuts'); return []; },
       saveEntries: () => { calls.push('write shortcuts'); throw new Error('Native artwork must not write shortcuts'); }, ...steamOverrides },
-    './sgdb': { SGDBClient: class {
+    './sgdb': { ...realRequire('./sgdb'), SGDBClient: class {
       steamMetadata = async () => { calls.push('metadata'); if (metadata instanceof Error) throw metadata; return metadata; };
       gridsVertical = async () => [{ id: 9, url: 'https://test.invalid/art.jpg' }];
       logos = this.gridsVertical;

@@ -462,8 +462,8 @@ ipcMain.handle('desktop:download', async (_e, rows) => {
           results.push({ id: row.id, skipped: 'Icon already present; skipping is enabled.' }); continue;
         }
         progress(results.length, rows.length, row.display);
-        const [icon] = await listArtwork({ sgdbId: row.sgdbId, kind: 'icon',
-          filters: { ...artworkFilters('icon'), static: true, animated: false } });
+        const filters = { ...artworkFilters('icon'), static: true, animated: false };
+        const icon = sgdbMod.chooseArtwork(await listArtwork({ sgdbId: row.sgdbId, kind: 'icon', filters }), filters);
         if (!icon) { results.push({ id: row.id, error: 'No icons found.' }); continue; }
         results.push({ id: row.id, choice: { ...icon, file: await desktop.cacheIcon(icon), automatic: true } });
       } catch (e) { results.push({ id: row.id, error: e.message }); }
@@ -551,7 +551,7 @@ ipcMain.handle('art:prepare', async (_e, req) => {
           metadata ||= await client().steamMetadata(row.steamAppid);
           if (hasStockArtwork(metadata, kind)) continue;
         }
-        const [image] = await listArtwork({ sgdbId: row.sgdbId, kind });
+        const image = sgdbMod.chooseArtwork(await listArtwork({ sgdbId: row.sgdbId, kind }), artworkFilters(kind));
         if (!image) { lines.push(`${row.display} [${kind}]: no matching artwork.`); continue; }
         row.art[kind] = image;
         prepared++;
@@ -659,7 +659,7 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
   } else {
     const items = await listArtwork({ sgdbId: row.sgdbId, kind, filters: artworkFilters(kind, filters) }, c);
     if (!items.length) return { line: `${row.display} [${kind}]: no image on SGDB.`, saved: false };
-    const img = items[0];
+    const img = sgdbMod.chooseArtwork(items, artworkFilters(kind, filters));
     row.art = row.art || {};
     data = await c.downloadBytes(img.url);
     row.art[kind] = { id: img.id, url: img.url, author: img.author, width: img.width, height: img.height,

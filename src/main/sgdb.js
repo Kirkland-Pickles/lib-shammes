@@ -40,6 +40,15 @@ function parseImage(d) {
   };
 }
 
+function chooseArtwork(items, filters = {}, random = Math.random) {
+  if (!items.length) return null;
+  const tagged = filters.untagged === false || filters.nsfw || filters.humor;
+  if (!tagged) return items[0];
+  const preferred = items.filter(image => filters.nsfw && image.nsfw || filters.humor && image.humor);
+  const pool = (preferred.length ? preferred : items).slice(0, 10);
+  return pool[Math.floor(random() * pool.length)];
+}
+
 class SGDBClient {
   constructor(apiKey, timeoutMs = 20000) {
     this.apiKey = String(apiKey || '').trim();
@@ -171,4 +180,4 @@ class SGDBClient {
   }
 }
 
-module.exports = { BASE_URL, SGDBError, SGDBClient, parseGame, parseImage };
+module.exports = { BASE_URL, SGDBError, SGDBClient, parseGame, parseImage, chooseArtwork };
