@@ -1700,6 +1700,7 @@ async function openArtModal(row, focusKind) {
 function closeArtModal(save) {
   const m = S.modal;
   if (!m) return;
+  m.moreObserver?.disconnect();
   if (m.previewLoader) m.previewLoader.src = '';
   $('#art-url-entry').hidden = true;
   S.modal = null;
@@ -1883,6 +1884,7 @@ async function renderArtChoice() {
 function renderArtGrid(loading = false, start = 0) {
   closeArtPreview();
   const m = S.modal;
+  m?.moreObserver?.disconnect();
   const grid = $('#art-grid');
   if (!start) grid.innerHTML = '';
   else $('#art-more')?.remove();
@@ -1919,6 +1921,14 @@ function renderArtGrid(loading = false, start = 0) {
     button.textContent = 'Load more';
     button.addEventListener('click', () => loadArtTabs(true));
     grid.appendChild(button);
+    const sgdbId = m.sgdbId;
+    m.moreObserver = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting) || !button.isConnected
+        || S.modal !== m || m.tab !== kind || m.sgdbId !== sgdbId || button.disabled) return;
+      m.moreObserver.disconnect();
+      loadArtTabs(true);
+    }, { root: grid.parentElement, rootMargin: '100px' });
+    m.moreObserver.observe(button);
   }
 }
 

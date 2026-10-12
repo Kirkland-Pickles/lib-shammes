@@ -134,7 +134,7 @@ app.whenReady().then(async () => {
   assert.equal(searches, 1);
   await wait("document.querySelectorAll('#art-grid > .thumb').length === 30");
   await run("globalThis.firstTile = document.querySelector('#art-grid > .thumb'); firstTile.click()");
-  await click('#art-more');
+  await run("document.querySelector('#art-more').scrollIntoView({block: 'end'})");
   await wait("document.querySelectorAll('#art-grid > .thumb').length === 32");
   assert.equal(await run("firstTile === document.querySelector('#art-grid > .thumb') && firstTile.classList.contains('picked')"), true);
   assert.equal(await run("document.querySelector('#art-more')"), null);
