@@ -36,11 +36,23 @@ const S = {
 const cur = () => (S.detailKey ? rowByKey(S.detailKey) : null);
 
 // ------------------------------------------------------------------ log/ui
-function log(line) {
+function log(line, library = 'library') {
+  const key = library === 'desktop' ? 'desktop' : library === 'settings' || library === 'onboarding' ? 'settings' : 'library';
+  (S.logs ||= { library: [], desktop: [], settings: [] })[key].push(String(line));
+  if (Nav.current() !== key) return;
   const box = $('#log');
   const div = document.createElement('div');
   div.textContent = line;
   box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+function renderLog() {
+  const box = $('#log');
+  box.replaceChildren(...(S.logs?.[Nav.current()] || []).map(line => {
+    const div = document.createElement('div');
+    div.textContent = line;
+    return div;
+  }));
   box.scrollTop = box.scrollHeight;
 }
 function status(t) { $('#status').textContent = t; }
@@ -63,13 +75,16 @@ function toast(msg) {
   t._h = setTimeout(() => t.classList.remove('show'), 3200);
 }
 function handleAction(name, fn) {
-  return () => fn().catch((e) => {
-    const message = e?.message || String(e);
-    setBar(0, 0);
-    log(`${name} failed: ${message}`);
-    status(`${name} failed.`);
-    toast(`${name} failed: ${message}`);
-  });
+  return () => {
+    const library = Nav.current();
+    return fn().catch((e) => {
+      const message = e?.message || String(e);
+      setBar(0, 0);
+      log(`${name} failed: ${message}`, library);
+      status(`${name} failed.`);
+      toast(`${name} failed: ${message}`);
+    });
+  };
 }
 function confirmDlg(title, body, opts = {}) {
   return new Promise((resolve) => {
@@ -160,6 +175,7 @@ function paintRoute() {
   }
   target.classList.add('on');
   target.inert = false;
+  renderLog();
   $$('.nav').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
   $('.navigation-row').hidden = page === 'onboarding';
   $('.steam-controls').hidden = !['library', 'settings'].includes(page);
@@ -351,11 +367,11 @@ function keyCard() {
     if (r.ok) {
       q('status').textContent = `Key works ✓ (found “${r.name}”).`;
       q('status').className = 'status-line ok';
-      log('SGDB API key valid.');
+      log('SGDB API key valid.', 'settings');
     } else {
       q('status').textContent = `Key rejected: ${r.error}`;
       q('status').className = 'status-line bad';
-      log(`Key rejected: ${r.error}`);
+      log(`Key rejected: ${r.error}`, 'settings');
     }
   });
   return d;
@@ -395,7 +411,7 @@ function foldersCard() {
         folder_depths: { ...S.cfg.folder_depths, [folderKey(p)]: 1 },
       });
       paint(p);
-      log(`Games folder added: ${p}`);
+      log(`Games folder added: ${p}`, 'settings');
     }
   });
   q('remove').addEventListener('click', async () => {
@@ -1487,7 +1503,7 @@ async function refreshDesktop(force = true) {
         draft: stale ? null : draft, art: draft?.iconChoice && !stale ? { icon: draft.iconChoice } : {},
         saved: !stale && previous?.saved, error: '' };
     });
-    result.warnings.forEach(log);
+    result.warnings.forEach(line => log(line, 'desktop'));
     if (!d.rows.some((row) => row.id === d.detail)) d.detail = null;
     d.loadedKey = key;
     status(d.rows.length ? 'Desktop library refreshed.' : 'Add game folders in Settings, then refresh.');
@@ -1564,7 +1580,7 @@ function renderDesktopDetail() {
     <button class="text-btn auto-match" data-desktop="auto" ${S.cfg.api_key ? '' : 'disabled'}>Match automatically</button></section>`;
   const image = $('.desktop-icon', host);
   image.onload = () => image.classList.add('loaded');
-  image.onerror = () => { image.classList.remove('loaded'); log(`Icon preview could not load: ${row.display}`); };
+  image.onerror = () => { image.classList.remove('loaded'); log(`Icon preview could not load: ${row.display}`, 'desktop'); };
   const choice = row.iconChoice;
   const preview = choice?.file ? localArtPreview(choice.file)
     : choice?.url ? Promise.resolve(choice.thumb || choice.url)
@@ -1609,7 +1625,7 @@ function renderDesktopDetail() {
       row.sgdbId = match.sgdbId; row.display = row.sgdbName = match.sgdbName;
       await saveDesktopDraft(row); renderDesktop();
     }
-    result.lines.forEach(log);
+    result.lines.forEach(line => log(line, 'desktop'));
   });
 }
 
@@ -1668,53 +1684,57 @@ function wireDesktop() {
           missing[i].display = missing[i].sgdbName = matched.rows[i].sgdbName;
           await saveDesktopDraft(missing[i]);
         }
-        matched.lines.forEach(log);
+        matched.lines.forEach(line => log(line, 'desktop'));
       }
       const results = await window.api.desktopDownload(selected);
       for (const result of results) {
         const row = d.rows.find((item) => item.id === result.id);
-        if (result.skipped) { log(`${row.display}: ${result.skipped}`); continue; }
-        if (result.error) { log(`${row.display}: ${result.error}`); continue; }
+        if (result.skipped) { log(`${row.display}: ${result.skipped}`, 'desktop'); continue; }
+        if (result.error) { log(`${row.display}: ${result.error}`, 'desktop'); continue; }
         row.iconChoice = result.choice; row.art = { icon: result.choice };
         await saveDesktopDraft(row);
-        log(`${row.display}: SGDB icon #${result.choice.id} downloaded.`);
+        log(`${row.display}: SGDB icon #${result.choice.id} downloaded.`, 'desktop');
       }
       status(`${results.filter((result) => result.choice).length} icon(s) downloaded; ${results.filter((result) => result.skipped).length} skipped; ${results.filter((result) => result.error).length} failed.`);
     } finally { d.busy = false; renderDesktop(); }
   });
-  $('#desktop-add').onclick = handleAction('Add to Desktop', async () => {
-    const d = S.desktop;
-    if (d.busy) return;
-    d.busy = true; renderDesktop(false);
-    try {
-      await desktopSave;
-      const rows = desktopSelected();
-      const updates = rows.filter((row) => row.shortcut).length;
-      if (!await confirmDlg($('#desktop-add').textContent, `Create ${rows.length - updates} shortcut(s) and update ${updates} existing shortcut(s)?`)) return;
-      d.applying = true;
-      rows.forEach((row) => { row.saving = true; });
-      renderDesktop(false);
-      const results = await window.api.desktopApply(rows);
-      await syncCfg();
-      for (const result of results) {
-        const row = d.rows.find((item) => item.id === result.id);
-        if (result.ok || result.refreshed) {
-          if (d.detail === row.id) d.detail = result.row?.id || null;
-          if (result.row) Object.assign(row, result.row, { draft: null, art: {}, error: '', saved: result.ok, checked: row.checked });
-          else d.rows = d.rows.filter(item => item !== row);
-        } else row.error = result.error;
-        log(`${row.display}: ${result.ok ? 'Shortcut saved.' : result.error}`);
-        if (result.warning) log(result.warning);
-      }
-      const refreshed = results.filter((result) => result.refreshed).length;
-      status(`${results.filter((result) => result.ok).length} shortcut(s) saved; ${results.filter((result) => !result.ok && !result.refreshed).length} failed.`);
-      if (refreshed) toast('Shortcut refreshed. Review changes and apply again.');
-    } finally {
-      d.busy = false; d.applying = false;
-      d.rows.forEach((row) => { row.saving = false; });
-      renderDesktop();
+  $('#desktop-add').onclick = handleAction('Add to Desktop', () => applyDesktopShortcuts());
+}
+
+async function applyDesktopShortcuts(rowsOverride = null) {
+  const d = S.desktop;
+  if (d.busy) return;
+  d.busy = true; renderDesktop(false);
+  try {
+    await desktopSave;
+    const rows = rowsOverride || desktopSelected();
+    if (!rows.length) return;
+    const updates = rows.filter((row) => row.shortcut).length;
+    const title = rowsOverride ? $('#desktop-detail-apply')?.textContent || $('#desktop-add').textContent : $('#desktop-add').textContent;
+    if (!await confirmDlg(title, `Create ${rows.length - updates} shortcut(s) and update ${updates} existing shortcut(s)?`)) return;
+    d.applying = true;
+    rows.forEach((row) => { row.saving = true; });
+    renderDesktop(false);
+    const results = await window.api.desktopApply(rows);
+    await syncCfg();
+    for (const result of results) {
+      const row = d.rows.find((item) => item.id === result.id);
+      if (result.ok || result.refreshed) {
+        if (d.detail === row.id) d.detail = result.row?.id || null;
+        if (result.row) Object.assign(row, result.row, { draft: null, art: {}, error: '', saved: result.ok, checked: row.checked });
+        else d.rows = d.rows.filter(item => item !== row);
+      } else row.error = result.error;
+      log(`${row.display}: ${result.ok ? 'Shortcut saved.' : result.error}`, 'desktop');
+      if (result.warning) log(result.warning, 'desktop');
     }
-  });
+    const refreshed = results.filter((result) => result.refreshed).length;
+    status(`${results.filter((result) => result.ok).length} shortcut(s) saved; ${results.filter((result) => !result.ok && !result.refreshed).length} failed.`);
+    if (refreshed) toast('Shortcut refreshed. Review changes and apply again.');
+  } finally {
+    d.busy = false; d.applying = false;
+    d.rows.forEach((row) => { row.saving = false; });
+    renderDesktop();
+  }
 }
 
 // ------------------------------------------------------- artwork modal
@@ -2214,7 +2234,8 @@ function artThumb(im, label = '', selection = im) {
   cell.addEventListener('click', () => pickArt(kind, selection));
   const image = $('img', cell);
   image.addEventListener('error', () => {
-    log(`Artwork image failed to load: ${im.file || (image.src.startsWith('data:') ? 'local image data' : image.src)}`);
+    log(`Artwork image failed to load: ${im.file || (image.src.startsWith('data:') ? 'local image data' : image.src)}`,
+      modal.row.source === 'desktop' ? 'desktop' : 'library');
     if (im.url && image.getAttribute('src') !== im.url) { image.src = im.url; return; }
     cell._broken = true;
     cell.hidden = true;

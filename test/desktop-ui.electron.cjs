@@ -285,6 +285,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(steamRequest.rows[0].launchSettings, { startDir: 'C:/Games/Working directory', launchOptions: '--windowed "two words"' });
   assert.equal(steamRequest.autoArt, false);
   await click('[data-page=desktop]');
+  assert.ok(!await run("document.querySelector('#log').textContent.includes('Artwork applied to Steam.')"));
   await idle();
   await change('#desktop-destination', 'start-menu');
   await wait(() => cfg.desktop_destination === 'start-menu');
