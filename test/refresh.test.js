@@ -150,6 +150,93 @@ it('targets the open game unless multiple selection is explicitly enabled', () =
   assert.equal(vm.runInContext('checkedRows().length', context), 0);
 });
 
+it('applies all eligible Steam rows by default and only narrows to explicit selections', () => {
+  const { context, state } = renderer({});
+  const first = { source: 'folder', folder: 'one', display: 'One', exe: 'one.exe', checked: false };
+  const second = { source: 'folder', folder: 'two', display: 'Two', exe: 'two.exe', checked: false };
+  const changedNative = { source: 'steam', display: 'Z Native', steamAppid: 1, pendingArt: true, art: { grid: { url: 'chosen' } } };
+  state.rows = [first, second, changedNative, { source: 'steam', display: 'Stock', steamAppid: 2, art: {} },
+    { source: 'shortcut', display: 'External', exe: 'external.exe', managed: false }, { source: 'folder', display: 'Missing', exe: null }];
+  const targets = () => Array.from(vm.runInContext('steamApplyRows()', context));
+  assert.deepEqual(targets(), [first, second, changedNative]);
+  state.detailKey = 'folder:two';
+  assert.deepEqual(targets(), [first, second, changedNative]);
+  state.bulk = true;
+  second.checked = true;
+  assert.deepEqual(targets(), [second]);
+  second.checked = false;
+  assert.deepEqual(targets(), [first, second, changedNative]);
+  state.filter = 'one';
+  assert.deepEqual(targets(), [first]);
+});
+
+it('applies visible Desktop games by default, independently of the focused game', () => {
+  const { context, state } = renderer({});
+  const fields = { '#desktop-filter': { value: '' }, '#desktop-sort': { value: 'az' }, '#desktop-hide': { checked: false } };
+  context.document.querySelector = selector => fields[selector];
+  state.desktop.rows = ['One', 'Two', 'Three', 'Four'].map((display, id) => ({ id, display, exe: 'game.exe', checked: false }));
+  state.desktop.detail = 2;
+  const targets = () => Array.from(vm.runInContext('desktopSelected()', context));
+  assert.equal(targets().length, 4);
+  state.desktop.bulk = true;
+  assert.equal(targets().length, 4);
+  state.desktop.rows[1].checked = true;
+  assert.deepEqual(targets(), [state.desktop.rows[1]]);
+  state.desktop.rows[1].checked = false;
+  fields['#desktop-filter'].value = 'two';
+  assert.deepEqual(targets(), [state.desktop.rows[1]]);
+});
+
+it('finds artwork for visible games without selection, matching first and staging only changed choices', async () => {
+  const calls = [];
+  const { context, state } = renderer({
+    matchAuto: async req => { calls.push('match'); return { rows: req.rows.map(row => ({ ...row, sgdbId: 7 })), lines: [], ok: 1 }; },
+    cfgGet: async () => state.cfg,
+    artPrepare: async req => {
+      calls.push('prepare');
+      assert.equal(req.rows[0].sgdbId, 7);
+      return { rows: req.rows.map(row => ({ ...row, art: { grid: { url: 'chosen' } } })), prepared: 1, failed: 0, lines: [] };
+    },
+  });
+  vm.runInContext('status = log = toast = () => {};', context);
+  state.cfg = { api_key: 'fixture', want_grid: true };
+  state.rows = [{ source: 'folder', folder: 'one', display: 'One', exe: 'one.exe', art: {} }];
+  await vm.runInContext('doDownloadArt()', context);
+  assert.deepEqual(calls, ['match', 'prepare']);
+  assert.equal(state.rows[0].pendingArt, true);
+  assert.equal(state.rows[0].art.grid.url, 'chosen');
+  state.rows[0].pendingArt = false;
+  await vm.runInContext('doDownloadArt()', context);
+  assert.deepEqual(calls, ['match', 'prepare', 'prepare']);
+  assert.equal(state.rows[0].pendingArt, false);
+});
+
+it('matches during Apply only after accepting automatic artwork and blocks overlapping Apply calls', async () => {
+  const calls = [];
+  let offerArtwork = true;
+  const { context, state } = renderer({
+    artCurrent: async () => null,
+    cfgGet: async () => state.cfg,
+    matchAuto: async req => { calls.push('match'); return { rows: req.rows.map(row => ({ ...row, sgdbId: 7 })), lines: [], ok: 1 }; },
+    steamAdd: async req => {
+      calls.push('apply');
+      assert.equal(req.autoArt, offerArtwork);
+      assert.equal(req.rows[0].sgdbId, offerArtwork ? 7 : undefined);
+      return { rows: req.rows, lines: [], added: 1, updated: 0, artworkSaved: 0 };
+    },
+  });
+  context.offer = () => offerArtwork;
+  vm.runInContext('updateLibrarySelection = status = log = toast = () => {}; confirmDlg = async title => title !== "Artwork" || offer();', context);
+  state.cfg = { api_key: 'fixture', want_grid: true };
+  state.rows = [{ source: 'folder', folder: 'one', display: 'One', exe: 'one.exe', art: {} }];
+  await vm.runInContext('Promise.all([doAddToSteam(), doAddToSteam()])', context);
+  assert.deepEqual(calls, ['match', 'apply']);
+  offerArtwork = false;
+  delete state.rows[0].sgdbId;
+  await vm.runInContext('doAddToSteam()', context);
+  assert.deepEqual(calls, ['match', 'apply', 'apply']);
+});
+
 it('keeps failed artwork pending while recording successful writes', async () => {
   const { context, state } = renderer({ artDownload: async req => ({ rows: [{ ...req.rows[0],
     art: { hero: req.rows[0].art.hero }, appliedKinds: ['grid'], failedKinds: ['hero'] }], lines: [] }) });

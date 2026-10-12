@@ -704,13 +704,13 @@ function updateLibrarySelection() {
   const pending = S.rows.filter((row) => row.pendingArt || row.pendingDetails).length;
   $('#library-pending').hidden = pending === 0;
   $('#library-pending').textContent = pending ? `${pending} ready to apply` : '';
-  const applyRows = checkedRows();
+  const applyRows = steamApplyRows();
   const canApply = applyRows.some((row) => canWriteShortcut(row)
     || (row.source === 'steam' && Object.values(row.art || {}).some(art => !art.automatic && !art.current)));
   const button = $('#btn-add');
   const busy = S.applyingSteam || S.preparingArt || S.loadingLibrary;
   button.disabled = busy || !canApply;
-  button.textContent = !selected.length ? 'Apply to Steam'
+  button.textContent = !S.bulk || !selected.length ? 'Apply all to Steam'
     : applyRows.length === 1 && canWriteShortcut(applyRows[0]) && !applyRows[0].inSteam
       ? 'Add to Steam' : applyRows.length === 1 && applyRows[0].source === 'steam'
         ? 'Apply artwork' : applyRows.some((row) => row.pendingArt || row.pendingDetails) ? 'Apply changes' : 'Apply to Steam';
@@ -725,7 +725,7 @@ function updateLibrarySelection() {
       : detailRow.source === 'steam' ? 'Apply artwork'
         : detailRow.pendingArt || detailRow.pendingDetails ? 'Apply changes' : 'Apply to Steam';
   $('#btn-remove').disabled = busy || !selected.some((row) => row.inSteam && (row.source === 'shortcut' || row.managed));
-  $('#btn-download').disabled = busy || !S.cfg.api_key || !selected.length;
+  $('#btn-download').disabled = busy || !S.cfg.api_key || !steamArtworkRows().length;
 }
 
 function renderRows() {
@@ -1353,8 +1353,8 @@ function needKey() {
 }
 
 async function doAutoMatch(selected = checkedRows()) {
-  let rows = selected.filter((r) => !r.sgdbId);
-  if (!rows.length) rows = selected;
+  const rows = selected.filter((r) => !r.sgdbId);
+  if (!rows.length && selected.length) return;
   if (!rows.length) { toast('Nothing to match - scan a folder first.'); return; }
   if (needKey()) return;
   status(`Auto-matching ${rows.length} games…`);
@@ -1420,8 +1420,8 @@ function reportArtwork({ saved, failed, warning }, success) {
 }
 
 async function doDownloadArt() {
-  if (S.preparingArt || needKey()) return;
-  const rows = checkedRows();
+  if (S.preparingArt || S.applyingSteam || S.loadingLibrary || needKey()) return;
+  const rows = steamArtworkRows();
   if (!rows.length) return;
   const kinds = wantedKinds();
   if (!kinds.length) { toast('Choose at least one artwork type in Settings.'); return; }
@@ -1456,27 +1456,41 @@ function wantedKinds() {
 function canWriteShortcut(row) {
   return !!row.exe && (row.source === 'folder' || (row.source === 'shortcut' && row.managed));
 }
-async function doAddToSteam() {
+function steamApplyRows() {
+  const selected = S.bulk ? S.rows.filter(row => row.checked) : [];
+  return selected.length ? selected : visibleSteamRows().filter(row => canWriteShortcut(row) || row.source === 'steam' && row.pendingArt);
+}
+function steamArtworkRows() {
+  const selected = S.bulk ? S.rows.filter(row => row.checked) : [];
+  return (selected.length ? selected : visibleSteamRows()).filter(row => canWriteShortcut(row) || row.source === 'steam');
+}
+async function doAddToSteam(targetRows = null) {
+  if (S.applyingSteam || S.preparingArt || S.loadingLibrary) return;
+  S.applyingSteam = true;
+  updateLibrarySelection();
+  try { await applyToSteam(targetRows); }
+  finally { S.applyingSteam = false; updateLibrarySelection(); }
+}
+async function applyToSteam(targetRows) {
+  const selected = targetRows || steamApplyRows();
   const editing = cur();
-  if (checkedRows().includes(editing) && canWriteShortcut(editing)
+  if (selected.includes(editing) && canWriteShortcut(editing)
     && ($('#d-name').value.trim() !== editing.display || $('#d-exe-pick').value.trim() !== editing.exe
       || $('#d-startdir').value.trim() !== (S.cfg.steam_launch?.[folderKey(editing.folder)]?.startDir ?? String(editing.startDir || '').replace(/^"|"$/g, ''))
       || $('#d-args').value !== (S.cfg.steam_launch?.[folderKey(editing.folder)]?.launchOptions ?? editing.launchOptions ?? ''))) {
     if (!await applyDetails()) return;
   }
-  const selected = checkedRows();
   const native = selected.filter((r) => r.source === 'steam');
   const nativeArt = native.map((r) => ({ ...r, art: Object.fromEntries(
-    Object.entries(r.art).filter(([, art]) => !art.automatic && !art.current)
+    Object.entries(r.art || {}).filter(([, art]) => !art.automatic && !art.current)
   ) })).filter((r) => Object.keys(r.art).length);
   const eligible = selected.filter(canWriteShortcut);
   const noExe = selected.filter((r) => !r.exe && r.source !== 'steam');
   if (noExe.length) log(`Skipping ${noExe.length} without exe: ${noExe.slice(0, 5).map((r) => r.display).join(', ')}`);
-  if (nativeArt.length && needKey()) return;
   if (!eligible.length) {
     if (native.length) {
       if (!nativeArt.length) { toast('Choose artwork first.'); return; }
-      if (!await confirmDlg('Apply artwork to Steam', 'Apply the artwork you chose to the selected Steam games? Steam will close and reopen if it is running.')) return;
+      if (!await confirmDlg('Apply artwork to Steam', `Apply chosen artwork to ${nativeArt.length} Steam game${nativeArt.length === 1 ? '' : 's'}? Steam will close and reopen if it is running.`)) return;
       status(`Applying artwork to ${nativeArt.length} Steam games…`);
       reportArtwork(await writeArtwork(nativeArt, []), 'Artwork applied to Steam.');
       return;
@@ -1485,7 +1499,7 @@ async function doAddToSteam() {
   }
   const updates = eligible.filter((row) => row.inSteam && row.managed).length;
   let summary = updates ? `Add ${eligible.length - updates} game(s) and update ${updates} existing Steam shortcut(s)?`
-    : `Add ${eligible.length} selected game(s) to Steam as non-Steam shortcuts?`;
+    : `Add ${eligible.length} game(s) to Steam as non-Steam shortcuts?`;
   if (nativeArt.length) summary += '\n\nChosen artwork will also be applied to the selected native Steam games.';
   if (!await confirmDlg('Add to Steam', `${summary}\n\nSteam will close and reopen if it is running.`)) return;
   let autoArt = false;
@@ -1507,6 +1521,7 @@ async function doAddToSteam() {
       'Also find artwork automatically for types you did not choose?',
       { confirmText: 'Find artwork', cancelText: 'Add without artwork' });
   }
+  if (autoArt) await doAutoMatch(eligible);
   const kinds = [...new Set([...wantedKinds(), ...eligible.flatMap((r) =>
     Object.keys(r.art).filter((kind) => !r.art[kind].automatic && !r.art[kind].current)
   )])];
@@ -1714,7 +1729,9 @@ function desktopVisible() {
 
 function desktopSelected() {
   const d = S.desktop;
-  return d.rows.filter(row => d.bulk ? row.checked : row.id === d.detail);
+  const visible = desktopVisible();
+  const selected = d.bulk ? visible.filter(row => row.checked) : [];
+  return selected.length ? selected : visible.filter(row => row.exe);
 }
 
 async function desktopCardCoverSource(row) {
@@ -1745,7 +1762,7 @@ function renderDesktop(detail = true, rebuildGrid = true) {
   $('#desktop-pending').hidden = pending === 0;
   $('#desktop-pending').textContent = pending ? `${pending} ready to apply` : '';
   $('#desktop-grid-count').textContent = visible.length === S.desktop.rows.length ? '' : `${visible.length} shown`;
-  $('#desktop-selection-count').textContent = `${selected.length} selected`;
+  $('#desktop-selection-count').textContent = `${visible.filter(row => row.checked).length} selected`;
   if (rebuildGrid) {
     const body = $('#desktop-games tbody');
     body.innerHTML = '';

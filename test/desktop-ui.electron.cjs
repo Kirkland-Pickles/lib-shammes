@@ -259,8 +259,7 @@ app.whenReady().then(async () => {
   assert.equal(await run("document.querySelector('#desktop-detail [data-desktop=matches]').value"), '22');
   pendingSearches = null;
   externalChange = 'removed';
-  await click('#desktop-games input');
-  await click('#desktop-add');
+  await click('#desktop-detail-apply');
   await wait("!!document.querySelector('#confirm-overlay')");
   await click('#confirm-overlay [data-v="1"]');
   await idle();
@@ -270,6 +269,12 @@ app.whenReady().then(async () => {
   steamEntries = [{ managed: true, appName: 'Old name', exe: 'C:/Games/game.exe', index: 0, appid: 1 }];
   await click('[data-page=library]');
   await wait("document.querySelectorAll('#games tbody tr').length === 1 && !document.querySelector('#btn-refresh').disabled");
+  assert.equal(await run("document.querySelector('#btn-add').disabled"), false);
+  assert.equal(await run("document.querySelector('#btn-add').textContent"), 'Apply all to Steam');
+  await click('#btn-add');
+  await wait("!!document.querySelector('#confirm-overlay')");
+  await click('#confirm-overlay [data-v="0"]');
+  assert.equal(steamRequest, undefined);
   await click('#games tbody input');
   await click('#games .game-name');
   await change('#d-name', 'New name');
