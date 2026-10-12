@@ -2601,6 +2601,7 @@ async function artLoadId() {
   const m = S.modal;
   const gid = Number(($('#art-id').value || '').trim());
   if (!Number.isFinite(gid) || gid <= 0) { artStatus('SGDB game ID must be a number.'); return; }
+  m.search = (m.search || 0) + 1;
   m.sgdbId = gid;
   await loadArtTabs();
 }
@@ -2761,6 +2762,7 @@ function wireToolbar() {
     const m = S.modal;
     const g = (m.games || []).find((x) => String(x.id) === e.target.value);
     if (g) {
+      m.search = (m.search || 0) + 1;
       m.sgdbId = g.id;
       $('#art-id').value = String(g.id);
       await loadArtTabs();

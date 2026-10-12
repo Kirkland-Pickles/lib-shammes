@@ -129,6 +129,13 @@ it('keeps newer artwork search results when an older request finishes last', asy
   await older;
   assert.equal(fields['#art-id'].value, '22');
   assert.equal(fields['#art-games'].value, '22');
+  const lastSearch = vm.runInContext('artSearch()', context);
+  fields['#art-id'].value = '88';
+  await vm.runInContext('artLoadId()', context);
+  pending[2]([{ id: 11, name: 'Old match' }]);
+  await lastSearch;
+  assert.equal(state.modal.sgdbId, 88);
+  assert.equal(fields['#art-id'].value, '88');
 });
 
 it('allows existing app-managed shortcut rows through the Add/update action', () => {
