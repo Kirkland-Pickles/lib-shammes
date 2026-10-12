@@ -30,7 +30,7 @@ function progress(current, total, label) {
 }
 function windowColors() {
   const light = cfg.theme === 'light' || (cfg.theme !== 'dark' && !nativeTheme.shouldUseDarkColors);
-  return light ? { background: '#f7f7f7', text: '#1d1d1d' } : { background: '#0b0d0e', text: '#e9ece7' };
+  return light ? { background: '#f6f7f5', text: '#1d2524' } : { background: '#111516', text: '#edf0eb' };
 }
 function updateWindowTheme() {
   if (!win || win.isDestroyed()) return;
@@ -362,7 +362,22 @@ async function previewFile(file, extension = path.extname(String(file))) {
   const type = images.isWebp(bytes) ? 'webp' : images.isPng(bytes) ? 'png' : ext === 'jpg' ? 'jpeg' : ext === 'ico' ? 'x-icon' : ext;
   return `data:image/${type};base64,${bytes.toString('base64')}`;
 }
+function previewThumbnail(file) {
+  const stat = fs.statSync(file);
+  if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw new Error('Image is too large to preview (maximum 32 MB).');
+  const image = nativeImage.createFromBuffer(fs.readFileSync(file));
+  if (image.isEmpty()) throw new Error('Could not read this image for preview.');
+  const size = image.getSize();
+  const scale = Math.min(1, 320 / Math.max(1, size.width), 420 / Math.max(1, size.height));
+  const thumbnail = image.resize({
+    width: Math.max(1, Math.round(size.width * scale)),
+    height: Math.max(1, Math.round(size.height * scale)),
+    quality: 'good',
+  });
+  return thumbnail.toDataURL();
+}
 ipcMain.handle('art:preview-file', (_e, file) => previewFile(file));
+ipcMain.handle('art:thumbnail', (_e, file) => previewThumbnail(file));
 ipcMain.handle('art:official', async (_e, req) => {
   const appid = Number(req?.row?.steamAppid);
   if (!Number.isSafeInteger(appid) || appid <= 0 || appid > 0xffffffff || !Object.hasOwn(steam.ART_SUFFIXES, req?.kind)) return null;

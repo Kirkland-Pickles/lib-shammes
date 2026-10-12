@@ -15,6 +15,81 @@ function renderer(api) {
   return { context, button, state: vm.runInContext('S', context), refresh: () => vm.runInContext('doRefresh()', context) };
 }
 
+it('invalidates desktop cover previews when switching back to executable icons', async () => {
+  const requests = [];
+  const { context } = renderer({ desktopIcon: async (file, index) => { requests.push([file, index]); return file; } });
+  context.game = { id: 'desktop:game', exe: 'game.exe', icon: 'custom.dll', iconIndex: 2, signature: 'before' };
+  const token = () => vm.runInContext('desktopCoverToken(game)', context);
+  const original = token();
+  assert.equal(await vm.runInContext('desktopCardCoverSource(game)', context), 'custom.dll');
+  context.game.iconChoice = { exeIcon: true };
+  assert.notEqual(token(), original);
+  assert.equal(await vm.runInContext('desktopCardCoverSource(game)', context), 'game.exe');
+  assert.deepEqual(requests, [['custom.dll', 2], ['game.exe', undefined]]);
+  delete context.game.iconChoice;
+  context.game.iconIndex = 3;
+  assert.notEqual(token(), original);
+  context.game.iconIndex = 2;
+  context.game.signature = 'after';
+  assert.notEqual(token(), original);
+});
+
+it('uses suggested covers when local previews fail and resolves native games without saving a match', async () => {
+  let nativeLookups = 0;
+  const { context, state } = renderer({
+    artCurrent: async () => ({ file: 'unreadable.png' }),
+    artThumbnail: async () => { throw new Error('cannot decode'); },
+    artPreviewFile: async () => { throw new Error('missing file'); },
+    sgdbBySteam: async id => { assert.equal(id, 123); nativeLookups++; return { id: 7 }; },
+    artList: async () => [{ thumb: 'https://test.invalid/thumb', url: 'https://test.invalid/full' }],
+  });
+  state.cfg = { api_key: 'fixture' };
+  context.game = { source: 'steam', steamAppid: 123, art: {} };
+  const cover = await vm.runInContext('cardCoverSource(game)', context);
+  assert.equal(cover.src, 'https://test.invalid/thumb');
+  assert.equal(cover.fallback, 'https://test.invalid/full');
+  assert.equal(nativeLookups, 1);
+  assert.equal(context.game.sgdbId, undefined);
+  state.cfg.api_key = '';
+  assert.equal(await vm.runInContext('cardCoverSource(game)', context), null);
+  assert.equal(nativeLookups, 1);
+});
+
+it('shows applied grid artwork from the saved file without reselecting it', async () => {
+  const { context } = renderer({
+    artThumbnail: async file => { assert.equal(file, 'applied-grid.png'); return 'data:image/png;base64,saved'; },
+    artCurrent: async () => { throw new Error('should use the known saved image'); },
+  });
+  context.game = { source: 'steam', art: { grid: { id: 9, thumb: 'https://test.invalid/thumb',
+    url: 'https://test.invalid/full', appliedFile: 'applied-grid.png' } } };
+  assert.equal(await vm.runInContext('cardCoverSource(game)', context), 'data:image/png;base64,saved');
+});
+
+it('keeps a grid placeholder until its image loads and retries failures on refresh', async () => {
+  let requests = 0;
+  const { context, state } = renderer({
+    desktopIcon: async () => { requests++; return 'data:image/png;base64,fixture'; },
+  });
+  const image = { isConnected: true, hidden: true, dataset: { coverToken: 'desktop:fixture' } };
+  const placeholder = { hidden: false };
+  context.card = { isConnected: true, querySelector: selector => selector === '.game-cover' ? image : placeholder };
+  context.game = { source: 'desktop', exe: 'game.exe', iconChoice: { exeIcon: true } };
+  vm.runInContext('loadCardCover(game, card)', context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(image.hidden, true);
+  assert.equal(placeholder.hidden, false);
+  image.onload();
+  assert.equal(image.hidden, false);
+  assert.equal(placeholder.hidden, true);
+  image.onerror();
+  assert.equal(image.hidden, true);
+  assert.equal(placeholder.hidden, false);
+  assert.equal(state.cardArtCache.size, 0);
+  vm.runInContext('loadCardCover(game, card)', context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests, 2);
+});
+
 it('keeps failed picker choices available and retries only types that were not applied', async () => {
   const requests = [];
   const { context, state } = renderer({ artDownload: async req => {

@@ -4,6 +4,8 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const wrapText = (s) => esc(s).replace(/([a-z\d])([A-Z])/g, '$1<wbr>$2')
+  .replace(/([A-Z])([A-Z][a-z])/g, '$1<wbr>$2').replace(/([._-])/g, '<wbr>$1');
 const fmtMB = (b) => (b >= 1024 * 1024 * 1024 ? `${(b / 1073741824).toFixed(1)} GB`
   : `${Math.max(1, Math.round(b / 1048576))} MB`);
 const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || '';
@@ -20,6 +22,8 @@ const S = {
   rows: [],
   steamUsers: [],
   filter: '',
+  sourceFilter: 'all',
+  sortGames: 'az',
   hideOwned: false,
   ownedAppids: new Set(), // Steam appids installed for the user (hide-owned filter)
   detailKey: null,          // rowKey() of selected row
@@ -30,7 +34,9 @@ const S = {
   exePicker: null,
   onboardingStep: 0,
   isDevelopment: false,
-  desktop: { rows: [], detail: null, busy: false },
+  cardArtCache: new Map(),
+  coverObserver: null,
+  desktop: { rows: [], detail: null, busy: false, coverObserver: null },
 };
 
 const cur = () => (S.detailKey ? rowByKey(S.detailKey) : null);
@@ -67,6 +73,8 @@ function toast(msg) {
   if (!t) {
     t = document.createElement('div');
     t.id = 'toast';
+    t.setAttribute('role', 'status');
+    t.setAttribute('aria-live', 'polite');
     document.body.appendChild(t);
   }
   t.textContent = msg;
@@ -88,6 +96,7 @@ function handleAction(name, fn) {
 }
 function confirmDlg(title, body, opts = {}) {
   return new Promise((resolve) => {
+    const previousFocus = document.activeElement;
     const ov = document.createElement('div');
     ov.id = 'confirm-overlay';
     ov.innerHTML = `<div id="confirm-box" role="alertdialog">
@@ -97,19 +106,39 @@ function confirmDlg(title, body, opts = {}) {
         <button class="btn primary sm" data-v="1">${esc(opts.confirmText || 'Continue')}</button>
       </div></div>`;
     document.body.appendChild(ov);
+    const close = (value) => {
+      ov.remove();
+      document.removeEventListener('keydown', keydown, true);
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+      resolve(value);
+    };
+    const keydown = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(false); return; }
+      if (e.key !== 'Tab') return;
+      const focusable = $$('button:not(:disabled)', ov);
+      if (!focusable.length) return;
+      const at = focusable.indexOf(document.activeElement);
+      if (e.shiftKey && at <= 0) { e.preventDefault(); focusable.at(-1).focus(); }
+      else if (!e.shiftKey && at === focusable.length - 1) { e.preventDefault(); focusable[0].focus(); }
+    };
     ov.addEventListener('click', (e) => {
       const b = e.target.closest('button');
       if (!b && e.target !== ov) return;
       const v = b ? b.dataset.v === '1' : false;
-      ov.remove();
-      resolve(v);
+      close(v);
     });
+    document.addEventListener('keydown', keydown, true);
+    $('button[data-v="1"]', ov).focus({ preventScroll: true });
   });
 }
 async function syncCfg() { S.cfg = await window.api.cfgGet(); }
 // cfgSet returns the saved config. Keep the renderer copy in sync.
 async function savePatch(patch) {
   S.cfg = await window.api.cfgSet(patch);
+  if (['api_key', 'artwork_filters', 'include_animated', 'include_nsfw', 'include_humor'].some(key => Object.hasOwn(patch, key))) {
+    S.cardArtCache.clear();
+    S.previewCache = {};
+  }
   applyTheme();
   renderChecklist().catch(() => {});
 }
@@ -185,9 +214,13 @@ function paintRoute() {
   }
   if (page === 'library') {
     renderChecklist();
+    if (current !== target) renderRows();
     if (current !== target) handleAction('Load library', () => loadLibrary())();
   }
-  if (page === 'desktop' && current !== target) handleAction('Desktop scan', () => refreshDesktop(false))();
+  if (page === 'desktop' && current !== target) {
+    renderDesktop();
+    handleAction('Desktop scan', () => refreshDesktop(false))();
+  }
   if (S.cfg?.onboarded && ['library', 'desktop'].includes(page)) {
     const library = page === 'library' ? 'steam' : page;
     librarySave = librarySave.catch(() => {}).then(() => S.cfg.startup_library !== library && savePatch({ startup_library: library }));
@@ -266,7 +299,7 @@ function renderOnboarding() {
 }
 function steamCard() {
   const d = document.createElement('div');
-  d.className = 'card';
+  d.className = 'card settings-block settings-connection';
   // No Detect button by design: detection runs itself on boot and every time
   // this card appears. Browse is the only manual action.
   d.innerHTML = `<h3>Steam installation</h3>
@@ -342,7 +375,7 @@ function steamCard() {
 
 function keyCard() {
   const d = document.createElement('div');
-  d.className = 'card';
+  d.className = 'card settings-block settings-artwork';
   d.innerHTML = `<h3>SteamGridDB API key</h3>
     <div class="row"><input type="password" data-r="key" style="flex:1" placeholder="paste key…" autocomplete="off">
     <button class="btn sm" data-r="show">Show</button></div>
@@ -379,7 +412,7 @@ function keyCard() {
 
 function foldersCard() {
   const d = document.createElement('div');
-  d.className = 'card full';
+  d.className = 'card full settings-block settings-folders';
   d.innerHTML = `<h3>Game Folders</h3>
     <div class="row"><select data-r="list" size="4" style="flex:1"></select>
     <span style="display:flex;flex-direction:column;gap:6px">
@@ -431,8 +464,8 @@ function renderSettingsCards() {
   host.appendChild(keyCard());
   host.appendChild(foldersCard());
   const prefs = document.createElement('div');
-  prefs.className = 'card';
-  prefs.innerHTML = `<h3>Default artwork</h3>
+  prefs.className = 'card settings-block settings-defaults';
+  prefs.innerHTML = `<h3>Artwork defaults</h3>
     <div class="row" data-r="kinds"></div>
     <div class="row" data-r="flags"></div>
     <label class="check" style="margin-top:8px"><input type="checkbox" data-r="missing">
@@ -467,7 +500,7 @@ function renderSettingsCards() {
   q('missing').addEventListener('change', (e) => savePatch({ only_missing: e.target.checked }));
   host.appendChild(prefs);
   const danger = document.createElement('div');
-  danger.className = 'card';
+  danger.className = 'card settings-block settings-danger';
   danger.innerHTML = `<h3>Danger zone</h3>
     <div class="row"><button class="btn danger sm" data-r="purge">Purge</button>
     <button class="btn danger sm" data-r="wipe">Delete app data</button></div>`;
@@ -526,55 +559,224 @@ async function doPurge() {
 const SOURCE_LABEL = { folder: 'Folder', shortcut: 'Shortcut', steam: 'Steam' };
 const needsReview = (row) => row.source !== 'steam' && !row.sgdbId && row.idMethod === 'folder';
 
-function renderRows() {
-  const body = $('#games-body');
-  const focusedKey = document.activeElement?.matches('.row-check')
-    ? document.activeElement.closest('tr')?.dataset.key : null;
-  body.innerHTML = '';
-  const f = S.filter.trim().toLowerCase();
-  let visible = 0;
-  for (const r of S.rows) {
-    if (f && !r.display.toLowerCase().includes(f) && !r.folder.toLowerCase().includes(f)) continue;
+function visibleSteamRows() {
+  const f = S.filter.trim().toLocaleLowerCase();
+  return S.rows.filter((r) => {
+    if (S.sourceFilter !== 'all' && r.source !== S.sourceFilter) return false;
+    if (f && !`${r.display} ${r.folder} ${r.exe || ''}`.toLocaleLowerCase().includes(f)) return false;
     // Hide-owned only trusts certain appids. Shortcut rows carry guesses,
     // so they never hide.
-    if (S.hideOwned && r.source !== 'shortcut' && r.steamAppid != null && S.ownedAppids.has(r.steamAppid)) continue;
-    const tr = document.createElement('tr');
-    tr.dataset.key = rowKey(r);
-    if (S.detailKey === rowKey(r)) tr.classList.add('sel');
-    if (!r.exe && r.source !== 'steam') tr.classList.add('noexe');
-    const source = r.fromExecutableSearch ? 'Executable' : SOURCE_LABEL[r.source] || r.source;
-    const folder = r.folderName && r.folderName !== r.display ? r.folderName : '';
-    const gameMeta = folder ? `${source} · ${folder}` : source;
-    const matchName = r.sgdbId ? r.sgdbName || '(cached)' : r.source === 'steam'
-      ? `Steam ${r.steamAppid ?? ''}`.trim() : 'Not matched';
-    const matchMeta = r.sgdbId ? `SGDB ${r.sgdbId}` : '';
-    const steamText = r.source === 'steam' ? 'Installed' : r.inSteam ? 'Added' : 'Not added';
-    const steamClass = r.inSteam ? 'ok' : '';
-    const exeTxt = r.source === 'steam' ? 'Managed by Steam' : (r.exe ? baseName(r.exe) : 'No launcher');
-    tr.innerHTML = `<td class="c-add" data-act="toggle"><input class="row-check" type="checkbox" aria-label="Select ${esc(r.display)}"${r.checked ? ' checked' : ''}></td>
-      <td title="${esc(r.display)}"><div class="game-name">${esc(r.display)}</div><div class="cell-meta" title="${esc(gameMeta)}">${esc(gameMeta)}</div></td>
-      <td class="c-match" title="${esc(matchMeta ? `${matchName} - ${matchMeta}` : matchName)}"><div class="cell-main">${esc(matchName)}</div>${matchMeta ? `<div class="cell-meta">${esc(matchMeta)}</div>` : ''}</td>
-      <td class="c-st"><span class="table-status ${steamClass}">${steamText}</span>${needsReview(r) ? '<div class="cell-meta">Not matched</div>' : ''}</td>
-      <td class="c-exe" title="${esc(r.exe || '')}">${esc(exeTxt)}</td>`;
-    body.appendChild(tr);
-    visible++;
+    if (S.hideOwned && r.source !== 'shortcut' && r.steamAppid != null && S.ownedAppids.has(r.steamAppid)) return false;
+    return true;
+  }).sort((a, b) => {
+    const nameOrder = a.display.localeCompare(b.display, undefined, { sensitivity: 'base', numeric: true });
+    if (nameOrder) return S.sortGames === 'za' ? -nameOrder : nameOrder;
+    return String(a.exe || a.folder).localeCompare(String(b.exe || b.folder), undefined, { sensitivity: 'base' });
+  });
+}
+
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : (parts[0] || '?').slice(0, 2)).toUpperCase();
+}
+
+function cardSource(row) {
+  if (row.source === 'steam') return 'Steam';
+  if (row.source === 'shortcut') return 'Shortcut';
+  return row.fromExecutableSearch ? 'Scanned game' : 'Game folder';
+}
+
+function cardSubtitle(row) {
+  if (row.source === 'steam') return `Steam app ${row.steamAppid || ''}`.trim();
+  const launcher = row.exe ? baseName(row.exe) : row.folderName || 'No launcher';
+  return row.source === 'shortcut' && row.launchOptions ? `${launcher} · ${row.launchOptions}` : launcher;
+}
+
+function cardStatus(row) {
+  if (row.pendingArt || row.pendingDetails) return ['Ready', 'pending'];
+  if (row.error) return ['Issue', 'issue'];
+  if (row.inSteam) return ['In Steam', ''];
+  if (needsReview(row)) return ['Not matched', ''];
+  return ['Not added', ''];
+}
+
+function coverToken(row) {
+  const art = row.art?.grid;
+  return `${rowKey(row)}:${art?.appliedFile || art?.file || art?.id || art?.url || art?.thumb || 'current'}:${row.sgdbId || ''}`;
+}
+
+async function cardCoverSource(row) {
+  const art = row.art?.grid;
+  if (!art?.automatic && (art?.appliedFile || art?.file)) {
+    const file = art.appliedFile || art.file;
+    const local = await window.api.artThumbnail(file).catch(() => window.api.artPreviewFile(file).catch(() => null));
+    if (local) return local;
   }
+  if (!art?.automatic && art?.thumb) return { src: art.thumb, fallback: art.url };
+  if (!art?.automatic && art?.url) return art.url;
+  const current = await window.api.artCurrent({ row: rowPayload(row), kind: 'grid', existsOnly: true }).catch(() => null);
+  if (current?.file) {
+    const local = await window.api.artThumbnail(current.file).catch(() => window.api.artPreviewFile(current.file).catch(() => null));
+    if (local) return local;
+  }
+  if (art?.automatic) {
+    if (art.appliedFile || art.file) {
+      const file = art.appliedFile || art.file;
+      const local = await window.api.artThumbnail(file).catch(() => window.api.artPreviewFile(file).catch(() => null));
+      if (local) return local;
+    }
+    if (art.thumb || art.url) return { src: art.thumb || art.url, fallback: art.url };
+  }
+  if (!S.cfg.api_key) return null;
+  const sgdbId = row.sgdbId || (row.source === 'steam'
+    ? (await window.api.sgdbBySteam(row.steamAppid).catch(() => null))?.id : null);
+  if (!sgdbId) return null;
+  if (S.previewCache[sgdbId]) return S.previewCache[sgdbId];
+  const items = await window.api.artList({ sgdbId, kind: 'grid' }).catch(() => []);
+  const preview = items[0]?.thumb || items[0]?.url || null;
+  if (preview) S.previewCache[sgdbId] = preview;
+  return preview ? { src: preview, fallback: items[0]?.url } : null;
+}
+
+let coverRequests = 0;
+const waitingCovers = [];
+async function requestCardCover(row) {
+  await new Promise(resolve => {
+    if (coverRequests < 4) { coverRequests++; resolve(); }
+    else waitingCovers.push(resolve);
+  });
+  try {
+    return await (row.source === 'desktop' ? desktopCardCoverSource(row) : cardCoverSource(row));
+  } finally {
+    const next = waitingCovers.shift();
+    if (next) next();
+    else coverRequests--;
+  }
+}
+
+function loadCardCover(row, tr) {
+  const image = $('.game-cover', tr);
+  const fallback = $('.cover-fallback', tr);
+  const token = image.dataset.coverToken;
+  const cached = S.cardArtCache.get(token);
+  const request = cached || requestCardCover(row);
+  if (!cached) S.cardArtCache.set(token, request);
+  let alternate;
+  image.onload = () => {
+    if (!image.isConnected || image.dataset.coverToken !== token) return;
+    image.hidden = false;
+    fallback.hidden = true;
+  };
+  image.onerror = () => {
+    if (alternate && image.getAttribute('src') !== alternate) { image.src = alternate; alternate = null; return; }
+    image.hidden = true;
+    fallback.hidden = false;
+    S.cardArtCache.delete(token);
+    if (row.sgdbId) delete S.previewCache[row.sgdbId];
+  };
+  request.then((source) => {
+    if (!image.isConnected || image.dataset.coverToken !== token) return;
+    if (!source) { S.cardArtCache.delete(token); return; }
+    alternate = source.fallback;
+    image.src = source.src || source;
+  }).catch(() => { S.cardArtCache.delete(token); });
+}
+
+function updateLibrarySelection() {
+  const body = $('#games-body');
   const selected = checkedRows();
-  const checked = selected.length;
   $('#page-library').classList.toggle('bulk-selection', !!S.bulk);
   $('#select-multiple').setAttribute('aria-pressed', String(!!S.bulk));
-  $('#sel-all').checked = S.rows.length > 0 && checked === S.rows.length;
-  $('#sel-all').indeterminate = checked > 0 && checked < S.rows.length;
-  $('#sel-all').disabled = !S.rows.length;
-  $('#selection-count').textContent = `${checked} selected`;
-  $('#library-count').textContent = visible === S.rows.length
-    ? `${visible} game${visible === 1 ? '' : 's'}`
-    : `${visible} of ${S.rows.length}`;
-  $('#btn-add').disabled = !selected.some(r => r.source === 'steam' || canWriteShortcut(r));
-  $('#btn-remove').disabled = !selected.some((r) => r.inSteam
-    && (r.source === 'shortcut' || r.managed));
-  $('#btn-download').disabled = S.preparingArt || !S.cfg.api_key || !selected.length;
-  if (focusedKey) [...body.rows].find((tr) => tr.dataset.key === focusedKey)?.querySelector('.row-check')?.focus();
+  for (const tr of body.querySelectorAll('.game-card-row')) {
+    const row = rowByKey(tr.dataset.key);
+    if (!row) continue;
+    tr.classList.toggle('sel', S.detailKey === rowKey(row));
+    tr.classList.toggle('is-checked', !!S.bulk && !!row.checked);
+    const checkbox = $('.row-check', tr);
+    if (checkbox) checkbox.checked = !!row.checked;
+  }
+  const visible = S.visibleRows || [];
+  const checkedVisible = visible.filter((row) => row.checked).length;
+  $('#sel-all').checked = visible.length > 0 && checkedVisible === visible.length;
+  $('#sel-all').indeterminate = checkedVisible > 0 && checkedVisible < visible.length;
+  $('#sel-all').disabled = !visible.length;
+  $('#selection-count').textContent = `${selected.length} selected`;
+  const pending = S.rows.filter((row) => row.pendingArt || row.pendingDetails).length;
+  $('#library-pending').hidden = pending === 0;
+  $('#library-pending').textContent = pending ? `${pending} ready to apply` : '';
+  const applyRows = checkedRows();
+  const canApply = applyRows.some((row) => canWriteShortcut(row)
+    || (row.source === 'steam' && Object.values(row.art || {}).some(art => !art.automatic && !art.current)));
+  const button = $('#btn-add');
+  const busy = S.applyingSteam || S.preparingArt || S.loadingLibrary;
+  button.disabled = busy || !canApply;
+  button.textContent = !selected.length ? 'Apply to Steam'
+    : applyRows.length === 1 && canWriteShortcut(applyRows[0]) && !applyRows[0].inSteam
+      ? 'Add to Steam' : applyRows.length === 1 && applyRows[0].source === 'steam'
+        ? 'Apply artwork' : applyRows.some((row) => row.pendingArt || row.pendingDetails) ? 'Apply changes' : 'Apply to Steam';
+  const detailRow = cur();
+  const detailCanApply = !!detailRow && (canWriteShortcut(detailRow)
+    || (detailRow.source === 'steam' && (detailRow.pendingArt || Object.keys(detailRow.art || {}).length > 0)));
+  $('#d-primary-action').disabled = busy || !detailCanApply;
+  $('#detail').inert = !!busy;
+  $('#btn-refresh').disabled = !!busy;
+  $('#d-primary-action').textContent = !detailRow ? 'Apply to Steam'
+    : canWriteShortcut(detailRow) && !detailRow.inSteam ? 'Add to Steam'
+      : detailRow.source === 'steam' ? 'Apply artwork'
+        : detailRow.pendingArt || detailRow.pendingDetails ? 'Apply changes' : 'Apply to Steam';
+  $('#btn-remove').disabled = busy || !selected.some((row) => row.inSteam && (row.source === 'shortcut' || row.managed));
+  $('#btn-download').disabled = busy || !S.cfg.api_key || !selected.length;
+}
+
+function renderRows() {
+  const body = $('#games-body');
+  body.innerHTML = '';
+  S.coverObserver?.disconnect();
+  const visible = visibleSteamRows();
+  S.visibleRows = visible;
+  const observerRoot = $('#page-library');
+  S.coverObserver = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver((entries) => {
+      for (const entry of entries) if (entry.isIntersecting) {
+        S.coverObserver.unobserve(entry.target);
+        loadCardCover(entry.target._gameRow, entry.target);
+      }
+    }, { root: observerRoot, rootMargin: '420px 0px' }) : null;
+  if (!visible.length) {
+    const tr = document.createElement('tr');
+    tr.className = 'empty-row';
+    const message = S.loadingLibrary ? 'Loading games…' : S.rows.length ? 'No games match these filters.' : '';
+    if (message) {
+      tr.innerHTML = `<td><div class="list-empty">${message}</div></td>`;
+      body.appendChild(tr);
+    }
+  }
+  for (const row of visible) {
+    const key = rowKey(row);
+    const [state, stateClass] = cardStatus(row);
+    const detail = cardSubtitle(row);
+    const tr = document.createElement('tr');
+    tr.className = `game-card-row${S.detailKey === key ? ' sel' : ''}${S.bulk && row.checked ? ' is-checked' : ''}`;
+    tr.dataset.key = key;
+    tr.innerHTML = `<td><div class="game-tile"><button class="game-open" type="button" aria-label="Open details for ${esc(row.display)}">
+      <div class="cover-wrap">
+        <div class="cover-fallback"><img src="../assets/app-icon.svg" alt=""><span>${esc(initials(row.display))}</span></div>
+        <img class="game-cover" data-cover-token="${esc(coverToken(row))}" alt="Cover art for ${esc(row.display)}" decoding="async" hidden>
+      </div>
+      <div class="game-card-copy">
+        <span class="game-name" title="${esc(row.display)}">${esc(row.display)}</span>
+        <span class="game-meta"><span class="source-label" title="${esc(cardSource(row))}">${esc(cardSource(row))}</span>${state ? `<span class="game-state ${stateClass}">${esc(state)}</span>` : ''}</span>
+        <span class="game-subtitle" title="${esc(detail)}">${wrapText(detail)}</span>
+      </div>
+    </button><label class="cover-check" data-act="toggle"><input class="row-check" type="checkbox" aria-label="Select ${esc(row.display)}"${row.checked ? ' checked' : ''}></label></div></td>`;
+    tr._gameRow = row;
+    body.appendChild(tr);
+    if (S.coverObserver) S.coverObserver.observe(tr);
+    else loadCardCover(row, tr);
+  }
+  $('#library-count').textContent = `${S.rows.length} game${S.rows.length === 1 ? '' : 's'}`;
+  $('#library-grid-count').textContent = visible.length === S.rows.length ? '' : `${visible.length} shown`;
+  updateLibrarySelection();
   renderBanner();
 }
 
@@ -591,6 +793,7 @@ function rowByKey(key) {
 function renderBanner() {
   const banner = $('#lib-banner');
   if (!banner) return;
+  if (S.loadingLibrary) { banner.hidden = true; return; }
   if (S.rows.length > 0) { banner.hidden = true; return; }
   banner.hidden = false;
   banner.innerHTML = '';
@@ -618,7 +821,7 @@ function renderBanner() {
 
 function selectRow(key) {
   S.detailKey = key;
-  renderRows();
+  updateLibrarySelection();
   renderDetail();
   const detail = $('#detail-content');
   detail.getAnimations().forEach((animation) => animation.cancel());
@@ -664,9 +867,12 @@ function renderDetail() {
   const row = cur();
   const empty = $('#detail-empty');
   const content = $('#detail-content');
+  $('#page-library').classList.toggle('details-open', !!row);
   if (!row) {
     empty.hidden = false;
     content.hidden = true;
+    $('#detail-state').textContent = '';
+    $('#detail-state').classList.remove('pending');
     return;
   }
   empty.hidden = true;
@@ -676,6 +882,10 @@ function renderDetail() {
   if (row.steamAppid) identity.push(`Steam ${row.steamAppid}`);
   if (row.source !== 'steam') identity.push(row.idMethod === 'folder' ? 'Not matched' : `${Math.round(row.confidence * 100)}% match`);
   $('#d-identity').textContent = identity.join(' · ');
+  const state = row.pendingArt || row.pendingDetails ? 'Ready to apply in Steam'
+    : row.artApplied ? 'Applied this session' : row.inSteam ? 'In Steam' : 'Not in Steam yet';
+  $('#detail-state').textContent = state;
+  $('#detail-state').classList.toggle('pending', !!(row.pendingArt || row.pendingDetails));
   $('#d-name').value = row.display;
   const pick = $('#d-exe-pick');
   pick.innerHTML = '';
@@ -739,59 +949,34 @@ function renderDetail() {
     const btn = document.createElement('button');
     btn.className = 'btn sm';
     btn.textContent = 'Choose…';
+    btn.dataset.artKind = kind;
     btn.addEventListener('click', () => openArtModal(row, kind));
     div.appendChild(btn);
     box.appendChild(div);
   }
+  $('#art-pending-state').textContent = row.pendingArt ? 'Changes ready to apply' : row.artApplied ? 'Applied this session' : 'Current artwork';
+  $('#art-pending-state').classList.toggle('pending', !!row.pendingArt);
   previewFor(row);
 }
 
 async function previewFor(row) {
   const img = $('#d-preview');
   const picked = row.art.grid;
+  let alternate;
   img.hidden = true;
+  img.onload = () => { if (cur() === row && row.art.grid === picked) img.hidden = false; };
   img.onerror = () => {
-    if (cur() !== row) return;
-    if (picked?.thumb && picked.url && img.getAttribute('src') === picked.thumb && picked.thumb !== picked.url) {
-      img.src = picked.url;
-      return;
-    }
+    if (cur() !== row || row.art.grid !== picked) return;
+    if (alternate && img.getAttribute('src') !== alternate) { img.src = alternate; alternate = null; return; }
     img.hidden = true;
     log(`Game cover failed to load: ${picked?.file || (img.src.startsWith('data:') ? 'local image data' : img.src)}`);
     status('Game cover could not load. Check the log.');
   };
-  if (!picked || picked.automatic) {
-    const current = await window.api.artCurrent({ row: rowPayload(row), kind: 'grid' }).catch(() => null);
-    if (cur() !== row || row.art.grid !== picked) return;
-    if (current) { img.src = current.url; img.hidden = false; return; }
-  }
-  if (picked) {
-    try {
-      const src = picked.file ? await window.api.artPreviewFile(picked.file) : picked.thumb || picked.url;
-      if (cur() !== row || row.art.grid !== picked) return;
-      img.src = src;
-      img.hidden = false;
-    } catch { /* preview is optional */ }
-    return;
-  }
-  if (!row.sgdbId || !S.cfg.api_key) { img.hidden = true; return; }
-  if (S.previewCache[row.sgdbId]) {
-    img.src = S.previewCache[row.sgdbId];
-    img.hidden = false;
-    return;
-  }
   try {
-    const items = await window.api.artList({
-      sgdbId: row.sgdbId,
-      kind: 'grid',
-      filters: { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor },
-    });
-    // Do not paint a late result onto a newly selected row.
-    if (items.length && row.sgdbId === cur()?.sgdbId && !cur()?.art.grid) {
-      S.previewCache[row.sgdbId] = items[0].thumb || items[0].url;
-      img.src = S.previewCache[row.sgdbId];
-      img.hidden = false;
-    }
+    const source = await cardCoverSource(row);
+    if (cur() !== row || row.art.grid !== picked || !source) return;
+    alternate = source.fallback;
+    img.src = source.src || source;
   } catch { /* silent: list must stay usable offline */ }
 }
 
@@ -1078,6 +1263,9 @@ function doRefresh() {
 async function refreshLibrary() {
   const button = $('#btn-refresh');
   button.disabled = true;
+  S.loadingLibrary = true;
+  S.cardArtCache.clear();
+  renderRows();
   try {
     const roots = (S.cfg.games_roots || []).filter(Boolean);
     status('Refreshing library…');
@@ -1090,7 +1278,9 @@ async function refreshLibrary() {
     await refreshSteamState(entries);
     status('Steam library refreshed.');
   } finally {
+    S.loadingLibrary = false;
     button.disabled = false;
+    renderRows();
   }
 }
 
@@ -1214,7 +1404,9 @@ async function writeArtwork(rows, kinds) {
       r.artApplied ||= !!u.appliedKinds?.length;
     }
   }
+  S.cardArtCache.clear();
   result.lines.forEach(log);
+  renderRows();
   if (S.detailKey) renderDetail();
   return result;
 }
@@ -1348,6 +1540,7 @@ async function doAddToSteam() {
       }
     }
     await syncCfg();
+    S.cardArtCache.clear();
     lines.forEach(log);
     for (const row of nativeRows) {
       const original = S.rows.find(r => r.folder === row.folder);
@@ -1489,6 +1682,7 @@ async function refreshDesktop(force = true) {
   if (d.busy) return;
   const key = JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.desktop_executables, S.cfg.desktop_destination]);
   if (!force && d.loadedKey === key) return;
+  if (force) S.cardArtCache.clear();
   d.busy = true;
   renderDesktop();
   try {
@@ -1511,9 +1705,11 @@ async function refreshDesktop(force = true) {
 }
 
 function desktopVisible() {
-  const query = $('#desktop-filter').value.toLowerCase();
+  const query = $('#desktop-filter').value.toLocaleLowerCase();
+  const direction = $('#desktop-sort').value === 'za' ? -1 : 1;
   return S.desktop.rows.filter((row) => (!$('#desktop-hide').checked || !row.shortcut)
-    && `${row.display} ${row.exe} ${row.shortcut || ''} ${row.args}`.toLowerCase().includes(query));
+    && `${row.display} ${row.exe} ${row.shortcut || ''} ${row.args}`.toLocaleLowerCase().includes(query))
+    .sort((a, b) => direction * a.display.localeCompare(b.display, undefined, { sensitivity: 'base', numeric: true }));
 }
 
 function desktopSelected() {
@@ -1521,34 +1717,102 @@ function desktopSelected() {
   return d.rows.filter(row => d.bulk ? row.checked : row.id === d.detail);
 }
 
-function renderDesktop(detail = true) {
+async function desktopCardCoverSource(row) {
+  const choice = row.iconChoice || row.art?.icon;
+  if (choice?.exeIcon) return window.api.desktopIcon(row.exe).catch(() => null);
+  if (choice?.file) return /\.(exe|dll)$/i.test(choice.file)
+    ? window.api.desktopIcon(choice.file, 0).catch(() => null)
+    : window.api.artThumbnail(choice.file).catch(() => window.api.artPreviewFile(choice.file).catch(() => null));
+  if (choice?.thumb) return { src: choice.thumb, fallback: choice.url };
+  if (choice?.url) return choice.url;
+  return desktopIconPreview(row).catch(() => null);
+}
+
+function renderDesktop(detail = true, rebuildGrid = true) {
   const d = S.desktop;
   const visible = desktopVisible();
   const selected = desktopSelected();
   $('#page-desktop').classList.toggle('bulk-selection', !!d.bulk);
+  $('#page-desktop').classList.toggle('details-open', !!d.detail);
   $('#desktop-multiple').setAttribute('aria-pressed', String(!!d.bulk));
   $('#desktop-multiple').disabled = d.busy;
   $('#desktop-destination').value = S.cfg.desktop_destination || 'desktop';
   $('#desktop-destination').disabled = d.busy;
   $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu'
     : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop';
-  $('#desktop-count').textContent = `${visible.length} games${d.bulk ? ` · ${selected.length} selected` : ''}`;
-  $('#desktop-games tbody').innerHTML = visible.map((row) => `<tr data-key="${esc(row.id)}" class="${row.id === d.detail ? 'sel' : ''}">
-    <td class="c-add"><input type="checkbox" class="row-check" aria-label="Select ${esc(row.display)}" ${row.checked ? 'checked' : ''}></td>
-    <td><div class="game-name">${esc(row.display)}</div><div class="cell-meta" title="${esc(row.exe)}">${esc(row.exe)}</div></td>
-    <td title="${esc(row.shortcut || '')}"><div class="cell-main">${esc(row.shortcut || (row.destination === 'start-menu' ? 'New Start-menu shortcut' : 'New Desktop shortcut'))}</div><div class="cell-meta">${esc(row.args)}</div></td>
-    <td title="${esc(row.error || '')}">${row.saving ? 'Saving…' : row.error ? 'Error' : row.saved ? 'Saved' : row.shortcut ? 'Existing' : 'Not added'}${needsReview(row) ? '<div class="cell-meta">Not matched</div>' : ''}</td></tr>`).join('');
+  $('#desktop-count').textContent = `${S.desktop.rows.length} game${S.desktop.rows.length === 1 ? '' : 's'}`;
+  const pending = d.rows.filter((row) => !!row.draft).length;
+  $('#desktop-pending').hidden = pending === 0;
+  $('#desktop-pending').textContent = pending ? `${pending} ready to apply` : '';
+  $('#desktop-grid-count').textContent = visible.length === S.desktop.rows.length ? '' : `${visible.length} shown`;
+  $('#desktop-selection-count').textContent = `${selected.length} selected`;
+  if (rebuildGrid) {
+    const body = $('#desktop-games tbody');
+    body.innerHTML = '';
+    d.coverObserver?.disconnect();
+    const root = $('#page-desktop');
+    d.coverObserver = typeof IntersectionObserver === 'function'
+      ? new IntersectionObserver((entries) => {
+        for (const entry of entries) if (entry.isIntersecting) {
+          d.coverObserver.unobserve(entry.target);
+          loadCardCover(entry.target._desktopRow, entry.target);
+        }
+      }, { root, rootMargin: '420px 0px' }) : null;
+    if (!visible.length) {
+      const tr = document.createElement('tr');
+      tr.className = 'empty-row';
+      tr.innerHTML = `<td><div class="list-empty">${d.busy ? 'Loading Desktop games…' : S.desktop.rows.length ? 'No games match these filters.' : 'Add a game folder in Settings, then refresh.'}</div></td>`;
+      body.appendChild(tr);
+    }
+    for (const row of visible) {
+      const state = row.error ? ['Issue', 'issue'] : row.draft ? ['Ready', 'pending']
+        : row.saving ? ['Saving…', 'pending'] : row.saved ? ['Applied', '']
+          : row.shortcut ? ['Existing', ''] : ['Not added', ''];
+      const destination = row.destination === 'start-menu' ? 'Start menu'
+        : row.destination === 'both' ? 'Desktop + Start menu' : 'Desktop';
+      const token = desktopCoverToken(row);
+      const tr = document.createElement('tr');
+      tr.className = `game-card-row${row.id === d.detail ? ' sel' : ''}${d.bulk && row.checked ? ' is-checked' : ''}`;
+      tr.dataset.key = row.id;
+      const subtitle = [baseName(row.exe) || 'No launcher', row.args || ''].filter(Boolean).join(' · ');
+      tr.innerHTML = `<td><div class="game-tile"><button class="game-open" type="button" aria-label="Open details for ${esc(row.display)}">
+        <div class="cover-wrap desktop-cover-wrap">
+          <div class="cover-fallback"><img src="../assets/app-icon.svg" alt=""><span>${esc(initials(row.display))}</span></div>
+          <img class="game-cover desktop-cover" data-cover-token="${esc(token)}" alt="Shortcut icon for ${esc(row.display)}" decoding="async" hidden>
+        </div>
+        <div class="game-card-copy"><span class="game-name" title="${esc(row.display)}">${esc(row.display)}</span>
+          <span class="game-meta"><span class="source-label">${esc(destination)}</span><span class="game-state ${state[1]}">${esc(state[0])}</span></span>
+          <span class="game-subtitle" title="${esc(`${row.exe || ''}${row.args ? ` · ${row.args}` : ''}`)}">${wrapText(subtitle)}</span></div>
+      </button><label class="cover-check" data-act="toggle"><input type="checkbox" class="row-check" aria-label="Select ${esc(row.display)}"${row.checked ? ' checked' : ''}></label></div></td>`;
+      tr._desktopRow = row;
+      body.appendChild(tr);
+      if (d.coverObserver) d.coverObserver.observe(tr);
+      else loadCardCover(row, tr);
+    }
+  }
+  for (const tr of $('#desktop-games tbody').querySelectorAll('.game-card-row')) {
+    const row = d.rows.find((item) => item.id === tr.dataset.key);
+    if (!row) continue;
+    tr.classList.toggle('sel', row.id === d.detail);
+    tr.classList.toggle('is-checked', !!d.bulk && !!row.checked);
+    const checkbox = $('.row-check', tr);
+    if (checkbox) checkbox.checked = !!row.checked;
+  }
   for (const id of ['desktop-add', 'desktop-refresh', 'desktop-find', 'desktop-download']) $('#' + id).disabled = d.busy;
   $('#desktop-add').disabled ||= !selected.length;
   $('#desktop-download').disabled ||= !S.cfg.api_key || !selected.length;
   $('#desktop-all').checked = !!visible.length && visible.every((row) => row.checked);
   $('#desktop-all').indeterminate = visible.some((row) => row.checked) && !$('#desktop-all').checked;
+  $('#desktop-all').disabled = !visible.length || d.busy;
   $('#desktop-games').inert = d.busy && !d.applying;
   for (const id of ['desktop-all', 'desktop-hide']) $('#' + id).disabled = d.busy && !d.applying;
   if (detail) renderDesktopDetail();
   $('#desktop-detail').inert = d.busy && (!d.applying || !!d.rows.find((row) => row.id === d.detail)?.saving);
 }
 
+function desktopCoverToken(row) {
+  return `desktop:${JSON.stringify([row.id, row.exe, row.icon, row.iconIndex, row.signature, row.iconChoice || row.art?.icon])}`;
+}
 function desktopIconPreview(row) {
   if (/\.(ico|png|jpe?g|webp|bmp)$/i.test(row.icon || '')) return window.api.artPreviewFile(row.icon);
   if (/\.(exe|dll)$/i.test(row.icon || '')) return window.api.desktopIcon(row.icon, row.iconIndex || 0);
@@ -1563,9 +1827,13 @@ function renderDesktopDetail() {
   const d = S.desktop;
   const row = d.rows.find((item) => item.id === d.detail);
   const host = $('#desktop-detail');
-  if (!row) { host.innerHTML = '<div class="detail-empty"><h2>Select a game</h2><p>Choose its name, launcher and desktop icon.</p></div>'; return; }
+  if (!row) { host.innerHTML = '<button class="text-btn detail-close" id="desktop-detail-close" type="button">Back to games</button><div class="detail-empty"><h2>Select a game</h2><p>Review its shortcut name, launcher and icon.</p></div>'; return; }
   const exes = [...new Set([row.exe, ...(row.candidates || []).map((item) => item.path)])];
-  host.innerHTML = `<div class="det-head"><button class="cover-button" data-desktop="icon" title="Choose icon"><img class="desktop-icon" alt="Game icon"></button><h2>${esc(row.display)}</h2></div>
+  host.innerHTML = `<button class="text-btn detail-close" id="desktop-detail-close" type="button">Back to games</button>
+    <div class="det-head"><button class="cover-button" data-desktop="icon" title="Choose icon"><img class="desktop-icon" alt="Shortcut icon"><span class="cover-edit">Change icon</span></button>
+      <div class="det-titles"><div class="page-kicker">${esc(row.destination === 'start-menu' ? 'START MENU' : 'DESKTOP SHORTCUT')}</div><h2>${esc(row.display)}</h2>
+      <div class="detail-state${row.draft ? ' pending' : ''}" role="status">${row.error ? esc(row.error) : row.draft ? 'Ready to apply' : row.saved ? 'Applied this session' : row.shortcut ? 'Existing shortcut' : 'Not added yet'}</div>
+      <button class="btn primary" id="desktop-detail-apply" type="button" ${d.busy ? 'disabled' : ''}>${S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu' : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop'}</button></div></div>
     <label class="fld"><span>Shortcut name</span><input type="text" data-field="display" value="${esc(row.display)}"></label>
     <label class="field-label" for="desktop-exe">Launcher</label><div class="control-combo"><select id="desktop-exe" data-field="exe" title="${esc(row.exe)}">${exes.map((exe) => `<option value="${esc(exe)}" ${exe === row.exe ? 'selected' : ''}>${esc(baseName(exe))}</option>`).join('')}</select>
     <button class="btn sm" data-desktop="browse" type="button">Browse</button></div>
@@ -1585,7 +1853,8 @@ function renderDesktopDetail() {
   const preview = choice?.file ? localArtPreview(choice.file)
     : choice?.url ? Promise.resolve(choice.thumb || choice.url)
       : choice?.exeIcon ? window.api.desktopIcon(row.exe) : desktopIconPreview(row);
-  preview.then((src) => { if (image.isConnected) image.src = src; }).catch((e) => { log(`Icon preview: ${e.message}`); });
+  preview.then((src) => { if (image.isConnected) image.src = src; }).catch((e) => { log(`Icon preview: ${e.message}`, 'desktop'); });
+  $('#desktop-detail-apply', host).onclick = handleAction('Add to Desktop', () => applyDesktopShortcuts([row]));
   for (const input of $$('[data-field]', host)) input.onchange = handleAction('Save Desktop changes', async () => {
     row[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
     if (input.dataset.field === 'display') $('h2', host).textContent = row.display;
@@ -1656,20 +1925,29 @@ function wireDesktop() {
     await savePatch({ desktop_executables: [...(S.cfg.desktop_executables || []), ...games] });
     await refreshDesktop();
   } });
-  for (const id of ['desktop-filter', 'desktop-hide']) $('#' + id).addEventListener('input', () => renderDesktop(false));
-  $('#desktop-all').onchange = (e) => { desktopVisible().forEach((row) => { row.checked = e.target.checked; }); renderDesktop(false); };
+  $('#desktop-filter').addEventListener('input', () => renderDesktop(false));
+  $('#desktop-hide').addEventListener('change', () => renderDesktop(false));
+  $('#desktop-sort').addEventListener('change', () => renderDesktop(false));
+  $('#desktop-all').onchange = (e) => { desktopVisible().forEach((row) => { row.checked = e.target.checked; }); renderDesktop(false, false); };
   $('#desktop-multiple').onclick = () => {
     const d = S.desktop;
     d.bulk = !d.bulk;
     if (d.bulk) d.rows.forEach(row => { row.checked = row.id === d.detail; });
-    renderDesktop(false);
+    renderDesktop(false, false);
   };
   $('#desktop-games tbody').onclick = (e) => {
-    const row = S.desktop.rows.find((item) => item.id === e.target.closest('tr')?.dataset.key);
+    const card = e.target.closest('.game-card-row');
+    const row = S.desktop.rows.find((item) => item.id === card?.dataset.key);
     if (!row) return;
-    if (e.target.closest('.c-add')) { row.checked = !row.checked; renderDesktop(false); }
-    else { S.desktop.detail = row.id; renderDesktop(); }
+    if (e.target.closest('[data-act="toggle"]')) { row.checked = !row.checked; renderDesktop(false, false); }
+    else { S.desktop.detail = row.id; renderDesktop(true, false); }
   };
+  $('#desktop-detail').addEventListener('click', (e) => {
+    if (!e.target.closest('#desktop-detail-close')) return;
+    S.desktop.detail = null;
+    renderDesktop(false, false);
+    renderDesktopDetail();
+  });
   $('#desktop-download').onclick = handleAction('Find Desktop icons', async () => {
     const d = S.desktop;
     if (d.busy) return;
@@ -1857,7 +2135,9 @@ async function openArtModal(row, focusKind) {
   const focusTarget = $('#art-q').disabled ? $('#art-file') : $('#art-q');
   focusTarget.focus({ preventScroll: true });
   if (!S.cfg.api_key || !row.sgdbId) renderArtGrid();
-  if (!S.cfg.api_key) artStatus(row.source === 'desktop' ? 'Choose the executable icon or a local image.' : 'Add your SteamGridDB API key first in Settings.');
+  if (!S.cfg.api_key) artStatus(row.source === 'desktop'
+    ? 'Choose an executable icon or a local image.'
+    : 'Choose local artwork, or add an API key for online search.');
   else if (row.sgdbId) loadArtTabs();
   else if (row.source === 'steam') {
     const m = S.modal;
@@ -1875,7 +2155,7 @@ async function openArtModal(row, focusKind) {
 
 function closeArtModal(save) {
   const m = S.modal;
-  if (!m) return;
+  if (!m || m.applying) return;
   m.moreObserver?.disconnect();
   if (m.previewLoader) m.previewLoader.src = '';
   $('#art-url-entry').hidden = true;
@@ -1917,6 +2197,8 @@ function closeArtModal(save) {
     }
     const artworkChanged = JSON.stringify(m.row.art || {}) !== JSON.stringify(m.sel || {});
     m.row.art = { ...m.sel };
+    if (artworkChanged) m.row.pendingArt = true;
+    S.cardArtCache.delete(coverToken(m.row));
     renderRows();
     renderDetail();
     log(`'${m.row.display}': artwork selection updated.`);
@@ -1949,7 +2231,7 @@ async function applyArtModal() {
       else delete m.row.art[kind];
     }
     m.row.artApplied ||= result.saved > 0;
-    S.cardArtCache?.clear();
+    S.cardArtCache.clear();
     S.previewCache = {};
     renderRows(); renderDetail();
     if (result.rows[0]?.logoPositionApplied) { m.initialLogoPosition = m.logoPosition; delete m.logoPosition; }
@@ -2007,7 +2289,9 @@ function renderArtTabs() {
     host.appendChild(b);
   }
   $$('#art-grid .thumb').forEach((cell) => {
-    cell.classList.toggle('picked', isPicked(m.tab, cell._art));
+    const picked = isPicked(m.tab, cell._art);
+    cell.classList.toggle('picked', picked);
+    $('.thumb-select', cell)?.setAttribute('aria-pressed', String(picked));
   });
 }
 
@@ -2188,7 +2472,7 @@ function renderArtGrid(loading = false, start = 0) {
   if (m.row.source === 'desktop') handleAction('Icon preview', renderDesktopIconChoices)();
   else {
     m.current[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind }).catch(() => null);
-    m.stock[kind] ||= window.api.artCurrent({ row: rowPayload(m.row), kind, stock: true }).catch(() => null);
+    stockArtwork(m, kind);
     handleAction('Artwork preview', renderArtChoice)();
   }
   if (!S.cfg.api_key) return;
@@ -2227,11 +2511,13 @@ function artThumb(im, label = '', selection = im) {
   const cell = document.createElement('div');
   cell._art = selection;
   cell.className = `thumb${isPicked(kind, selection) ? ' picked' : ''}`;
-  cell.innerHTML = `<div class="thumb-image"><img loading="lazy" decoding="async" width="${Number(im.width) || 600}" height="${Number(im.height) || 900}" src="${esc(im.thumb || im.url)}" alt="">
-      <button class="art-preview-button" type="button" title="Preview artwork" aria-label="Preview artwork"><svg class="icon" aria-hidden="true"><use href="#i-preview"/></svg></button></div>
-      <div class="meta">${label || (im.id ? `#${im.id} · ${esc(im.style)} · ${im.width}x${im.height}<br>
-      ▲${im.upvotes} score ${im.score} · ${esc(im.author)}` : esc(im.file ? baseName(im.file) : im.url))}<span class="art-selected"> · Selected</span></div>`;
-  cell.addEventListener('click', () => pickArt(kind, selection));
+  const selectionLabel = label || (im.id ? `${kind} image ${im.id} by ${im.author || 'unknown author'}` : `${kind} image ${baseName(im.file) || im.url || ''}`);
+  cell.innerHTML = `<button class="thumb-select" type="button" aria-label="Select ${esc(selectionLabel)}" aria-pressed="${String(isPicked(kind, selection))}">
+      <span class="thumb-image"><img loading="lazy" decoding="async" width="${Number(im.width) || 600}" height="${Number(im.height) || 900}" src="${esc(im.thumb || im.url)}" alt=""></span>
+      <span class="meta">${label || (im.id ? `#${im.id} · ${esc(im.style)} · ${im.width}x${im.height}<br>
+      ${im.upvotes} votes · score ${im.score} · ${esc(im.author)}` : esc(im.file ? baseName(im.file) : im.url))}<span class="art-selected"> · Selected</span></span></button>
+      <button class="art-preview-button" type="button" title="Preview artwork" aria-label="Preview ${esc(selectionLabel)}"><svg class="icon" aria-hidden="true"><use href="#i-preview"/></svg></button>`;
+  $('.thumb-select', cell).addEventListener('click', () => pickArt(kind, selection));
   const image = $('img', cell);
   image.addEventListener('error', () => {
     log(`Artwork image failed to load: ${im.file || (image.src.startsWith('data:') ? 'local image data' : image.src)}`,
@@ -2346,15 +2632,16 @@ function wireToolbar() {
   $('#btn-find-executables').addEventListener('click', doFindExecutables);
   $('#btn-download').addEventListener('click', handleAction('Find artwork', doDownloadArt));
   $('#btn-add').addEventListener('click', handleAction('Add to Steam', doAddToSteam));
+  $('#d-primary-action').addEventListener('click', handleAction('Add to Steam', () => doAddToSteam([cur()].filter(Boolean))));
   $('#btn-remove').addEventListener('click', handleAction('Shortcut removal', doRemoveFromSteam));
   $('#btn-prune').addEventListener('click', handleAction('Prune', doPruneMissing));
   $('#side-kill').addEventListener('click', doKillSteam);
   $('#side-restart').addEventListener('click', doRestartSteam);
-  $('#sel-all').addEventListener('change', (e) => { S.rows.forEach((r) => { r.checked = e.target.checked; }); renderRows(); });
+  $('#sel-all').addEventListener('change', (e) => { (S.visibleRows || []).forEach((r) => { r.checked = e.target.checked; }); updateLibrarySelection(); });
   $('#select-multiple').addEventListener('click', () => {
     S.bulk = !S.bulk;
     if (S.bulk) S.rows.forEach(row => { row.checked = row === cur(); });
-    renderRows();
+    updateLibrarySelection();
   });
   $('#btn-clear').addEventListener('click', handleAction('Clear', doClear));
   $('#hide-owned').addEventListener('change', (e) => {
@@ -2362,6 +2649,8 @@ function wireToolbar() {
     renderRows();
   });
   $('#filter').addEventListener('input', (e) => { S.filter = e.target.value; renderRows(); });
+  $('#source-filter').addEventListener('change', (e) => { S.sourceFilter = e.target.value; renderRows(); });
+  $('#sort-games').addEventListener('change', (e) => { S.sortGames = e.target.value; renderRows(); });
   // lib-banner buttons are rebuilt by renderBanner() with their own handlers.
   document.querySelectorAll('.checklist').forEach((box) => {
     box.addEventListener('click', (e) => {
@@ -2380,10 +2669,15 @@ function wireToolbar() {
     if (!tr) return;
     if (e.target.closest('[data-act="toggle"]')) {
       const r = rowByKey(tr.dataset.key);
-      if (r) { r.checked = !r.checked; renderRows(); }
+      if (r) { r.checked = !r.checked; updateLibrarySelection(); }
       return;
     }
     selectRow(tr.dataset.key);
+  });
+  $('#detail-close').addEventListener('click', () => {
+    S.detailKey = null;
+    updateLibrarySelection();
+    renderDetail();
   });
   $('#d-apply').addEventListener('click', applyDetails);
   $('#d-exe-pick').addEventListener('change', (e) => { e.target.title = e.target.value; });
@@ -2501,6 +2795,13 @@ function wireToolbar() {
   });
   document.addEventListener('keydown', (e) => {
     if (S.exePicker) return;
+    if (S.modal && e.key === 'Tab') {
+      const focusable = $$('#art-modal button:not(:disabled), #art-modal input:not(:disabled), #art-modal select:not(:disabled)')
+        .filter((element) => !element.closest('[hidden]') && element.getClientRects().length);
+      const at = focusable.indexOf(document.activeElement);
+      if (e.shiftKey && at <= 0) { e.preventDefault(); focusable.at(-1)?.focus(); }
+      else if (!e.shiftKey && at === focusable.length - 1) { e.preventDefault(); focusable[0]?.focus(); }
+    }
     if (e.key === 'Escape' && S.modal) {
       if (!$('#art-url-entry').hidden) $('#art-url-entry').hidden = true;
       else closeArtModal(false);
@@ -2687,15 +2988,10 @@ async function boot() {
     if (p.label) status(p.label);
   });
   window.api.onLog((line) => log(line));
-  const steamOk = S.cfg.steam_path
-    ? await window.api.steamVerify(S.cfg.steam_path).catch(() => false)
-    : false;
   if (!S.cfg.onboarded) {
     navReset('onboarding');
-  } else if (!steamOk || ['desktop', 'xbox'].includes(S.cfg.startup_library)) {
-    navReset('desktop');
   } else {
-    navReset('library');
+    navReset(S.cfg.startup_library === 'desktop' ? 'desktop' : 'library');
   }
 }
 

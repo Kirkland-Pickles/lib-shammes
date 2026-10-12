@@ -27,6 +27,7 @@ const handlers = {
   'desktop:scan': async () => { scans++; await new Promise((resolve) => setTimeout(resolve, 30)); return { rows, warnings: [] }; },
   'desktop:icon': (file) => { assert.ok(!file.endsWith('.lnk')); return icon; },
   'art:preview-file': (file) => { assert.ok(['C:\\Icons\\game.ico', 'C:\\Icons\\downloaded.ico'].includes(file)); iconPreviews++; return file.endsWith('downloaded.ico') ? downloadedIcon : icon; },
+  'art:thumbnail': (file) => { assert.ok(['C:\\Icons\\game.ico', 'C:\\Icons\\downloaded.ico', 'C:\\Images\\applied-grid.png'].includes(file)); return file.endsWith('game.ico') ? icon : downloadedIcon; },
   'art:current': () => null,
   'art:official': () => null,
   'art:logo-position': () => null,
@@ -96,8 +97,9 @@ app.whenReady().then(async () => {
   assert.equal(writes, 0);
   assert.equal(scans, 1);
   assert.equal(await run("document.querySelector('.steam-controls').hidden"), true);
-  assert.equal(await run("document.querySelector('#desktop-games .c-add').getBoundingClientRect().width"), 0);
+  assert.equal(await run("document.querySelector('#desktop-games .cover-check').getBoundingClientRect().width"), 0);
   await click('#desktop-games .game-name');
+  await wait("!document.querySelector('#desktop-games .game-cover').hidden && document.querySelector('#desktop-games .cover-fallback').hidden");
   assert.equal(await run("document.querySelector('#desktop-add').disabled"), false);
   await click('#desktop-multiple');
   assert.deepEqual(await selection(), [true, false]);
@@ -150,10 +152,10 @@ app.whenReady().then(async () => {
   assert.ok(artRequests.every(req => req.kind === 'icon' && req.filters.animated === false));
   assert.equal(searches, 1);
   await wait("document.querySelectorAll('#art-grid > .thumb').length === 30");
-  await run("globalThis.firstTile = document.querySelector('#art-grid > .thumb'); firstTile.click()");
+  await run("globalThis.firstTile = document.querySelector('#art-grid > .thumb .thumb-select'); firstTile.click()");
   await run("document.querySelector('#art-more').scrollIntoView({block: 'end'})");
   await wait("document.querySelectorAll('#art-grid > .thumb').length === 32");
-  assert.equal(await run("firstTile === document.querySelector('#art-grid > .thumb') && firstTile.classList.contains('picked')"), true);
+  assert.equal(await run("firstTile === document.querySelector('#art-grid > .thumb .thumb-select') && firstTile.closest('.thumb').classList.contains('picked')"), true);
   assert.equal(await run("document.querySelector('#art-more')"), null);
   assert.deepEqual(artRequests.map(req => req.page), [0, 1]);
   await click('#art-filters summary');
@@ -215,7 +217,7 @@ app.whenReady().then(async () => {
   assert.equal(writes, 1);
   assert.deepEqual(await selection(), [false, false]);
   await click('#desktop-games input');
-  assert.equal(await run("document.querySelector('#desktop-games tbody tr td:last-child').textContent"), 'Saved');
+  assert.equal(await run("document.querySelector('#desktop-games .game-state').textContent"), 'Applied');
   externalChange = true;
   await click('#desktop-add');
   await wait("!!document.querySelector('#confirm-overlay')");
@@ -284,6 +286,32 @@ app.whenReady().then(async () => {
   assert.equal(steamRequest.rows[0].display, 'New name');
   assert.deepEqual(steamRequest.rows[0].launchSettings, { startDir: 'C:/Games/Working directory', launchOptions: '--windowed "two words"' });
   assert.equal(steamRequest.autoArt, false);
+  await click('#detail-choose-art');
+  await wait("document.querySelectorAll('#art-grid > .thumb').length > 0");
+  await click('#art-grid > .thumb .thumb-select');
+  await click('#art-cancel');
+  assert.equal(artworkWrites.length, 0);
+  await click('#detail-choose-art');
+  await wait("document.querySelectorAll('#art-grid > .thumb').length > 0");
+  await click('#art-grid > .thumb .thumb-select');
+  await run("[...document.querySelectorAll('#art-tabs button')].find(button => button.textContent.startsWith('Logo')).click()");
+  await wait("!document.querySelector('#art-logo-position').hidden && document.querySelectorAll('#art-grid > .thumb').length > 0");
+  await click('#art-grid > .thumb .thumb-select');
+  await change('#art-logo-width', '60');
+  await click('#art-apply');
+  await wait("document.querySelector('#art-overlay').hidden");
+  await wait(`!document.querySelector('#games .game-cover').hidden && document.querySelector('#games .game-cover').src === ${JSON.stringify(downloadedIcon)}`);
+  await wait(`!document.querySelector('#d-preview').hidden && document.querySelector('#d-preview').src === ${JSON.stringify(downloadedIcon)}`);
+  assert.equal(artworkWrites.length, 1);
+  assert.deepEqual(Object.keys(artworkWrites[0].rows[0].art).sort(), ['grid', 'logo']);
+  assert.equal(artworkWrites[0].rows[0].logoPosition.nWidthPct, 60);
+  assert.equal(artworkWrites[0].kinds.length, 0);
+  await click('#detail-choose-art');
+  await run("[...document.querySelectorAll('#art-tabs button')].find(button => button.textContent === 'Manage').click()");
+  await wait("document.querySelectorAll('#art-grid .manage-artwork').length === 5");
+  await click('#art-grid [data-manage=restore]');
+  await click('#art-cancel');
+  assert.equal(artworkWrites.length, 1);
   await click('[data-page=desktop]');
   assert.ok(!await run("document.querySelector('#log').textContent.includes('Artwork applied to Steam.')"));
   await idle();
