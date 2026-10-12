@@ -154,6 +154,32 @@ it('updates an app-managed shortcut from the Steam list without adding a duplica
   assert.equal(writes, 1);
 });
 
+it('updates launch settings without duplicates and retains their original values across renames', async t => {
+  const original = steam.buildEntry({ appName: 'Game', exePath: 'C:/Games/game.exe', startDir: 'C:/Original', launchOptions: '--original', tags: [steam.MANAGED_TAG] });
+  const entries = [{ ...original }];
+  const env = main(t, {}, {}, { loadEntries: () => entries, saveEntries: () => null });
+  const apply = (display, launchSettings) => env.invoke('steam:add', { kinds: [], rows: [{
+    source: 'shortcut', shortcutIdx: 0, appid: entries[0].appid, exe: 'C:/Games/game.exe', display, launchSettings,
+  }] });
+  await apply('Renamed');
+  assert.equal(entries[0].StartDir, original.StartDir);
+  assert.equal(entries[0].LaunchOptions, '--original');
+  for (const launchOptions of ['--windowed "two words"', '']) {
+    const result = await apply(`Game ${launchOptions}`, { startDir: 'C:/New directory', launchOptions });
+    assert.equal(result.updated, 1);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].StartDir, 'C:/New directory');
+    assert.equal(entries[0].LaunchOptions, launchOptions);
+  }
+  const fields = env.changes().fields;
+  for (const field of ['AppName', 'StartDir', 'LaunchOptions']) {
+    const saved = fields.filter(item => item.field === field);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].before, original[field]);
+    assert.equal(saved[0].appid, entries[0].appid);
+  }
+});
+
 it('converts executable icon choices to image bytes for native and non-Steam games', async (t) => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB7kAAAAASUVORK5CYII=', 'base64');
   for (const source of ['steam', 'folder']) {

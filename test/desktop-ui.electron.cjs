@@ -245,6 +245,9 @@ app.whenReady().then(async () => {
   await click('#games tbody input');
   await click('#games .game-name');
   await change('#d-name', 'New name');
+  await run("document.querySelector('#steam-launch-settings').open = true");
+  await change('#d-startdir', 'C:/Games/Working directory');
+  await change('#d-args', '--windowed "two words"');
   await click('#btn-add');
   await wait("!!document.querySelector('#confirm-overlay')");
   await click('#confirm-overlay [data-v="1"]');
@@ -253,6 +256,7 @@ app.whenReady().then(async () => {
   await click('#confirm-overlay [data-v="0"]');
   await wait("document.querySelector('#status').textContent.includes('updated')");
   assert.equal(steamRequest.rows[0].display, 'New name');
+  assert.deepEqual(steamRequest.rows[0].launchSettings, { startDir: 'C:/Games/Working directory', launchOptions: '--windowed "two words"' });
   assert.equal(steamRequest.autoArt, false);
   await click('[data-page=desktop]');
   await idle();

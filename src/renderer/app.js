@@ -703,6 +703,10 @@ function renderDetail() {
   pick.disabled = locked;
   $('#d-browse').disabled = locked;
   $('#d-apply').disabled = locked;
+  $('#steam-launch-settings').hidden = locked;
+  const launch = S.cfg.steam_launch?.[folderKey(row.folder)];
+  $('#d-startdir').value = launch?.startDir ?? String(row.startDir || '').replace(/^"|"$/g, '');
+  $('#d-args').value = launch?.launchOptions ?? row.launchOptions ?? '';
   $('#s-search').value = row.query || row.display;
   S.matchSearchToken++;
   resetMatchResults();
@@ -840,7 +844,7 @@ async function syncSteamLibrary(entries, installed) {
     const startDir = String(e.startDir || parentDir(exe));
     S.rows.push({
       folder: `shortcut://${e.appid ?? e.index}`, folderName: name, display: name,
-      exe: exe || null, startDir, launchOptions: '',
+      exe: exe || null, startDir, launchOptions: e.launchOptions || '',
       candidates: exe ? [{ path: exe, size: 0, depth: 0, score: 0, reason: 'existing shortcut' }] : [],
       score: 0, reason: 'already in Steam as a non-Steam shortcut', query,
       steamAppid, idMethod: 'shortcut', confidence: 0.5, source: 'shortcut',
@@ -1022,6 +1026,8 @@ async function refreshSteamState(entries) {
       r.managed = !!hit.managed;
       r.shortcutIdx = hit.index;
       r.appid = hit.appid;
+      r.startDir = hit.startDir || r.startDir;
+      r.launchOptions = hit.launchOptions || '';
     }
   }
   renderRows();
@@ -1068,10 +1074,11 @@ async function doClear() {
   const entries = await window.api.steamRead();
   const byAppid = new Map(entries.map((entry) => [Number(entry.appid), entry]));
   const byExe = new Map(entries.map((entry) => [folderKey(String(entry.exe || '').replace(/^"|"$/g, '')), entry]));
-  const patch = Object.fromEntries(['title_map', 'exe_map', 'sgdb_map', 'sgdb_cache']
+  const patch = Object.fromEntries(['title_map', 'exe_map', 'sgdb_map', 'sgdb_cache', 'steam_launch']
     .map((key) => [key, { ...S.cfg[key] }]));
   const resets = [];
   for (const row of S.rows) {
+    delete patch.steam_launch[folderKey(row.folder)];
     if (row.source === 'steam') {
       for (const key of ['sgdb_map', 'sgdb_cache']) delete patch[key][folderKey(row.folder)];
       resets.push([row, { art: {}, sgdbId: null, sgdbName: '' }, null]);
@@ -1159,6 +1166,7 @@ function rowPayload(r) {
     folder: r.folder, display: r.display, exe: r.exe, startDir: r.startDir,
     launchOptions: r.launchOptions, sgdbId: r.sgdbId, art: r.art,
     source: r.source, shortcutIdx: r.shortcutIdx, appid: r.appid, steamAppid: r.steamAppid,
+    launchSettings: S.cfg.steam_launch?.[folderKey(r.folder)],
   };
 }
 
@@ -1224,7 +1232,9 @@ function canWriteShortcut(row) {
 async function doAddToSteam() {
   const editing = cur();
   if (checkedRows().includes(editing) && canWriteShortcut(editing)
-    && ($('#d-name').value.trim() !== editing.display || $('#d-exe-pick').value.trim() !== editing.exe)) {
+    && ($('#d-name').value.trim() !== editing.display || $('#d-exe-pick').value.trim() !== editing.exe
+      || $('#d-startdir').value.trim() !== (S.cfg.steam_launch?.[folderKey(editing.folder)]?.startDir ?? String(editing.startDir || '').replace(/^"|"$/g, ''))
+      || $('#d-args').value !== (S.cfg.steam_launch?.[folderKey(editing.folder)]?.launchOptions ?? editing.launchOptions ?? ''))) {
     if (!await applyDetails()) return;
   }
   const selected = checkedRows();
@@ -2309,6 +2319,8 @@ async function applyDetails() {
   if (r.source === 'steam') { toast('Steam store games cannot be edited here - Steam manages them.'); return false; }
   const name = $('#d-name').value.trim();
   const exe = $('#d-exe-pick').value.trim();
+  let startDir = $('#d-startdir').value.trim();
+  if (exe !== r.exe && folderKey(startDir) === folderKey(parentDir(r.exe || ''))) startDir = parentDir(exe);
   if (r.fromExecutableSearch && exe && folderKey(exe) !== folderKey(r.folder)) {
     if (S.rows.some((other) => other !== r && other.exe && folderKey(other.exe) === folderKey(exe))) {
       toast('That executable is already listed.');
@@ -2316,7 +2328,7 @@ async function applyDetails() {
     }
     const oldKey = folderKey(r.folder);
     const newKey = folderKey(exe);
-    for (const map of [S.cfg.title_map, S.cfg.sgdb_map, S.cfg.sgdb_cache]) {
+    for (const map of [S.cfg.title_map, S.cfg.sgdb_map, S.cfg.sgdb_cache, S.cfg.steam_launch ||= {}]) {
       if (Object.hasOwn(map, oldKey)) map[newKey] = map[oldKey];
       else delete map[newKey];
       delete map[oldKey];
@@ -2341,8 +2353,10 @@ async function applyDetails() {
     }
   }
   r.reason = 'manual';
+  S.cfg.steam_launch ||= {};
+  S.cfg.steam_launch[folderKey(r.folder)] = { startDir: startDir || parentDir(r.exe), launchOptions: $('#d-args').value };
   await savePatch({ title_map: S.cfg.title_map, exe_map: S.cfg.exe_map,
-    sgdb_map: S.cfg.sgdb_map, sgdb_cache: S.cfg.sgdb_cache });
+    sgdb_map: S.cfg.sgdb_map, sgdb_cache: S.cfg.sgdb_cache, steam_launch: S.cfg.steam_launch });
   await refreshSteamState();
   log(`Updated '${r.display}'.`);
   return true;

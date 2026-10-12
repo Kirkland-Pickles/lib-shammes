@@ -158,7 +158,7 @@ ipcMain.handle('steam:read', () => {
   return steam.loadEntries(cfg.steam_path, cfg.steam_user_id)
     .map((e, i) => ({
       index: i, appid: e.appid, appName: e.AppName, exe: e.Exe,
-      startDir: e.StartDir, icon: e.icon, managed: steam.isManagedEntry(e),
+      startDir: e.StartDir, launchOptions: e.LaunchOptions, icon: e.icon, managed: steam.isManagedEntry(e),
     }));
 });
 
@@ -889,12 +889,11 @@ async function addSteam(req) {
       ? Number(row.shortcutIdx) : -1;
     const oldIdx = exactIdx >= 0 ? exactIdx : preferredIdx;
     const old = oldIdx >= 0 ? entries[oldIdx] : null;
-    const beforeName = old && String(old.AppName || '');
     const entry = steam.buildEntry({
       appName: row.display, exePath: row.exe,
-      startDir: exactIdx >= 0 ? old.StartDir : row.startDir,
+      startDir: row.launchSettings?.startDir ?? (exactIdx >= 0 ? old.StartDir : row.startDir),
       icon: old ? old.icon : '',
-      launchOptions: old ? old.LaunchOptions : row.launchOptions,
+      launchOptions: row.launchSettings?.launchOptions ?? (old ? old.LaunchOptions : row.launchOptions),
       tags: [steam.MANAGED_TAG],
     });
     const r = steam.upsertEntry(entries, entry, preferredIdx);
@@ -913,9 +912,13 @@ async function addSteam(req) {
     if (r.updated) {
       shortcutsChanged = true;
       updated++; lines.push(`  updated '${row.display}'`);
-      // Journal renames so Purge can restore the original name.
-      if (beforeName && beforeName !== entry.AppName) {
-        changes.fields.push({ appid: shortcut.appid, field: 'AppName', before: beforeName });
+      for (const item of changes.fields) {
+        if (item.appid === old.appid) item.appid = shortcut.appid;
+      }
+      for (const field of ['AppName', 'StartDir', 'LaunchOptions']) {
+        if (old[field] !== shortcut[field] && !changes.fields.some(item => item.appid === shortcut.appid && item.field === field)) {
+          changes.fields.push({ appid: shortcut.appid, field, before: old[field] || '' });
+        }
       }
     } else if (r.existing) {
       lines.push(`  '${row.display}' is already in Steam`);

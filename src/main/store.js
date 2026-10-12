@@ -28,6 +28,7 @@ const DEFAULTS = {
   sgdb_cache: {},
   exe_map: {},
   title_map: {},
+  steam_launch: {},
   desktop_overrides: {},
   desktop_executables: [],
   desktop_destination: 'desktop',

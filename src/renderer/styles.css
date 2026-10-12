@@ -428,6 +428,8 @@ td.c-st { text-align: left; }
 #art-games { flex: 1; min-width: 180px; }
 #art-filters { padding-top: 8px; }
 #art-filters summary { cursor: pointer; color: var(--muted); }
+#steam-launch-settings { margin-top: 12px; }
+#steam-launch-settings summary { cursor: pointer; color: var(--muted); }
 #art-filter-fields { display: flex; flex-wrap: wrap; gap: 12px; max-height: 180px; overflow-y: auto; padding: 10px 0; }
 #art-filter-fields fieldset { display: flex; flex-wrap: wrap; gap: 8px 14px; border: 0; min-width: 0; }
 #art-filter-fields legend { color: var(--muted); margin-bottom: 6px; }
