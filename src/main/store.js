@@ -17,6 +17,7 @@ const DEFAULTS = {
   include_animated: false,
   include_nsfw: false,
   include_humor: false,
+  artwork_filters: {},
   want_wide: true,
   want_grid: true,
   want_hero: true,

@@ -16,6 +16,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
   const cfg = { ...structuredClone(store.DEFAULTS), steam_path: root, steam_user_id: '1' };
   const handlers = new Map();
   const calls = [];
+  const artworkQueries = [];
   let changes = store.blankChanges();
   const filename = path.join(__dirname, '../src/main/main.js');
   const realRequire = createRequire(filename);
@@ -35,7 +36,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
       steamMetadata = async () => { calls.push('metadata'); if (metadata instanceof Error) throw metadata; return metadata; };
       gridsVertical = async () => [{ id: 9, url: 'https://test.invalid/art.jpg' }];
       logos = this.gridsVertical;
-      icons = this.gridsVertical;
+      icons = async (_id, options) => { artworkQueries.push(options); return this.gridsVertical(); };
       downloadBytes = async () => { calls.push('download'); return Buffer.from('new artwork'); };
     } },
   };
@@ -43,7 +44,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
     require: (name) => mocks[name] || realRequire(name), __dirname: path.dirname(filename),
     process: { argv: [], platform: process.platform }, Buffer,
   }, { filename });
-  return { root, calls, cfg, grid: steam.gridDir(root, '1'), changes: () => changes,
+  return { root, calls, artworkQueries, cfg, grid: steam.gridDir(root, '1'), changes: () => changes,
     download: (row = native(), options = {}) => handlers.get('art:download')(null, { rows: [row], kinds: ['grid'], onlyMissing: false, ...options }),
     invoke: (name, req) => handlers.get(name)(null, req) };
 }
@@ -224,6 +225,20 @@ it('passes artwork pagination and filters to SGDB', async () => {
     return [];
   };
   await client.icons(7, { page: 2, limit: 30, types: 'static' });
+});
+
+it('requests selected content tags and animation types without mixing in untagged artwork', async t => {
+  const env = main(t);
+  await env.invoke('art:list', { sgdbId: 7, kind: 'icon', filters: {
+    static: false, animated: true, untagged: false, nsfw: true, humor: true, epilepsy: false,
+    styles: ['custom'], mimes: ['image/png'],
+  } });
+  const params = new URLSearchParams(new SGDBClient('fixture').buildParams(env.artworkQueries.at(-1)));
+  assert.equal(params.get('types'), 'animated');
+  assert.equal(params.get('oneoftag'), 'nsfw,humor');
+  assert.equal(params.get('nsfw'), 'any');
+  assert.equal(params.get('styles'), 'custom');
+  assert.equal(params.get('mimes'), 'image/png');
 });
 
 it('skips stock and custom artwork when onlyMissing is on', async (t) => {

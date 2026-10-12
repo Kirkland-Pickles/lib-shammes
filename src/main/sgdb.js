@@ -29,6 +29,7 @@ function parseImage(d) {
     height: Number(d.height || 0),
     nsfw: Boolean(d.nsfw),
     humor: Boolean(d.humor),
+    epilepsy: Boolean(d.epilepsy),
     notes: String(d.notes || ''),
     url: String(d.url || ''),
     thumb: String(d.thumb || d.url || ''),
@@ -110,12 +111,16 @@ class SGDBClient {
     throw new SGDBError('Could not check stock Steam artwork.');
   }
 
-  buildParams({ dimensions, types, nsfw, humor, limit = 50, page = 0 } = {}) {
+  buildParams({ dimensions, types, nsfw, humor, epilepsy, oneoftag, styles, mimes, limit = 50, page = 0 } = {}) {
     const p = new URLSearchParams();
     if (dimensions) p.set('dimensions', dimensions);
     if (types) p.set('types', types);
     if (nsfw) p.set('nsfw', nsfw);
     if (humor) p.set('humor', humor);
+    if (epilepsy) p.set('epilepsy', epilepsy);
+    if (oneoftag) p.set('oneoftag', oneoftag);
+    if (styles) p.set('styles', styles);
+    if (mimes) p.set('mimes', mimes);
     p.set('limit', String(limit));
     p.set('page', String(page));
     return p.toString();
@@ -131,8 +136,8 @@ class SGDBClient {
       .sort((a, b) => (b.score - a.score) || (b.votes - a.votes));
   }
 
-  gridsVertical(gameId, o = {}) { return this._assets('grids', gameId, { ...o, dimensions: '600x900,660x930,342x482' }); }
-  gridsWide(gameId, o = {}) { return this._assets('grids', gameId, { ...o, dimensions: '920x430,460x215' }); }
+  gridsVertical(gameId, o = {}) { return this._assets('grids', gameId, { dimensions: '600x900,660x930,342x482', ...o }); }
+  gridsWide(gameId, o = {}) { return this._assets('grids', gameId, { dimensions: '920x430,460x215', ...o }); }
   heroes(gameId, o = {}) { return this._assets('heroes', gameId, { dimensions: '3840x1240,1920x620,1600x650', ...o }); }
   logos(gameId, o = {}) { return this._assets('logos', gameId, o); }
   icons(gameId, o = {}) { return this._assets('icons', gameId, o); }

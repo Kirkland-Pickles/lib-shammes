@@ -505,9 +505,13 @@ ipcMain.handle('art:list', async (_e, req) => {
   const filters = (req && req.filters) || {};
   const c = client();
   const o = {
-    types: filters.animated ? 'static,animated' : 'static',
+    types: [filters.static !== false && 'static', filters.animated && 'animated'].filter(Boolean).join(','),
     nsfw: filters.nsfw ? 'any' : 'false',
-    humor: filters.humor ? 'any' : 'false',
+    humor: filters.humor || filters.untagged === false ? 'any' : 'false',
+    epilepsy: filters.epilepsy === false && filters.untagged !== false ? 'false' : 'any',
+    ...(filters.untagged === false ? { oneoftag: ['nsfw', 'humor', 'epilepsy'].filter(tag => filters[tag]).join(',') } : {}),
+    ...Object.fromEntries(['styles', 'dimensions', 'mimes'].filter(key => filters[key]?.length)
+      .map(key => [key, filters[key].join(',')])),
     limit: 30,
     page: Number.isSafeInteger(req.page) && req.page >= 0 ? req.page : 0,
   };

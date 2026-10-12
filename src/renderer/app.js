@@ -1655,6 +1655,57 @@ const ART_TABS = [['wide', 'Wide Capsule'], ['grid', 'Vertical Grid'], ['hero', 
 const modalTabs = () => S.modal?.row.source === 'desktop' ? [['icon', 'Icon']] : ART_TABS;
 let artModalMotion = 0;
 
+function pickerFilters(kind) {
+  return { static: true, animated: !!S.cfg.include_animated, untagged: true,
+    nsfw: !!S.cfg.include_nsfw, humor: !!S.cfg.include_humor, epilepsy: true,
+    ...S.cfg.artwork_filters?.[kind], ...(S.modal?.row.source === 'desktop' ? { static: true, animated: false } : {}) };
+}
+
+function artworkCacheKey(m) {
+  return `${m.sgdbId}:${m.tab}:${JSON.stringify(pickerFilters(m.tab))}`;
+}
+
+function renderArtFilters() {
+  const m = S.modal;
+  if (!m) return;
+  const kind = m.tab;
+  const values = pickerFilters(kind);
+  const styles = kind === 'logo' ? ['official', 'white', 'black', 'custom']
+    : kind === 'icon' ? ['official', 'custom']
+    : ['alternate', ...(kind === 'hero' ? [] : ['white_logo', 'no_logo']), 'blurred', 'material'];
+  const dimensions = kind === 'grid' ? ['600x900', '342x482', '660x930', '512x512', '1024x1024']
+    : kind === 'wide' ? ['460x215', '920x430', '512x512', '1024x1024']
+    : kind === 'hero' ? ['1920x620', '3840x1240', '1600x650'] : [];
+  const formats = kind === 'icon' ? ['image/png', 'image/vnd.microsoft.icon']
+    : kind === 'logo' ? ['image/png', 'image/webp'] : ['image/png', 'image/jpeg', 'image/webp'];
+  const labels = { static: 'Static', animated: 'Animated', untagged: 'Untagged', nsfw: 'Adult Content',
+    humor: 'Humor', epilepsy: 'Epilepsy', material: 'Minimal', white_logo: 'White Logo', no_logo: 'No Logo',
+    'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/webp': 'WebP', 'image/vnd.microsoft.icon': 'ICO' };
+  const groups = [['Types', null, ['static', 'animated']], ['Tags', null, ['untagged', 'nsfw', 'humor', 'epilepsy']],
+    ['Styles', 'styles', styles], ['File types', 'mimes', formats], ['Dimensions', 'dimensions', dimensions]];
+  const host = $('#art-filter-fields');
+  host.innerHTML = groups.filter(([, , options]) => options.length).map(([title, field, options]) =>
+    `<fieldset><legend>${title}</legend>${options.map(value => {
+      const selected = field ? values[field]?.includes(value) ?? (field !== 'dimensions' || !value.includes('512') && !value.includes('1024')) : values[value];
+      return `<label class="check"><input type="checkbox" data-filter="${field || value}" value="${value}" ${selected ? 'checked' : ''}
+        ${m.row.source === 'desktop' && ['static', 'animated'].includes(value) ? 'disabled' : ''}>${labels[value] || value.charAt(0).toUpperCase() + value.slice(1)}</label>`;
+    }).join('')}</fieldset>`).join('');
+  host.onchange = event => handleAction('Artwork filters', async () => {
+    const inputs = [...event.target.closest('fieldset').querySelectorAll('input')];
+    if (!inputs.some(input => input.checked)) { event.target.checked = true; return; }
+    const next = { ...values };
+    for (const input of host.querySelectorAll('input')) {
+      const field = input.dataset.filter;
+      if (['styles', 'mimes', 'dimensions'].includes(field)) {
+        next[field] = [...host.querySelectorAll(`input[data-filter="${field}"]:checked`)].map(node => node.value);
+      } else next[field] = input.checked;
+    }
+    await savePatch({ artwork_filters: { ...S.cfg.artwork_filters, [kind]: next } });
+    if (S.modal !== m || m.tab !== kind) return;
+    await loadArtTabs();
+  })();
+}
+
 async function openArtModal(row, focusKind) {
   S.modal = {
     row, tab: focusKind || 'grid',
@@ -1676,6 +1727,7 @@ async function openArtModal(row, focusKind) {
   closeArtPreview();
   $('#art-grid').replaceChildren();
   renderArtTabs();
+  renderArtFilters();
   const overlay = $('#art-overlay');
   artModalMotion++;
   overlay.getAnimations().forEach((animation) => animation.cancel());
@@ -1758,7 +1810,7 @@ function renderArtTabs() {
     b.textContent = label;
     const picked = m.sel[kind];
     if (picked) b.textContent += ' ★';
-    b.addEventListener('click', () => { $('#art-url-entry').hidden = true; m.tab = kind; renderArtTabs(); loadArtTabs(); });
+    b.addEventListener('click', () => { $('#art-url-entry').hidden = true; m.tab = kind; renderArtTabs(); renderArtFilters(); loadArtTabs(); });
     host.appendChild(b);
   }
   $$('#art-grid .thumb').forEach((cell) => {
@@ -1817,7 +1869,7 @@ async function loadArtTabs(more = false) {
   if (!m) return;
   if (!m.sgdbId || !S.cfg.api_key) { renderArtGrid(); return; }
   const { sgdbId, tab: kind } = m;
-  const key = `${sgdbId}:${kind}`;
+  const key = artworkCacheKey(m);
   const page = m.cache[key] ||= { items: [], next: 0, more: true, pending: null };
   const start = more ? page.items.length : 0;
   if (!more && (!page.next || page.pending)) renderArtGrid(true);
@@ -1829,7 +1881,7 @@ async function loadArtTabs(more = false) {
   try {
     if (!page.pending && (!page.next || more)) {
       page.pending = window.api.artList({ sgdbId, kind, page: page.next,
-        filters: { ...filters(), ...(m.row.source === 'desktop' ? { animated: false } : {}) } })
+        filters: pickerFilters(kind) })
         .then(items => {
           const urls = new Set(page.items.map(item => item.url));
           page.items.push(...items.filter(item => !urls.has(item.url)));
@@ -1838,11 +1890,11 @@ async function loadArtTabs(more = false) {
         }).finally(() => { page.pending = null; });
     }
     await page.pending;
-    if (S.modal !== m || m.sgdbId !== sgdbId || m.tab !== kind) return;
+    if (S.modal !== m || artworkCacheKey(m) !== key) return;
     artStatus(`SGDB ${sgdbId}: ${page.items.length} images. Click to select per type.`);
     renderArtGrid(false, start);
   } catch (e) {
-    if (S.modal !== m || m.sgdbId !== sgdbId || m.tab !== kind) return;
+    if (S.modal !== m || artworkCacheKey(m) !== key) return;
     artStatus(`Load failed: ${e.message || e}`);
     if ($('#art-more')) $('#art-more').disabled = false;
   }
@@ -1909,7 +1961,7 @@ function renderArtGrid(loading = false, start = 0) {
     grid.insertAdjacentHTML('beforeend', `<div class="muted">${m.sgdbId ? 'Loading…' : 'Search or enter an SGDB game ID first.'}</div>`);
     return;
   }
-  const page = m.cache[`${m.sgdbId}:${m.tab}`];
+  const page = m.cache[artworkCacheKey(m)];
   const items = page?.items || [];
   if (!items.length) {
     grid.insertAdjacentHTML('beforeend', '<div class="muted">No SGDB images of this type.</div>');

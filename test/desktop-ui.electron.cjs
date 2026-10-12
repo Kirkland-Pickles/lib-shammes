@@ -139,6 +139,18 @@ app.whenReady().then(async () => {
   assert.equal(await run("firstTile === document.querySelector('#art-grid > .thumb') && firstTile.classList.contains('picked')"), true);
   assert.equal(await run("document.querySelector('#art-more')"), null);
   assert.deepEqual(artRequests.map(req => req.page), [0, 1]);
+  await click('#art-filters summary');
+  await click('#art-filter-fields input[data-filter=humor]');
+  await wait(() => cfg.artwork_filters?.icon?.humor === true);
+  await click('#art-filter-fields input[data-filter=untagged]');
+  await wait(() => artRequests.at(-1).filters.untagged === false);
+  assert.equal(artRequests.at(-1).page, 0);
+  assert.equal(artRequests.at(-1).filters.humor, true);
+  await click('#art-filter-fields input[data-filter=epilepsy]');
+  await wait(() => artRequests.at(-1).filters.epilepsy === false);
+  await click('#art-filter-fields input[data-filter=humor]');
+  assert.equal(await run("document.querySelector('input[data-filter=humor]').checked"), true);
+  await click('#art-filters summary');
   await click('#art-apply');
   await wait(() => cfg.desktop_overrides['link:1']?.sgdbId === 17);
   assert.ok(await run("document.querySelector('#desktop-detail').textContent.includes('Matched game · 17')"));
