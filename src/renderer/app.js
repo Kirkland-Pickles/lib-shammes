@@ -1727,7 +1727,7 @@ function renderArtFilters() {
     ['Styles', 'styles', styles], ['File types', 'mimes', formats], ['Dimensions', 'dimensions', dimensions]];
   const host = $('#art-filter-fields');
   host.innerHTML = groups.filter(([, , options]) => options.length).map(([title, field, options]) =>
-    `<fieldset><legend>${title}</legend>${options.map(value => {
+    `<fieldset${field === 'dimensions' ? ' class="filter-dimensions"' : ''}><legend>${title}</legend>${options.map(value => {
       const selected = field ? values[field]?.includes(value) ?? (field !== 'dimensions' || kind === 'icon' || !value.includes('512') && !value.includes('1024')) : values[value];
       const label = field === 'dimensions' && kind === 'icon' ? `${value}x${value}` : labels[value] || value.charAt(0).toUpperCase() + value.slice(1);
       return `<label class="check"><input type="checkbox" data-filter="${field || value}" value="${value}" ${selected ? 'checked' : ''}

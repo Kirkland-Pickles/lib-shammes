@@ -147,6 +147,12 @@ app.whenReady().then(async () => {
   assert.equal(await run("document.querySelector('#art-more')"), null);
   assert.deepEqual(artRequests.map(req => req.page), [0, 1]);
   await click('#art-filters summary');
+  assert.equal(await run(`(() => {
+    const fields = document.querySelector('#art-filter-fields');
+    const groups = [...fields.querySelectorAll('fieldset')].map(node => node.getBoundingClientRect());
+    return fields.scrollWidth <= fields.clientWidth && groups[0].right <= groups[1].left
+      && document.querySelector('.thumbScroll').getBoundingClientRect().height > 100;
+  })()`), true);
   await click('#art-filter-fields input[data-filter=humor]');
   await wait(() => cfg.artwork_filters?.icon?.humor === true);
   await click('#art-filter-fields input[data-filter=untagged]');
