@@ -154,7 +154,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .game-state.issue { color: var(--red); }
 .game-subtitle { display: block; min-width: 0; color: var(--muted); font-size: 8pt; overflow-wrap: break-word; }
 .list-empty { display: flex; min-height: 200px; grid-column: 1 / -1; align-items: center; justify-content: center; padding: 25px; color: var(--muted); text-align: center; }
-.detail { position: relative; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: auto; border-left: 1px solid var(--line); padding: 0 0 8px 20px; }
+.detail { position: relative; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: auto; border-left: 1px solid var(--line); padding: 0 12px 8px 20px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; scrollbar-gutter: stable; }
 .detail-close { display: none; align-self: flex-start; }
 .detail-empty { display: flex; min-height: 230px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; color: var(--muted); }
 .detail-empty h2 { color: var(--fg); font-size: 13pt; font-weight: 600; }
