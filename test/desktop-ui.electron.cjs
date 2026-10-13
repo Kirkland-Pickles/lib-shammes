@@ -102,10 +102,13 @@ app.whenReady().then(async () => {
   await click('#desktop-games .game-name');
   await wait("!document.querySelector('#desktop-games .game-cover').hidden && document.querySelector('#desktop-games .cover-fallback').hidden");
   assert.equal(await run("document.querySelector('#desktop-add').disabled"), false);
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply all to Desktop');
   await click('#desktop-multiple');
   assert.deepEqual(await selection(), [true, false]);
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply to Desktop');
   await click('#desktop-games input');
   assert.deepEqual(await selection(), [false, false]);
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply all to Desktop');
   await click('#desktop-games input');
   assert.deepEqual(await selection(), [true, false]);
   await click('#desktop-games .cover-check');
@@ -199,6 +202,14 @@ app.whenReady().then(async () => {
   await wait(() => cfg.artwork_filters.icon.dimensions?.includes('256') && !cfg.artwork_filters.icon.dimensions.includes('512'));
   await wait(() => artRequests.at(-1).filters.dimensions?.includes('256') && !artRequests.at(-1).filters.dimensions.includes('512'));
   assert.equal(await run("document.querySelector('.dimension-select summary').textContent.includes('512x512')"), false);
+  await run(`{
+    const inputs = [...document.querySelectorAll('#art-filter-fields input[data-filter=dimensions]')];
+    inputs.forEach(input => { input.checked = false; });
+    inputs[0].dispatchEvent(new Event('change', { bubbles: true }));
+  }`);
+  await wait(() => cfg.artwork_filters.icon.dimensions?.length === 0);
+  assert.equal(await run("document.querySelector('.dimension-select summary').textContent.trim()"), 'Any size');
+  assert.equal(await run("document.querySelector('#art-apply').textContent"), 'Save selection');
   await click('#art-filter-reset');
   await wait("document.querySelector('#art-filter-fields input[data-filter=dimensions][value=\"512\"]').checked");
   await click('#art-filters summary');
@@ -351,13 +362,13 @@ app.whenReady().then(async () => {
   await change('#desktop-destination', 'start-menu');
   await wait(() => cfg.desktop_destination === 'start-menu');
   await idle();
-  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply to Start menu');
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply all to Start menu');
   rows[1].destination = 'start-menu';
   rows[1].shortcut = 'C:\\Programs\\Other name.lnk';
   await change('#desktop-destination', 'both');
   await wait(() => cfg.desktop_destination === 'both');
   await idle();
-  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply shortcuts');
+  assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply all shortcuts');
   assert.equal(await run("document.querySelector('#desktop-count').textContent"), '1 game');
   assert.equal(await run("document.querySelectorAll('#desktop-games .game-card-row').length"), 1);
   assert.equal(await run("document.querySelector('#desktop-games .source-label').textContent"), 'Desktop + Start menu');

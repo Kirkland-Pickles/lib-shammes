@@ -481,7 +481,7 @@ function renderSettingsCards() {
     const k = e.target.dataset.k;
     if (k) savePatch({ [`want_${k}`]: e.target.checked });
   });
-  const flags = [['include_animated', 'Animated'], ['include_nsfw', 'NSFW'], ['include_humor', 'Humor']];
+  const flags = [['include_animated', 'Animated'], ['include_nsfw', 'Adult Content'], ['include_humor', 'Humor']];
   q('flags').innerHTML = flags.map(([k, label]) =>
     `<label class="check"><input type="checkbox" data-k="${k}"${S.cfg[k] ? ' checked' : ''}> ${label}</label>`).join('');
   q('flags').addEventListener('change', async (e) => {
@@ -489,8 +489,8 @@ function renderSettingsCards() {
     if (!k) return;
     // NSFW asks every single time it gets enabled.
     if (k === 'include_nsfw' && e.target.checked) {
-      const yes = await confirmDlg('Enable NSFW artwork?',
-        'Artwork searches and automatic artwork selection can include NSFW images when this is enabled.\n\nResults can change how you look at the games characters forever.',
+      const yes = await confirmDlg('Enable Adult Content?',
+        'Artwork searches and automatic artwork selection can include adult content when this is enabled.\n\nResults can change how you look at the games characters forever.',
         { danger: true, small: true, confirmText: "I don't care" });
       if (!yes) { e.target.checked = false; return; }
       savePatch({ include_nsfw: true });
@@ -1786,8 +1786,9 @@ function renderDesktop(detail = true, rebuildGrid = true) {
   $('#desktop-multiple').disabled = d.busy;
   $('#desktop-destination').value = S.cfg.desktop_destination || 'desktop';
   $('#desktop-destination').disabled = d.busy;
-  $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu'
-    : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop';
+  const scope = !d.bulk || !visible.some(row => row.checked) ? 'all ' : '';
+  $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? `Apply ${scope}to Start menu`
+    : S.cfg.desktop_destination === 'both' ? `Apply ${scope}shortcuts` : `Apply ${scope}to Desktop`;
   const cards = desktopCards();
   $('#desktop-count').textContent = `${cards.length} game${cards.length === 1 ? '' : 's'}`;
   const pending = cards.filter(row => desktopMembers(row).some(member => member.draft)).length;
@@ -2051,7 +2052,8 @@ async function applyDesktopShortcuts(rowsOverride = null) {
     if (!rows.length) return;
     const updates = rows.filter((row) => row.shortcut).length;
     const title = rowsOverride ? $('#desktop-detail-apply')?.textContent || $('#desktop-add').textContent : $('#desktop-add').textContent;
-    if (!await confirmDlg(title, `Create ${rows.length - updates} shortcut(s) and update ${updates} existing shortcut(s)?`)) return;
+    const creates = rows.length - updates;
+    if (!await confirmDlg(title, `Create ${creates} shortcut${creates === 1 ? '' : 's'} and update ${updates} existing shortcut${updates === 1 ? '' : 's'}?`)) return;
     d.applying = true;
     rows.forEach((row) => { d.rows.find(member => member.id === row.id).saving = true; });
     renderDesktop(false);
@@ -2068,7 +2070,8 @@ async function applyDesktopShortcuts(rowsOverride = null) {
       if (result.warning) log(result.warning, 'desktop');
     }
     const refreshed = results.filter((result) => result.refreshed).length;
-    status(`${results.filter((result) => result.ok).length} shortcut(s) saved; ${results.filter((result) => !result.ok && !result.refreshed).length} failed.`);
+    const saved = results.filter(result => result.ok).length;
+    status(`${saved} shortcut${saved === 1 ? '' : 's'} saved; ${results.filter((result) => !result.ok && !result.refreshed).length} failed.`);
     if (refreshed) toast('Shortcut refreshed. Review changes and apply again.');
   } finally {
     d.busy = false; d.applying = false;
@@ -2160,7 +2163,7 @@ function renderArtFilters() {
         ${m.row.source === 'desktop' && ['static', 'animated'].includes(value) ? 'disabled' : ''}>${label}</label>`;
     }).join('');
     if (field !== 'dimensions') return `<fieldset><legend>${title}</legend>${choices}</fieldset>`;
-    const summary = values.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || '…';
+    const summary = values.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || 'Any size';
     return `<fieldset class="filter-dimensions"><legend>${title}</legend><details class="dimension-select">
       <summary title="${esc(summary)}"><span>${esc(summary)}</span></summary><div class="dimension-options">${choices}</div>
       </details></fieldset>`;
@@ -2179,7 +2182,7 @@ function renderArtFilters() {
     }
     const summary = host.querySelector('.dimension-select summary');
     if (summary) {
-      const text = next.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || '…';
+      const text = next.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || 'Any size';
       summary.title = text;
       summary.querySelector('span').textContent = text;
     }
@@ -2209,7 +2212,7 @@ async function openArtModal(row, focusKind) {
   };
   $('#art-title').textContent = `Artwork - ${row.display}`;
   const writesSteam = row.source !== 'desktop' && (row.source === 'steam' || row.inSteam);
-  $('#art-apply').textContent = writesSteam ? 'Apply to Steam' : 'Apply selection';
+  $('#art-apply').textContent = writesSteam ? 'Apply to Steam' : 'Save selection';
   $('#art-apply-note').textContent = writesSteam
     ? 'Steam closes while artwork is applied, then reopens if it was running.'
     : 'Select images, then apply your choices.';
@@ -2455,7 +2458,7 @@ async function loadArtTabs(more = false) {
     }
     await page.pending;
     if (S.modal !== m || artworkCacheKey(m) !== key) return;
-    artStatus(`SGDB ${sgdbId}: ${page.items.length} images. Click to select per type.`);
+    artStatus(`SGDB ${sgdbId}: ${page.items.length} images. Select an image.`);
     renderArtGrid(false, start);
   } catch (e) {
     if (S.modal !== m || artworkCacheKey(m) !== key) return;
