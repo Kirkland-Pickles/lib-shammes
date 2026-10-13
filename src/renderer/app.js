@@ -939,23 +939,6 @@ function renderDetail() {
   const matchStatus = $('#s-status');
   matchStatus.textContent = row.sgdbId ? `${row.sgdbName || '(cached)'} · ${row.sgdbId}` : 'Not matched';
   matchStatus.classList.toggle('ok', !!row.sgdbId);
-  const box = $('#art-rows');
-  box.innerHTML = '';
-  for (const kind of ['wide', 'grid', 'hero', 'logo', 'icon']) {
-    const div = document.createElement('div');
-    div.className = 'arow';
-    div.innerHTML = `<span class="aname">${KIND_LABEL[kind]}</span>
-      <span class="aval">${esc(artText(row, kind))}</span>`;
-    const btn = document.createElement('button');
-    btn.className = 'btn sm';
-    btn.textContent = 'Choose…';
-    btn.dataset.artKind = kind;
-    btn.addEventListener('click', () => openArtModal(row, kind));
-    div.appendChild(btn);
-    box.appendChild(div);
-  }
-  $('#art-pending-state').textContent = row.pendingArt ? 'Changes ready to apply' : row.artApplied ? 'Applied this session' : 'Current artwork';
-  $('#art-pending-state').classList.toggle('pending', !!row.pendingArt);
   previewFor(row);
 }
 
@@ -2300,7 +2283,7 @@ function renderLogoPosition() {
 function restoreArtFocus(m) {
   const target = m.returnFocus?.isConnected ? m.returnFocus
     : m.row.source === 'desktop' ? $('#desktop-detail [data-desktop="icon"]')
-      : m.focusKind ? $(`#art-rows [data-art-kind="${m.focusKind}"]`) : $('#detail-choose-art');
+      : $('#d-preview-open');
   if (target?.isConnected) target.focus({ preventScroll: true });
 }
 
@@ -2741,10 +2724,6 @@ function wireToolbar() {
     const folder = r.source === 'steam' ? r.startDir
       : r.source === 'shortcut' || r.fromExecutableSearch ? (r.startDir || parentDir(r.exe)) : r.folder;
     if (folder) window.api.shellOpen(folder);
-  });
-  $('#detail-choose-art').addEventListener('click', () => {
-    const r = cur();
-    if (r) openArtModal(r);
   });
   $('#d-preview-open').addEventListener('click', () => {
     const r = cur();

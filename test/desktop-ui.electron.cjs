@@ -320,7 +320,7 @@ app.whenReady().then(async () => {
   await click('#art-grid > .thumb .thumb-select');
   await click('#art-cancel');
   assert.equal(artworkWrites.length, 0);
-  await click('#detail-choose-art');
+  await click('#d-preview-open');
   await wait("document.querySelectorAll('#art-grid > .thumb').length > 0");
   await click('#art-grid > .thumb .thumb-select');
   await run("[...document.querySelectorAll('#art-tabs button')].find(button => button.textContent.startsWith('Logo')).click()");
@@ -335,7 +335,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(Object.keys(artworkWrites[0].rows[0].art).sort(), ['grid', 'logo']);
   assert.equal(artworkWrites[0].rows[0].logoPosition.nWidthPct, 60);
   assert.equal(artworkWrites[0].kinds.length, 0);
-  await click('#detail-choose-art');
+  await click('#d-preview-open');
   await run("[...document.querySelectorAll('#art-tabs button')].find(button => button.textContent === 'Manage').click()");
   await wait("document.querySelectorAll('#art-grid .manage-artwork').length === 5");
   await click('#art-grid [data-manage=restore]');
