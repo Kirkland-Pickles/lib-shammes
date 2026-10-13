@@ -182,8 +182,9 @@ app.whenReady().then(async () => {
   await click('#desktop-games .game-name');
   assert.equal(await run("document.querySelector('#desktop-detail [data-field=args]').value"), '-external');
   assert.equal(cfg.desktop_overrides['link:1'], undefined);
-  await click('[data-page=xbox]');
-  await wait(() => cfg.startup_library === 'xbox');
+  assert.equal(await run("document.querySelector('[data-page=xbox]')"), null);
+  await click('[data-page=library]');
+  await wait(() => cfg.startup_library === 'steam');
   await click('[data-page=desktop]');
   await wait(() => cfg.startup_library === 'desktop');
   await idle();

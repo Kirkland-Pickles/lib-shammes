@@ -134,7 +134,7 @@ async function renderChecklist() {
 
 // ------------------------------------------------------------------ router
 // Back/Forward history for mouse navigation.
-const TITLES = { library: 'Steam library', xbox: 'Xbox library', desktop: 'Desktop library', settings: 'Settings', onboarding: 'Set up Lib Shammes' };
+const TITLES = { library: 'Steam library', desktop: 'Desktop library', settings: 'Settings', onboarding: 'Set up Lib Shammes' };
 const Nav = {
   stack: ['library'],
   idx: 0,
@@ -172,7 +172,7 @@ function paintRoute() {
     if (current !== target) handleAction('Load library', () => loadLibrary())();
   }
   if (page === 'desktop' && current !== target) handleAction('Desktop scan', () => refreshDesktop(false))();
-  if (S.cfg?.onboarded && ['library', 'desktop', 'xbox'].includes(page)) {
+  if (S.cfg?.onboarded && ['library', 'desktop'].includes(page)) {
     const library = page === 'library' ? 'steam' : page;
     librarySave = librarySave.catch(() => {}).then(() => S.cfg.startup_library !== library && savePatch({ startup_library: library }));
     librarySave.catch((e) => log(`Startup library: ${e.message}`));
@@ -2369,7 +2369,7 @@ async function boot() {
   if (!S.cfg.onboarded) {
     navReset('onboarding');
   } else if (!steamOk || ['desktop', 'xbox'].includes(S.cfg.startup_library)) {
-    navReset(S.cfg.startup_library === 'xbox' ? 'xbox' : 'desktop');
+    navReset('desktop');
   } else {
     navReset('library');
   }
