@@ -43,14 +43,22 @@ jobs:
             throw "Release tag must be v$version."
           }
 
-          $installer = Get-ChildItem -LiteralPath "dist" -Filter "*.exe" -File |
+          $installer = Get-ChildItem -LiteralPath "dist" -Filter "*Setup*.exe" -File |
             Where-Object { $_.Name -notmatch "uninstaller" } |
             Select-Object -First 1
           if ($null -eq $installer) {
             throw "No installer was produced in dist."
           }
 
-          gh release create $env:RELEASE_TAG $installer.FullName `
+          $zip = Get-ChildItem -LiteralPath "dist" -Filter "*-win.zip" -File |
+            Select-Object -First 1
+          if ($null -eq $zip) {
+            throw "No portable zip was produced in dist."
+          }
+          $portable = Join-Path $zip.DirectoryName "Lib Shammes $version portable.zip"
+          Move-Item -LiteralPath $zip.FullName -Destination $portable
+
+          gh release create $env:RELEASE_TAG $installer.FullName $portable `
             --target $env:GITHUB_SHA `
             --title "Lib Shammes $env:RELEASE_TAG" `
             --notes "Built and published by GitHub Actions."

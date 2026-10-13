@@ -21,7 +21,7 @@
     "directories": { "output": "dist" },
     "win": {
       "icon": "src/assets/app-icon.ico",
-      "target": ["nsis"]
+      "target": ["nsis", "zip"]
     },
     "nsis": {
       "license": "LICENSE",
