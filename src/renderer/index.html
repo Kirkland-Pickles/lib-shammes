@@ -36,7 +36,7 @@
 <div id="center">
 <main id="pages">
   <section class="page" id="page-onboarding">
-    <div class="onboarding-brand"><img src="../assets/app-icon.svg" alt=""><span>Lib Shammes</span></div>
+    <div class="onboarding-shell">
     <nav class="onboarding-steps" aria-label="Setup steps">
       <button type="button" data-step="0">Steam</button>
       <button type="button" data-step="1">Artwork</button>
@@ -48,11 +48,12 @@
     </header>
     <div id="onboarding-cards"></div>
     <div class="onboarding-actions">
-      <button class="btn" id="onboarding-back">Back</button>
+      <button class="text-btn" id="onboarding-back">Back</button>
       <button class="text-btn" id="onboarding-close" hidden>Back to library</button>
       <span class="spacer"></span>
+      <button class="text-btn" id="onboarding-skip">Skip Steam</button>
       <button class="btn primary" id="onboarding-continue">Next</button>
-      <button class="btn" id="onboarding-skip">Skip Steam</button>
+    </div>
     </div>
   </section>
 

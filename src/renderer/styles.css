@@ -203,15 +203,27 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .cl-x { min-height: 28px; width: 28px; padding: 0; border: 0; background: transparent; color: var(--muted); }
 .banner { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); color: var(--muted); }
 .banner .btn { margin-left: 5px; }
-.onboarding-brand { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-weight: 650; }
-.onboarding-brand img { width: 27px; height: 27px; }
-.onboarding-steps { display: flex; justify-content: center; gap: 8px; border-bottom: 1px solid var(--line); padding: 12px; }
-.onboarding-steps button { color: var(--muted); background: transparent; border-color: transparent; }
-.onboarding-steps button[aria-current="step"] { color: var(--fg); border-bottom: 2px solid var(--accent); }
-.onboarding-heading { display: grid; justify-items: center; gap: 8px; text-align: center; }
-.onboarding-heading h1 { font-size: 25pt; }
-.onboarding-heading .sub { max-width: 520px; line-height: 1.5; }
-#onboarding-cards { width: min(720px, 100%); align-self: center; }
+#page-onboarding { align-items: center; padding: 24px; }
+.onboarding-shell { display: grid; flex: 0 0 auto; width: min(680px, 100%); gap: 22px; margin-block: auto; }
+.onboarding-steps { display: flex; gap: 28px; border-bottom: 1px solid var(--line); }
+.onboarding-steps button { position: relative; min-height: 42px; padding: 0 0 12px; border: 0; border-radius: 0; color: var(--muted); background: transparent; font-weight: 500; }
+.onboarding-steps button:hover:not(:disabled) { color: var(--fg); background: transparent; }
+.onboarding-steps button:disabled { opacity: 1; }
+.onboarding-steps button[aria-current="step"] { color: var(--fg); }
+.onboarding-steps button[aria-current="step"]::after { position: absolute; bottom: -1px; right: 0; left: 0; height: 2px; background: var(--accent); content: ""; }
+.onboarding-heading { display: grid; gap: 8px; }
+.onboarding-heading h1 { font-size: 24px; font-weight: 600; line-height: 1.25; letter-spacing: -.02em; }
+.onboarding-heading .sub { font-size: 10pt; line-height: 1.5; }
+#onboarding-cards { min-width: 0; }
+#onboarding-cards > .card { padding: 20px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+#onboarding-cards h3 { font-size: 10pt; font-weight: 600; }
+#onboarding-cards .note { font-size: 9pt; line-height: 1.6; }
+#onboarding-cards select[size] { height: 92px; padding-block: 6px; }
+#onboarding-cards [data-r="depth"] { flex: 0 0 100px; }
+.onboarding-actions { display: flex; align-items: center; gap: 8px; padding-top: 18px; border-top: 1px solid var(--line); }
+.onboarding-actions .spacer { display: block; flex: 1; }
+.onboarding-shell button.btn, .onboarding-actions button { min-height: 36px; font-size: 9pt; font-weight: 500; }
+.onboarding-actions .btn.primary { min-width: 96px; }
 .card { border-top: 1px solid var(--line); padding: 16px 0; }
 .card h3 { margin-bottom: 11px; font-size: 10.5pt; }
 .card.full { grid-column: 1 / -1; }
