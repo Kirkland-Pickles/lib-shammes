@@ -54,7 +54,7 @@ describe('vdf codec', () => {
     assert.deepEqual(entries[0], original);
   });
 
-  it('keeps custom fields and tags when updating a managed shortcut', () => {
+  it('keeps custom fields and tags when updating shortcuts', () => {
     const old = steam.buildEntry({
       appName: 'Old', exePath: 'C:\\Game\\game.exe', tags: ['SGDB Manager', 'Favorite'],
     });

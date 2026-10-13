@@ -211,7 +211,7 @@ ipcMain.handle('app:wipe-data', () => {
 });
 
 function purgeSteam(opts) {
-  // Fail closed: absent input means dry run; only an explicit false arms it.
+  // Cleanup defaults to a preview unless dryRun is explicitly false.
   const dryRun = !opts || opts.dryRun !== false;
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
   const sp = cfg.steam_path;
@@ -672,7 +672,7 @@ function hasStockArtwork(metadata, kind) {
 
 async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes = null, shortcut = null, native = null, beforeWrite = native?.beforeWrite) {
   const suffix = steam.ART_SUFFIXES[kind];
-  const sel = row.art?.[kind]?.automatic ? null : (row.art && row.art[kind]) || null;
+  const sel = row.art?.[kind]?.automatic ? null : row.art?.[kind] || null;
   if (!sel && onlyMissing && images.gridHasArt(gridFolder, stem, suffix)) {
     return { line: `${row.display} [${kind}]: already present, skip.`, saved: false };
   }

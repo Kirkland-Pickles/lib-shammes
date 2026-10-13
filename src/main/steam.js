@@ -111,7 +111,7 @@ function getUserIds(steamPath) {
       .map((e) => e.name)
       .sort();
   } catch {
-    return []; // userdata read failures must not fail detection
+    return []; // Steam detection can proceed without userdata.
   }
 }
 
@@ -164,12 +164,7 @@ function crc32(str) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-/** Unsigned 32-bit shortcut id used for grid filenames.
- *  VERIFIED 2026-09-10 against live Steam data (7 shortcuts, 36 grid files):
- *  crc32(exe+appname)|0x80000000 matched 7/7 grid stems AND 7/7 stored appid
- *  fields. The Valve wiki's GenerateAppID sketch (AppName+Exe+NUL order)
- *  matched 0/7 on both - illustrative pseudocode, not the real derivation.
- *  Do not "fix" this to match the wiki. */
+// Steam uses crc32(exe+appname)|0x80000000.
 function shortcutId(exe, appName) {
   return (crc32(`${exe}${appName}`) | 0x80000000) >>> 0;
 }
@@ -207,7 +202,6 @@ function backupShortcuts(steamPath, userId) {
 }
 
 function buildEntry({ appName, exePath, startDir, icon = '', launchOptions = '', tags = [] }) {
-  // dont let a missing exe path become "null" in shortcuts.vdf
   if (!exePath) throw new Error(`shortcut '${appName || '(unnamed)'}' needs an exe path`);
   const exeQ = quoteExe(exePath);
   const sid = shortcutId(exeQ, appName);
@@ -456,7 +450,7 @@ async function restartSteam(steamPath) {
 }
 
 /** First-party Steam games installed across all libraries (appmanifests).
- *  Read-only display data - never written, never touched. */
+ *  Used for display only. */
 function listInstalledGames(steamPath) {
   const games = [];
   const seen = new Set();

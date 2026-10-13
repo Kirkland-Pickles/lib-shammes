@@ -163,7 +163,6 @@ function scanGames(root, { maxDepth = 1, innerDepth = 3, onProgress } = {}) {
         method = exeId.method; confidence = exeId.confidence; steamAppid = exeId.steamAppid;
         finalReason = `${finalReason} + exe says ${display}`;
       } else {
-        // Use the exe name for display/search when it has more signal. Identity stays unresolved.
         const GENERIC_EXE_NAMES = new Set(['game', 'launcher', 'client', 'app', 'bin']);
         const stem = path.basename(best, path.extname(best));
         const alpha = (s) => (String(s).match(/[a-z]/gi) || []).length;

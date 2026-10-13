@@ -53,7 +53,7 @@ function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
 
-it('uses the game title rather than a cache label when matching Desktop games from saved IDs', async t => {
+it('uses the game name for cached Desktop matches', async t => {
   const env = main(t);
   env.cfg.api_key = 'fixture';
   store.rememberSgdb(env.cfg, 'C:/Games/Game', 7);
@@ -75,7 +75,7 @@ it('selects tagged artwork without changing ordinary top-ranked selection', () =
   assert.ok(!officialArtworkUrls(123, 'grid', { library_capsule: 'https://evilsteamstatic.com/image.jpg' }).includes('https://evilsteamstatic.com/image.jpg'));
 });
 
-it('restores default artwork and keeps the previous image recoverable through Purge', async t => {
+it('restores default artwork and lets Purge undo it', async t => {
   const env = main(t);
   fs.mkdirSync(env.grid, { recursive: true });
   const file = path.join(env.grid, '123p.png');
@@ -90,7 +90,7 @@ it('restores default artwork and keeps the previous image recoverable through Pu
   assert.equal(fs.readFileSync(file, 'utf8'), 'custom image');
 });
 
-it('backs up existing non-Steam artwork when applying a picker replacement', async t => {
+it('backs up non-Steam artwork before replacing it', async t => {
   const env = main(t);
   const row = { source: 'folder', folder: 'fixture', display: 'Game', exe: 'C:/Games/game.exe',
     art: { grid: { url: 'https://test.invalid/chosen.jpg' } } };
@@ -106,7 +106,7 @@ it('backs up existing non-Steam artwork when applying a picker replacement', asy
   assert.equal(fs.existsSync(path.join(env.grid, `${stem}p.jpg`)), false);
 });
 
-it('preserves other logo settings and backs up positioning across edits and reset', async t => {
+it('keeps logo settings and backs up position changes', async t => {
   const env = main(t);
   fs.mkdirSync(env.grid, { recursive: true });
   const file = path.join(env.grid, '123.json');
@@ -125,14 +125,14 @@ it('preserves other logo settings and backs up positioning across edits and rese
   assert.deepEqual(JSON.parse(fs.readFileSync(file)), initial);
 });
 
-it('continues when stock detection fails and reports only artwork actually written', async t => {
+it('still saves artwork when stock lookup fails', async t => {
   const env = main(t, new Error('offline metadata'));
   const result = await env.download(native(), { onlyMissing: true });
   assert.equal(result.saved, 1);
   assert.deepEqual(Array.from(result.rows[0].appliedKinds), ['grid']);
 });
 
-it('returns a successful restore separately from an icon that could not be restored', async t => {
+it('reports restored artwork and failed icons separately', async t => {
   const env = main(t);
   const result = await env.download(native({ grid: { reset: true }, icon: { reset: true } }), { kinds: [] });
   assert.equal(result.saved, 1);
@@ -143,7 +143,7 @@ it('returns a successful restore separately from an icon that could not be resto
   assert.deepEqual(Array.from(result.rows[0].failedKinds), ['icon']);
 });
 
-it('keeps the Steam account and app data fixed until an artwork write finishes', async t => {
+it('blocks account changes and data wipes while artwork saves', async t => {
   let release;
   const env = main(t, {}, {}, { isSteamRunning: () => new Promise(resolve => { release = resolve; }) });
   const writing = env.download();
@@ -156,19 +156,19 @@ it('keeps the Steam account and app data fixed until an artwork write finishes',
   assert.equal(env.cfg.steam_user_id, '2');
 });
 
-it('times out an SGDB response that stalls after its headers arrive', async t => {
+it('times out when an SGDB response body stalls', async t => {
   t.mock.method(globalThis, 'fetch', async (_url, { signal }) => ({ ok: true, status: 200,
     json: () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }));
   await assert.rejects(new SGDBClient('fixture', 10).searchGame('Game'), /Network error/);
 });
 
-it('leaves the active config unchanged when a settings write fails', t => {
+it('keeps settings unchanged when saving fails', t => {
   const env = main(t, {}, {}, {}, () => { throw new Error('settings locked'); });
   assert.throws(() => env.invoke('cfg:set', { steam_user_id: '2' }), /settings locked/);
   assert.equal(env.cfg.steam_user_id, '1');
 });
 
-it('closes Steam before writing artwork and reopens it once afterward', async t => {
+it('closes Steam to save artwork, then reopens it once', async t => {
   const events = [];
   const env = main(t, {}, {}, {
     isSteamRunning: async () => true,
@@ -190,7 +190,7 @@ it('does not write when Steam refuses to close', async t => {
   assert.deepEqual(env.calls, []);
 });
 
-it('does not treat a failed Steam process check as a stopped client', async t => {
+it('stops writes when checking Steam fails', async t => {
   const filename = path.join(__dirname, '../src/main/steam.js');
   const realRequire = createRequire(filename);
   const module = { exports: {} };
@@ -222,7 +222,7 @@ it('keeps a successful artwork result when reopening Steam fails', async t => {
   assert.match(result.warning, /launch denied/);
 });
 
-it('reopens Steam after a failed write and releases the write lock', async t => {
+it('reopens Steam and unlocks writes after a failure', async t => {
   let reopened = 0;
   const env = main(t, {}, {}, {
     isSteamRunning: async () => true, closeSteam: async () => {},
@@ -234,7 +234,7 @@ it('reopens Steam after a failed write and releases the write lock', async t => 
   assert.equal((await env.download()).saved, 1);
 });
 
-it('closes Steam for removal and Purge writes, but not a Purge preview', async t => {
+it('closes Steam for removal and Purge, but not previews', async t => {
   for (const operation of ['steam:remove', 'steam:purge']) {
     const events = [];
     const entry = steam.buildEntry({ appName: 'Fixture', exePath: 'C:/Fixture/game.exe', tags: [steam.MANAGED_TAG] });
@@ -253,7 +253,7 @@ it('closes Steam for removal and Purge writes, but not a Purge preview', async t
   }
 });
 
-it('returns saved Desktop shortcuts when config persistence fails', async (t) => {
+it('reports saved Desktop shortcuts even if settings fail', async (t) => {
   const row = { id: 'link:saved', display: 'Game', shortcut: 'saved.lnk' };
   const env = main(t, {}, { apply: async () => [{ id: 'exe:new', ok: true, row }] }, {}, () => { throw new Error('config denied'); });
   const [result] = await env.invoke('desktop:apply', []);
@@ -263,7 +263,7 @@ it('returns saved Desktop shortcuts when config persistence fails', async (t) =>
   assert.equal(env.cfg.desktop_overrides[row.id].display, 'Game');
 });
 
-it('persists the match and executable identity when refreshing a changed Desktop shortcut', async t => {
+it('saves the match and exe after a Desktop shortcut changes', async t => {
   const row = { id: 'link:saved', display: 'Game', exe: 'game.exe', sgdbId: 7, sgdbName: 'Matched game', signature: 'new' };
   const env = main(t, {}, { apply: async () => [{ id: row.id, ok: false, refreshed: true, row }] });
   await env.invoke('desktop:apply', []);
@@ -272,7 +272,7 @@ it('persists the match and executable identity when refreshing a changed Desktop
   assert.equal(env.cfg.desktop_overrides[row.id].signature, 'new');
 });
 
-it('retains explicitly added executables separately from scan roots and ignores missing files', async (t) => {
+it('keeps manually added exes and skips missing ones', async (t) => {
   const env = main(t);
   const exe = path.join(env.root, 'manual.exe');
   fs.writeFileSync(exe, 'fixture');
@@ -306,7 +306,7 @@ it('replaces all Desktop icon choices when skipping is off without writing short
   assert.deepEqual(env.calls, []);
 });
 
-it('updates an app-managed shortcut from the Steam list without adding a duplicate', async (t) => {
+it('updates managed Steam shortcuts without duplicates', async (t) => {
   const entries = [steam.buildEntry({ appName: 'Old name', exePath: 'C:/Games/game.exe', tags: [steam.MANAGED_TAG] })];
   let writes = 0;
   const env = main(t, {}, {}, { loadEntries: () => entries, saveEntries: () => { writes++; return null; } });
@@ -319,7 +319,7 @@ it('updates an app-managed shortcut from the Steam list without adding a duplica
   assert.equal(writes, 1);
 });
 
-it('updates launch settings without duplicates and retains their original values across renames', async t => {
+it('backs up launch settings across renames and edits', async t => {
   const original = steam.buildEntry({ appName: 'Game', exePath: 'C:/Games/game.exe', startDir: 'C:/Original', launchOptions: '--original', tags: [steam.MANAGED_TAG] });
   const entries = [{ ...original }];
   const env = main(t, {}, {}, { loadEntries: () => entries, saveEntries: () => null });
@@ -355,7 +355,7 @@ it('updates launch settings without duplicates and retains their original values
   assert.equal(fs.readFileSync(path.join(env.grid, `${steam.gridStemFromEntry(original)}p.png`), 'utf8'), 'original grid');
 });
 
-it('converts executable icon choices to image bytes for native and non-Steam games', async (t) => {
+it('uses exe icons for Steam and non-Steam games', async (t) => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB7kAAAAASUVORK5CYII=', 'base64');
   for (const source of ['steam', 'folder']) {
     const env = main(t, { icon: 'a'.repeat(40) }, { preview: async (file, index) => {
@@ -372,7 +372,7 @@ it('converts executable icon choices to image bytes for native and non-Steam gam
   }
 });
 
-it('reads current artwork from the Steam cache without SGDB and prefers custom artwork', async (t) => {
+it('reads cached Steam artwork and prefers custom images', async (t) => {
   const env = main(t, new Error('metadata unavailable'));
   const cache = path.join(env.root, 'appcache', 'librarycache');
   const files = { grid: 'capsule-hash/library_capsule.jpg', hero: 'hero-hash/library_hero.jpg',
@@ -401,7 +401,7 @@ it('reads current artwork from the Steam cache without SGDB and prefers custom a
   assert.deepEqual(env.calls, []);
 });
 
-it('checks stock artwork by the original Steam AppID, not the chosen SGDB listing', async () => {
+it('looks up stock artwork using the original Steam game', async () => {
   const client = new SGDBClient('test');
   const requests = [];
   client._getJson = async (url) => {
@@ -448,7 +448,7 @@ it('preserves stock and chosen artwork while preparing with skipping enabled', a
   assert.deepEqual(env.calls, ['metadata']);
 });
 
-it('requests selected content tags and animation types without mixing in untagged artwork', async t => {
+it('passes selected tags and animation filters to SGDB', async t => {
   const env = main(t);
   await env.invoke('art:list', { sgdbId: 7, kind: 'icon', filters: {
     static: false, animated: true, untagged: false, nsfw: true, humor: true, epilepsy: false,
@@ -463,7 +463,7 @@ it('requests selected content tags and animation types without mixing in untagge
   assert.equal(params.get('dimensions'), '256');
 });
 
-it('keeps an explicitly cleared dimension filter instead of restoring per-type defaults', async t => {
+it('keeps cleared size filters instead of resetting them', async t => {
   const env = main(t);
   await env.invoke('art:list', { sgdbId: 7, kind: 'grid', filters: { dimensions: [] } });
   assert.equal(env.artworkQueries.at(-1).dimensions, '');
@@ -523,7 +523,7 @@ it('allows automatic replacement when onlyMissing is off and manual replacement 
   }
 });
 
-it('restores overwritten custom artwork after repeated writes and removes the replacement extension', async (t) => {
+it('Purge restores original artwork after repeated replacements', async (t) => {
   const env = main(t);
   fs.mkdirSync(env.grid, { recursive: true });
   const original = path.join(env.grid, '123p.png');
@@ -568,7 +568,7 @@ it('does not download an unticked type from an earlier automatic selection', asy
   }
 });
 
-it('writes native icons to the Steam cache and restores the original icon', async (t) => {
+it('saves native Steam icons and lets Purge restore them', async (t) => {
   const hash = 'a'.repeat(40);
   const env = main(t, { icon: hash });
   const icon = path.join(env.root, 'appcache', 'librarycache', '123', `${hash}.jpg`);

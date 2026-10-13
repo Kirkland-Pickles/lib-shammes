@@ -15,7 +15,7 @@ function renderer(api) {
   return { context, button, state: vm.runInContext('S', context), refresh: () => vm.runInContext('doRefresh()', context) };
 }
 
-it('invalidates desktop cover previews when switching back to executable icons', async () => {
+it('refreshes the cover when switching back to the exe icon', async () => {
   const requests = [];
   const { context } = renderer({ desktopIcon: async (file, index) => { requests.push([file, index]); return file; } });
   context.game = { id: 'desktop:game', exe: 'game.exe', icon: 'custom.dll', iconIndex: 2, signature: 'before' };
@@ -34,7 +34,7 @@ it('invalidates desktop cover previews when switching back to executable icons',
   assert.notEqual(token(), original);
 });
 
-it('uses per-type dimension defaults and preserves explicit dimension selections', () => {
+it('uses default sizes unless sizes were explicitly chosen', () => {
   const { context, state } = renderer({});
   state.cfg = { artwork_filters: {} };
   const dimensions = kind => Array.from(vm.runInContext(`pickerFilters('${kind}').dimensions || []`, context));
@@ -50,7 +50,7 @@ it('uses per-type dimension defaults and preserves explicit dimension selections
   assert.deepEqual(dimensions('grid'), []);
 });
 
-it('uses suggested covers when local previews fail and resolves native games without saving a match', async () => {
+it('uses suggested covers without saving native matches', async () => {
   let nativeLookups = 0;
   const { context, state } = renderer({
     artCurrent: async () => ({ file: 'unreadable.png' }),
@@ -71,7 +71,7 @@ it('uses suggested covers when local previews fail and resolves native games wit
   assert.equal(nativeLookups, 1);
 });
 
-it('shows applied grid artwork from the saved file without reselecting it', async () => {
+it('shows saved covers without reselecting them', async () => {
   const { context } = renderer({
     artThumbnail: async file => { assert.equal(file, 'applied-grid.png'); return 'data:image/png;base64,saved'; },
     artCurrent: async () => { throw new Error('should use the known saved image'); },
@@ -81,7 +81,7 @@ it('shows applied grid artwork from the saved file without reselecting it', asyn
   assert.equal(await vm.runInContext('cardCoverSource(game)', context), 'data:image/png;base64,saved');
 });
 
-it('keeps a Desktop shortcut name when choosing another icon for the same matched game', async () => {
+it('keeps the Desktop name when changing its matched icon', async () => {
   const { context, state } = renderer({});
   context.matchMedia = () => ({ matches: true });
   context.document.querySelector = () => ({ getAnimations: () => [], classList: { remove() {} } });
@@ -99,7 +99,7 @@ it('keeps a Desktop shortcut name when choosing another icon for the same matche
   assert.equal(row.sgdbId, 8);
 });
 
-it('keeps a grid placeholder until its image loads and retries failures on refresh', async () => {
+it('keeps cover placeholders until loaded and retries failures', async () => {
   let requests = 0;
   const { context, state } = renderer({
     desktopIcon: async () => { requests++; return 'data:image/png;base64,fixture'; },
@@ -124,7 +124,7 @@ it('keeps a grid placeholder until its image loads and retries failures on refre
   assert.equal(requests, 2);
 });
 
-it('keeps failed picker choices available and retries only types that were not applied', async () => {
+it('keeps failed picker choices for retry', async () => {
   const requests = [];
   const { context, state } = renderer({ artDownload: async req => {
     requests.push(req);
@@ -146,7 +146,7 @@ it('keeps failed picker choices available and retries only types that were not a
   assert.equal(state.modal, null);
 });
 
-it('keeps newer artwork search results when an older request finishes last', async () => {
+it('ignores artwork searches that finish out of order', async () => {
   const pending = [];
   const { context, state } = renderer({ sgdbSearch: () => new Promise(resolve => pending.push(resolve)) });
   const fields = { '#art-q': { value: 'old' }, '#art-games': { appendChild() {} }, '#art-id': {}, '#art-status': {} };
@@ -172,7 +172,7 @@ it('keeps newer artwork search results when an older request finishes last', asy
   assert.equal(fields['#art-id'].value, '88');
 });
 
-it('allows existing app-managed shortcut rows through the Add/update action', () => {
+it('allows updates to existing managed shortcuts', () => {
   const { context } = renderer({});
   assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:'game.exe', managed:true})", context), true);
   assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:'game.exe', managed:false})", context), false);
@@ -228,7 +228,7 @@ it('applies visible Desktop games by default, independently of the focused game'
   assert.deepEqual(targets(), [state.desktop.rows[1]]);
 });
 
-it('preserves Desktop matches after refresh without treating saved metadata as pending edits', async () => {
+it('keeps Desktop matches without marking them as pending', async () => {
   const rows = [1, 2].map(id => ({ id, display: 'Game ' + id, exe: 'game.exe', signature: 'same' }));
   const { context, state } = renderer({ desktopScan: async () => ({ rows, warnings: [] }) });
   vm.runInContext('renderDesktop = status = () => {};', context);
@@ -255,7 +255,7 @@ it('preserves Desktop matches after refresh without treating saved metadata as p
   assert.equal(state.desktop.rows[0].sgdbId, undefined);
 });
 
-it('groups the same executable despite different shortcut names and arguments', async () => {
+it('groups shortcuts by exe despite different names or arguments', async () => {
   const { context, state } = renderer({ cfgSet: async patch => ({ ...state.cfg, ...patch }) });
   vm.runInContext('applyTheme = () => {}; renderChecklist = async () => {};', context);
   const desktop = { id: 'desktop:game', destination: 'desktop', shortcut: 'Desktop/Game.lnk', signature: 'desktop-sig',
@@ -291,7 +291,7 @@ it('groups the same executable despite different shortcut names and arguments', 
   assert.equal(state.desktop.groups[1][0].display, 'Another game');
 });
 
-it('stages a recovered title for a shortcut previously saved with the cache label', async () => {
+it('recovers shortcut names previously saved as cached', async () => {
   const row = { id: 'link:cached', display: '(cached)', query: 'Resolved game', exe: 'game.exe',
     shortcut: 'Desktop/(cached).lnk', signature: 'original' };
   const { context, state } = renderer({ desktopScan: async () => ({ rows: [row], warnings: [] }) });
@@ -358,7 +358,7 @@ it('matches during Apply only after accepting automatic artwork and blocks overl
   assert.deepEqual(calls, ['match', 'apply', 'apply']);
 });
 
-it('keeps failed artwork pending while recording successful writes', async () => {
+it('keeps failed artwork pending after partial success', async () => {
   const { context, state } = renderer({ artDownload: async req => ({ rows: [{ ...req.rows[0],
     art: { hero: req.rows[0].art.hero }, appliedKinds: ['grid'], failedKinds: ['hero'] }], lines: [] }) });
   vm.runInContext('log = () => {};', context);
@@ -371,7 +371,7 @@ it('keeps failed artwork pending while recording successful writes', async () =>
   assert.equal(state.rows[0].art.grid, undefined);
 });
 
-it('loads saved Steam-shortcut matches when there is no previous renderer state', async () => {
+it('loads saved Steam shortcut matches on a fresh start', async () => {
   const { context, state, refresh } = renderer({
     steamRead: async () => [{ exe: 'game.exe', appid: 10, index: 0, appName: 'Game', managed: true }],
     steamGames: async () => [], resolveName: async () => null,
@@ -383,7 +383,7 @@ it('loads saved Steam-shortcut matches when there is no previous renderer state'
   assert.equal(state.rows[0].sgdbName, '(cached)');
 });
 
-it('loads only the active artwork tab, reuses its request, and ignores stale completion', async () => {
+it('loads the active art tab once and ignores stale replies', async () => {
   const requests = [];
   const { context, state, button } = renderer({ artList: req => new Promise(resolve => requests.push({ req, resolve })) });
   vm.runInContext('globalThis.renders = []; renderArtGrid = (...args) => renders.push(args);', context);
@@ -407,7 +407,7 @@ it('loads only the active artwork tab, reuses its request, and ignores stale com
   assert.deepEqual(requests.map(({ req }) => [req.kind, req.page]), [['grid', 0], ['hero', 0]]);
 });
 
-it('rebuilds scanned and Steam rows while keeping staged artwork for surviving games', async () => {
+it('keeps pending artwork when rebuilding the game list', async () => {
   let reads = 0;
   const { state, refresh, button } = renderer({
     scanStart: async ({ roots }) => {
@@ -451,7 +451,7 @@ it('keeps the list on read failure and re-enables Refresh', async () => {
   assert.equal(button.disabled, false);
 });
 
-it('removes scanned rows when no folders remain, but still reloads Steam', async () => {
+it('drops scanned rows when no game folders remain', async () => {
   const { state, refresh } = renderer({ steamRead: async () => [], steamGames: async () => [] });
   state.cfg = { games_roots: [] };
   state.rows = [{ source: 'folder', folder: 'removed', exe: 'game.exe' }];
@@ -459,7 +459,7 @@ it('removes scanned rows when no folders remain, but still reloads Steam', async
   assert.equal(state.rows.length, 0);
 });
 
-it('loads once automatically, shares pending loads, and reloads for settings changes or Refresh', async () => {
+it('reuses library loads until settings change or Refresh', async () => {
   let scans = 0;
   const { context, state, refresh } = renderer({
     scanStart: async () => { scans++; return []; },

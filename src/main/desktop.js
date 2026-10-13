@@ -279,7 +279,7 @@ function createDesktop({ app, shell, nativeImage, personal, shared, startMenu, s
         const pending = ownsIcon(icon) && records[icon]?.includes(null);
         if (ownsIcon(icon)) {
           records[icon] ||= [];
-          // An unfinished write has an unknown shortcut location; retain its icon during cleanup.
+          // Icons with unknown shortcut locations are retained during cleanup.
           if (!records[icon].includes(null)) records[icon].push(null);
           saveManifest(records);
         }

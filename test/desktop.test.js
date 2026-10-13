@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-test('Desktop shortcuts round-trip through Electron without touching the real Desktop', { skip: process.platform !== 'win32' }, () => {
+test('checks Desktop shortcuts and ui in a temporary folder', { skip: process.platform !== 'win32' }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lib-shammes-desktop-'));
   try {
     const env = { ...process.env };

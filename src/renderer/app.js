@@ -131,7 +131,7 @@ function confirmDlg(title, body, opts = {}) {
   });
 }
 async function syncCfg() { S.cfg = await window.api.cfgGet(); }
-// cfgSet returns the saved config. Keep the renderer copy in sync.
+// cfgSet returns the saved config for the renderer copy.
 async function savePatch(patch) {
   S.cfg = await window.api.cfgSet(patch);
   if (['api_key', 'artwork_filters', 'include_animated', 'include_nsfw', 'include_humor'].some(key => Object.hasOwn(patch, key))) {
@@ -313,7 +313,7 @@ function steamCard() {
     <div class="note">Steam closes while changes are applied and reopens afterward if it was running.</div>`;
   const q = (s) => d.querySelector(`[data-r="${s}"]`);
   const userLabel = (u) => (u.name && u.name !== u.id ? `${u.name} (${u.id})` : u.id);
-  // Shown with steam.exe on the end (same as manual picking); stored as a
+  // Shown with steam.exe on the end (same as manual picking). Stored as a
   // folder, normalize() bridges the two.
   const steamDisplay = (p) => {
     const s = String(p || '').replace(/\\+$/, '');
@@ -1019,7 +1019,7 @@ async function syncSteamLibrary(entries, installed) {
     try {
       const id = await window.api.resolveName(name);
       if (id && id.parsed) { query = id.title; steamAppid = id.steamAppid; }
-    } catch { /* display-only guess; matching does the real work */ }
+    } catch { /* display-only guess. Matching does the real work. */ }
     const startDir = String(e.startDir || parentDir(exe));
     S.rows.push({
       folder, folderName: name, display: name,
@@ -1073,8 +1073,7 @@ function scannedRows(games) {
       row.artApplied = !!old.artApplied;
       row.launchOptions = old.launchOptions || '';
     }
-    // No exe, not even a candidate: not a game. Leave it out instead of
-    // showing a dead row.
+    // Rows without an exe or candidates cannot launch a game.
     if (!row.exe && !row.candidates.length) continue;
     if (!row.sgdbName && row.sgdbId) row.sgdbName = '(cached)';
     rows.push(row);

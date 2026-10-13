@@ -65,7 +65,7 @@ async function uninstall(flags = [], { running = false, backupFails = false, fil
   return calls;
 }
 
-it('keeps Steam and app data when neither cleanup option is chosen', async () => {
+it('keeps Steam and app data when no cleanup is chosen', async () => {
   assert.deepEqual(await uninstall(), [['exit', 0]]);
 });
 
@@ -84,7 +84,7 @@ it('can delete app data without purging Steam', async () => {
   assert.deepEqual(calls.at(-1), ['exit', 0]);
 });
 
-it('only cleans desktop icons when selected and reports retained icons', async () => {
+it('only cleans icons when chosen and warns about retained ones', async () => {
   for (const iconFails of [false, true, new Error('unreadable icon records')]) {
     const calls = await uninstall(['--delete-desktop-icons'], { iconFails });
     assert.ok(calls.some(([action]) => action === 'icons'));
@@ -94,7 +94,7 @@ it('only cleans desktop icons when selected and reports retained icons', async (
   }
 });
 
-it('continues uninstall and warns when app data cannot be deleted', async () => {
+it('warns and continues uninstall when deleting app data fails', async () => {
   const calls = await uninstall(['--delete-app-data'], { dataFails: true });
   const warning = calls.find(([action]) => action === 'warning')[1];
   assert.equal(warning.message, 'Lib Shammes will be uninstalled, but some app data could not be removed and will remain on disk.');
@@ -117,7 +117,7 @@ it('stops before cleanup if Steam is running or its backup fails', async () => {
   }
 });
 
-it('keeps failed artwork in the journal and does not wipe app data', async () => {
+it('keeps failed artwork records and skips deleting app data', async () => {
   const calls = await uninstall(['--purge-steam', '--delete-app-data'], { fileFails: true });
   assert.deepEqual(Array.from(calls.find(([action]) => action === 'journal')[1].files), [{ path: 'art.png', size: 1, mtimeMs: 2 }]);
   assert.ok(!calls.some(([action]) => action === 'wipe'));

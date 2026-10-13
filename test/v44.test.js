@@ -15,7 +15,7 @@ function touch(p, size) {
 }
 
 describe('game folder depth', () => {
-  it('uses the selected folder at depth zero and searches inside it for launchers', () => {
+  it('finds launchers inside the selected game folder at depth zero', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'depth-'));
     try {
       touch(path.join(td, 'Sample Title', 'Game', 'sampletitle.exe'), 60_000_000);

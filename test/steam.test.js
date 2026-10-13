@@ -53,7 +53,7 @@ describe('steam paths', () => {
     }
   });
 
-  it('resolves persona names from loginusers.vdf, falls back to ids', () => {
+  it('reads Steam persona names and falls back to account ids', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'steam-'));
     try {
       const sp = path.join(td, 'Steam');

@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 
 describe('resolve', () => {
-  it('uses exact unambiguous installed titles offline without guessing another edition or sequel', () => {
+  it('uses unique exact installed titles for offline matching', () => {
     const catalog = [{ appid: 1, name: 'CONTROL Resonant' }, { appid: 2, name: 'Control' }, { appid: 3, name: 'Control 2' }];
     const game = { displayName: 'CONTROLResonant', exePath: 'game.exe' };
     assert.equal(resolve.identifyFromCatalog(game, catalog).steamAppid, 1);
@@ -106,7 +106,7 @@ describe('search fallback rule', () => {
       'Another Sample Title');
   });
 
-  it('normalizes joined words, punctuation, accents and sequel numbers', () => {
+  it('matches joined words, accents, punctuation and sequel numbers', () => {
     assert.equal(strips.toSearchQuery('CONTROLResonant-Win64-Shipping.exe'), 'CONTROL Resonant');
     assert.equal(strips.toSearchQuery('Shipping Manager'), 'Shipping Manager');
     assert.equal(strips.toSearchQuery('Shipping Manager-Win64-Shipping.exe'), 'Shipping Manager');
@@ -120,7 +120,7 @@ describe('search fallback rule', () => {
     assert.equal(resolve.titleSimilarity('', 'Anything'), 0);
   });
 
-  it('ranks all results and leaves ambiguous titles, editions and sequels unmatched', () => {
+  it('ranks results and rejects ambiguous matches', () => {
     const match = (query, names) => resolve.chooseTitleMatch(query, names.map((name, id) => ({ id, name })))?.name;
     assert.equal(match('CONTROLResonant', ['Control', 'CONTROL Resonant']), 'CONTROL Resonant');
     assert.equal(match('Cyberpuk 2077', ['Cyberpunk 2077', 'Cyberpunk 2077: Phantom Liberty']), 'Cyberpunk 2077');

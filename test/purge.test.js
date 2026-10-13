@@ -17,7 +17,7 @@ function fakeEntry(appid, name, tags) {
 }
 
 describe('planPurge', () => {
-  it('removes journaled + tagged shortcuts, restores fields, deletes only untouched files', () => {
+  it('plans removal and undo, leaving changed files alone', () => {
     const td = fs.mkdtempSync(path.join(os.tmpdir(), 'purge-'));
     try {
       const grid = path.join(td, 'grid');

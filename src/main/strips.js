@@ -29,7 +29,7 @@ const PARENS_GENERICS = [
   'dlc', 'build.*', 'multilanguage', 'multi\\d+',
 ];
 
-// Keep this list narrow so subtitles are not stripped as release groups.
+// Only these trailing group names are unambiguous enough to strip.
 const DASH_SUFFIX_GROUPS = ['gog', 'steam', 'fitgirl', 'dodi', 'codex'];
 
 // Built once with the global flag. String.replace resets lastIndex, so sharing is safe.
@@ -70,7 +70,7 @@ function toSearchQuery(name) {
 }
 
 // Remove at most one trailing release group from a normalized key. Longest names win.
-// Leave the key unchanged if stripping would empty it.
+// An empty result falls back to the original key.
 const SORTED_GROUPS = [...RELEASE_GROUPS].sort((a, b) => b.length - a.length);
 
 function stripTrailingGroup(key) {

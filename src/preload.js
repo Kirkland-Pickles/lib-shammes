@@ -1,5 +1,5 @@
 'use strict';
-/* Keep ipcRenderer behind this API. */
+/* Main-process calls exposed to the renderer. */
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {

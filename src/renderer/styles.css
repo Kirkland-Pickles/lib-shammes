@@ -193,7 +193,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .match-results { margin-top: 6px; }
 .auto-match { margin-top: 7px; padding-left: 0; }
 
-/* Cautious empty, loading and feedback states */
+/* Empty, loading and feedback states */
 .checklist { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding: 8px 0; }
 .cl-title { font-weight: 650; }
 .cl-item { display: inline-flex; min-height: 29px; align-items: center; gap: 8px; padding: 0 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: 8.5pt; }
@@ -242,7 +242,6 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .settings-sections .check { min-height: 29px; }
 .settings-sections .row[data-r="kinds"], .settings-sections .row[data-r="flags"] { gap: 4px 13px; }
 
-/* Activity remains one toggle away. */
 #bottomdock { flex: 0 0 auto; height: 138px; overflow: hidden; padding: 6px 26px 8px; background: var(--panel); border-top: 1px solid var(--border); transition: height .18s ease; }
 #bottomdock.collapsed { height: 0; padding-top: 0; padding-bottom: 0; border-top-width: 0; }
 #dockhead { min-height: 24px; margin-bottom: 4px; border-bottom: 1px solid var(--line); color: var(--muted); }
