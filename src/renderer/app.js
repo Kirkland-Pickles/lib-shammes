@@ -1965,6 +1965,11 @@ function wireDesktop() {
     if (e.target.closest('[data-act="toggle"]')) { row.checked = !row.checked; renderDesktop(false, false); }
     else { S.desktop.detail = row.id; renderDesktop(true, false); }
   };
+  $('#desktop-games tbody').ondblclick = (e) => {
+    if (S.desktop.busy || !e.target.closest('.cover-wrap')) return;
+    const row = S.desktop.rows.find(item => item.id === e.target.closest('.game-card-row')?.dataset.key);
+    if (row) openArtModal(row, 'icon');
+  };
   $('#desktop-detail').addEventListener('click', (e) => {
     if (!e.target.closest('#desktop-detail-close')) return;
     S.desktop.detail = null;
@@ -2697,6 +2702,11 @@ function wireToolbar() {
       return;
     }
     selectRow(tr.dataset.key);
+  });
+  $('#games-body').addEventListener('dblclick', (e) => {
+    if (S.applyingSteam || S.preparingArt || S.loadingLibrary || !e.target.closest('.cover-wrap')) return;
+    const row = rowByKey(e.target.closest('.game-card-row')?.dataset.key);
+    if (row) openArtModal(row, 'grid');
   });
   $('#detail-close').addEventListener('click', () => {
     S.detailKey = null;

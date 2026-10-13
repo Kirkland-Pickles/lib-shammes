@@ -112,6 +112,14 @@ app.whenReady().then(async () => {
   assert.ok(iconPreviews > 0);
   assert.equal(await run("getComputedStyle(document.querySelector('#desktop-detail img')).visibility"), 'visible');
   assert.ok(await run("document.querySelector('#desktop-detail').textContent.includes('requires SGDB API key')"));
+  await click('#desktop-games .cover-wrap');
+  await click('#desktop-games .cover-wrap');
+  assert.equal(await run("document.querySelector('#art-overlay').hidden"), true);
+  await run("document.querySelector('#desktop-games .cover-wrap').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }))");
+  await wait("!document.querySelector('#art-overlay').hidden");
+  assert.deepEqual(await run("Array.from(document.querySelectorAll('#art-tabs button'), button => button.textContent)"), ['Icon']);
+  await click('#art-cancel');
+  await wait("document.querySelector('#art-overlay').hidden");
   assert.ok(await run(`{
     const label = document.querySelector('.desktop-admin');
     const box = label.querySelector('input').getBoundingClientRect();
@@ -291,8 +299,12 @@ app.whenReady().then(async () => {
   assert.equal(steamRequest.rows[0].display, 'New name');
   assert.deepEqual(steamRequest.rows[0].launchSettings, { startDir: 'C:/Games/Working directory', launchOptions: '--windowed "two words"' });
   assert.equal(steamRequest.autoArt, false);
-  await click('#detail-choose-art');
+  await click('#games .cover-wrap');
+  await click('#games .cover-wrap');
+  assert.equal(await run("document.querySelector('#art-overlay').hidden"), true);
+  await run("document.querySelector('#games .cover-wrap').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }))");
   await wait("document.querySelectorAll('#art-grid > .thumb').length > 0");
+  assert.equal(await run("document.querySelector('#art-tabs .on').textContent.startsWith('Vertical Grid')"), true);
   await click('#art-grid > .thumb .thumb-select');
   await click('#art-cancel');
   assert.equal(artworkWrites.length, 0);
