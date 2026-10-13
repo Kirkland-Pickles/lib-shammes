@@ -255,6 +255,27 @@ it('preserves Desktop matches after refresh without treating saved metadata as p
   assert.equal(state.desktop.rows[0].sgdbId, undefined);
 });
 
+it('pairs alternate launcher shortcuts with missing destinations without adding duplicate cards', () => {
+  const { context, state } = renderer({});
+  context.rows = [
+    { id: 'desktop-link', exePath: 'game.exe', exe: 'launcher.exe', display: 'Game', shortcut: 'Desktop/Game.lnk', destination: 'desktop' },
+    { id: 'missing-menu', exePath: 'game.exe', exe: 'game.exe', display: 'Game', destination: 'start-menu' },
+  ];
+  state.desktop.groups = vm.runInContext('groupDesktopDestinations(rows)', context);
+  state.desktop.rows = state.desktop.groups.flat();
+  assert.equal(state.desktop.groups.length, 1);
+  const payload = vm.runInContext('desktopApplyRows(desktopCards())', context);
+  assert.equal(payload.length, 2);
+  assert.equal(payload.filter(row => !row.shortcut).length, 1);
+  assert.ok(payload.every(row => row.exe === 'launcher.exe'));
+  context.members = state.desktop.rows;
+  assert.equal(vm.runInContext('desktopLocationState(members)', context), 'Desktop only');
+  context.members[0].destination = 'start-menu';
+  assert.equal(vm.runInContext('desktopLocationState(members)', context), 'Start menu only');
+  context.members[1].shortcut = 'Desktop/Game.lnk';
+  assert.equal(vm.runInContext('desktopLocationState(members)', context), 'Existing');
+});
+
 it('groups the same executable despite different shortcut names and arguments', async () => {
   const { context, state } = renderer({ cfgSet: async patch => ({ ...state.cfg, ...patch }) });
   vm.runInContext('applyTheme = () => {}; renderChecklist = async () => {};', context);

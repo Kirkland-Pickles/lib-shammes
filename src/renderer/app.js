@@ -1660,10 +1660,11 @@ let desktopSave = Promise.resolve();
 const desktopEditFields = ['display', 'exe', 'args', 'admin', 'iconChoice', 'sgdbId', 'sgdbName'];
 function groupDesktopDestinations(rows) {
   rows = rows.map(row => ({ ...row, destination: row.destination || 'desktop' }));
+  const gameKey = row => folderKey(row.exePath || row.exe);
   const groups = [];
   const existing = rows.filter(row => row.shortcut);
-  for (const row of rows.filter(row => row.shortcut || !existing.some(link => folderKey(link.exe) === folderKey(row.exe)))) {
-    const group = groups.find(group => folderKey(group[0].exe) === folderKey(row.exe));
+  for (const row of rows.filter(row => row.shortcut || !existing.some(link => gameKey(link) === gameKey(row)))) {
+    const group = groups.find(group => gameKey(group[0]) === gameKey(row));
     if (group) group.push(row);
     else groups.push([row]);
   }
@@ -1672,7 +1673,7 @@ function groupDesktopDestinations(rows) {
     const source = group[0];
     for (const destination of ['desktop', 'start-menu']) if (!group.some(row => row.destination === destination)) {
       const placeholder = rows.find(row => !row.shortcut && row.destination === destination
-        && folderKey(row.exe) === folderKey(source.exe) && !groups.some(group => group.some(member => member.id === row.id)));
+        && gameKey(row) === gameKey(source) && !groups.some(group => group.some(member => member.id === row.id)));
       group.push({ ...source, id: placeholder?.id || `paired:${destination}:${source.id}`, destination,
         shortcut: null, signature: undefined });
     }
@@ -1684,6 +1685,11 @@ function desktopMembers(row) {
 }
 function desktopCards() {
   return S.desktop.groups ? S.desktop.groups.map(group => group.find(row => S.desktop.rows.includes(row))).filter(Boolean) : S.desktop.rows;
+}
+function desktopLocationState(members) {
+  if (members.every(member => member.shortcut)) return 'Existing';
+  const existing = members.find(member => member.shortcut);
+  return existing ? existing.destination === 'start-menu' ? 'Start menu only' : 'Desktop only' : 'Not added';
 }
 function desktopApplyRows(cards) {
   return cards.flatMap(row => {
@@ -1818,7 +1824,7 @@ function renderDesktop(detail = true, rebuildGrid = true) {
       const members = desktopMembers(row);
       const state = members.some(member => member.error) ? ['Issue', 'issue'] : members.some(member => member.saving) ? ['Saving…', 'pending']
         : members.some(member => member.draft) ? ['Ready', 'pending'] : members.every(member => member.saved) ? ['Applied', '']
-          : members.every(member => member.shortcut) ? ['Existing', ''] : ['Not added', ''];
+          : [desktopLocationState(members), ''];
       const destination = members.length > 1 ? 'Desktop + Start menu' : row.destination === 'start-menu' ? 'Start menu'
         : row.destination === 'both' ? 'Desktop + Start menu' : 'Desktop';
       const token = desktopCoverToken(row);
@@ -1886,7 +1892,7 @@ function renderDesktopDetail() {
   host.innerHTML = `<button class="text-btn detail-close" id="desktop-detail-close" type="button">Back to games</button>
     <div class="det-head"><button class="cover-button" data-desktop="icon" title="Choose icon"><img class="desktop-icon" alt="Shortcut icon"><span class="cover-edit">Change icon</span></button>
       <div class="det-titles"><div class="page-kicker">${esc(members.length > 1 ? 'DESKTOP & START MENU' : row.destination === 'start-menu' ? 'START MENU' : 'DESKTOP SHORTCUT')}</div><h2>${esc(row.display)}</h2>
-      <div class="detail-state${pending ? ' pending' : ''}" role="status">${error ? esc(error) : pending ? 'Ready to apply' : members.every(member => member.saved) ? 'Applied this session' : members.every(member => member.shortcut) ? 'Existing shortcut' : 'Not added yet'}</div>
+      <div class="detail-state${pending ? ' pending' : ''}" role="status">${error ? esc(error) : pending ? 'Ready to apply' : members.every(member => member.saved) ? 'Applied this session' : desktopLocationState(members) === 'Existing' ? 'Existing shortcut' : desktopLocationState(members) === 'Not added' ? 'Not added yet' : desktopLocationState(members)}</div>
       <button class="btn primary" id="desktop-detail-apply" type="button" ${d.busy ? 'disabled' : ''}>${S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu' : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop'}</button></div></div>
     <label class="fld"><span>Shortcut name</span><input type="text" data-field="display" value="${esc(row.display)}"></label>
     <label class="field-label" for="desktop-exe">Launcher</label><div class="control-combo"><select id="desktop-exe" data-field="exe" title="${esc(row.exe)}">${exes.map((exe) => `<option value="${esc(exe)}" ${exe === row.exe ? 'selected' : ''}>${esc(baseName(exe))}</option>`).join('')}</select>
