@@ -191,6 +191,9 @@ function paintRoute() {
   const target = $(`#page-${page}`);
   const current = $('.page.on');
   const animate = current && current !== target && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const outgoing = animate ? { opacity: getComputedStyle(current).opacity, transform: getComputedStyle(current).transform } : null;
+  const incoming = animate && getComputedStyle(target).display !== 'none'
+    ? { opacity: getComputedStyle(target).opacity, transform: getComputedStyle(target).transform } : null;
   const motion = ++routeMotion;
   $$('.page').forEach((p) => {
     p.getAnimations().forEach((animation) => animation.cancel());
@@ -231,12 +234,12 @@ function paintRoute() {
     const order = Object.keys(TITLES);
     const direction = order.indexOf(page) >= order.indexOf(current.id.slice(5)) ? 1 : -1;
     const exit = current.animate(
-      [{ opacity: 1, transform: 'translateX(0)' }, { opacity: 0, transform: `translateX(${-direction * 24}px)` }],
-      { duration: 160, easing: 'ease-in', fill: 'both' },
+      [outgoing, { opacity: 0, transform: `translateX(${-direction * 12}px)` }],
+      { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' },
     );
     const enter = target.animate(
-      [{ opacity: 0, transform: `translateX(${direction * 56}px)` }, { opacity: 1, transform: 'translateX(0)' }],
-      { duration: 380, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'both' },
+      [incoming || { opacity: 0, transform: `translateX(${direction * 12}px)` }, { opacity: 1, transform: 'translateX(0)' }],
+      { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' },
     );
     Promise.allSettled([exit.finished, enter.finished]).then(() => {
       if (motion !== routeMotion) return;

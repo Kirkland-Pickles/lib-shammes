@@ -352,7 +352,15 @@ app.whenReady().then(async () => {
   await wait(() => cfg.desktop_destination === 'both');
   await idle();
   assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply shortcuts');
+  await run("document.querySelector('[data-page=library]').click(); document.querySelector('[data-page=settings]').click(); document.querySelector('[data-page=desktop]').click()");
+  await wait("!document.querySelector('.route-exit') && document.querySelectorAll('.page.on').length === 1 && document.querySelector('#page-desktop').getAnimations().length === 0");
+  assert.equal(await run("document.querySelector('#page-desktop').inert"), false);
+  assert.equal(await run("document.querySelector('#page-settings').inert"), true);
+  assert.equal(await run("getComputedStyle(document.querySelector('#page-desktop')).opacity"), '1');
+  await run("globalThis.originalMatchMedia = window.matchMedia; window.matchMedia = query => query === '(prefers-reduced-motion: reduce)' ? { matches: true } : originalMatchMedia(query); undefined");
   await click('[data-page=settings]');
+  assert.equal(await run("document.querySelector('.route-exit')"), null);
+  assert.equal(await run("document.querySelector('#page-settings').getAnimations().length"), 0);
   assert.ok(await run(`{
     const list = document.querySelector('#settings-cards .settings-folders select[size]');
     const box = list.getBoundingClientRect();
@@ -360,7 +368,7 @@ app.whenReady().then(async () => {
     option.top >= box.top + 5 && option.left >= box.left + 5
       && option.right <= box.right - 5 && box.height >= option.height * 3;
   }`), 'Folder selection should be inset inside a usable multi-row list');
-  await click('[data-page=desktop]');
+  await run("window.matchMedia = originalMatchMedia; delete globalThis.originalMatchMedia");
   console.log('Desktop fixture checks passed');
   win.destroy();
   app.exit(0);
