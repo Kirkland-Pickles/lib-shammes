@@ -53,6 +53,17 @@ function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
 
+it('uses the game title rather than a cache label when matching Desktop games from saved IDs', async t => {
+  const env = main(t);
+  env.cfg.api_key = 'fixture';
+  store.rememberSgdb(env.cfg, 'C:/Games/Game', 7);
+  const result = await env.invoke('match:auto', { persist: false,
+    rows: [{ source: 'desktop', folder: 'C:/Games/Game', display: 'Game', sgdbName: '(cached)' }] });
+  assert.equal(result.rows[0].sgdbId, 7);
+  assert.equal(result.rows[0].sgdbName, 'Game');
+  assert.equal(result.rows[0].display, 'Game');
+});
+
 it('selects tagged artwork without changing ordinary top-ranked selection', () => {
   const { chooseArtwork, officialArtworkUrls } = require('../src/main/sgdb');
   const plain = { id: 1 }, humor = { id: 2, humor: true }, otherHumor = { id: 3, humor: true };

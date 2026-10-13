@@ -1706,7 +1706,10 @@ async function refreshDesktop(force = true) {
     const result = await window.api.desktopScan();
     d.rows = result.rows.map((row) => {
       const previous = old.get(row.id);
-      const draft = previous?.draft || S.cfg.desktop_overrides[row.id];
+      let draft = previous?.draft || S.cfg.desktop_overrides[row.id];
+      if (draft?.display === '(cached)' && draft.sgdbName === '(cached)' && row.query) {
+        draft = { ...draft, display: row.query, sgdbName: row.query, exe: row.exe };
+      }
       const stale = draft && draft.signature !== row.signature;
       return { ...row, ...(stale ? {} : draft), source: 'desktop', checked: previous?.checked || false,
         draft: stale ? null : draft, art: draft?.iconChoice && !stale ? { icon: draft.iconChoice } : {},
@@ -2198,9 +2201,9 @@ function closeArtModal(save) {
       m.row.iconChoice = m.sel.icon || null;
       m.row.art = { ...m.sel };
       m.row.pendingArt = true;
-      m.row.sgdbId = m.sgdbId;
       const match = m.games.find((game) => game.id === m.sgdbId);
-      if (match) { m.row.display = m.row.sgdbName = match.name; m.row.sgdbId = match.id; }
+      if (match && m.sgdbId !== m.row.sgdbId) { m.row.display = m.row.sgdbName = match.name; }
+      m.row.sgdbId = m.sgdbId;
       handleAction('Save Desktop changes', () => saveDesktopDraft(m.row))();
       renderDesktop();
       restoreArtFocus(m);

@@ -612,7 +612,8 @@ ipcMain.handle('match:auto', async (_e, req) => {
     progress(i, rows.length, `Matching ${i + 1}/${rows.length}: ${row.display}`);
     const cached = force ? null : store.sgdbIdFor(cfg, row.folder);
     if (cached && !row.sgdbId) {
-      row.sgdbId = cached; row.sgdbName = '(cached)';
+      row.sgdbId = cached;
+      row.sgdbName = row.sgdbName && row.sgdbName !== '(cached)' ? row.sgdbName : row.display;
       if (persist) store.rememberSgdb(cfg, row.folder, cached);
       ok++;
       continue;

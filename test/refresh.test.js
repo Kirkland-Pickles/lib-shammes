@@ -65,6 +65,24 @@ it('shows applied grid artwork from the saved file without reselecting it', asyn
   assert.equal(await vm.runInContext('cardCoverSource(game)', context), 'data:image/png;base64,saved');
 });
 
+it('keeps a Desktop shortcut name when choosing another icon for the same matched game', async () => {
+  const { context, state } = renderer({});
+  context.matchMedia = () => ({ matches: true });
+  context.document.querySelector = () => ({ getAnimations: () => [], classList: { remove() {} } });
+  vm.runInContext('renderDesktop = restoreArtFocus = () => {}; saveDesktopDraft = async () => {}; handleAction = (_label, fn) => fn;', context);
+  const row = { source: 'desktop', display: 'My variant', sgdbId: 7 };
+  const select = (id, name) => {
+    state.modal = { row, sel: { icon: { file: 'chosen.ico' } }, sgdbId: id, games: [{ id, name }] };
+    vm.runInContext('closeArtModal(true)', context);
+  };
+  select(7, '(cached)');
+  assert.equal(row.display, 'My variant');
+  assert.equal(row.iconChoice.file, 'chosen.ico');
+  select(8, 'New matched game');
+  assert.equal(row.display, 'New matched game');
+  assert.equal(row.sgdbId, 8);
+});
+
 it('keeps a grid placeholder until its image loads and retries failures on refresh', async () => {
   let requests = 0;
   const { context, state } = renderer({
@@ -192,6 +210,23 @@ it('applies visible Desktop games by default, independently of the focused game'
   state.desktop.rows[1].checked = false;
   fields['#desktop-filter'].value = 'two';
   assert.deepEqual(targets(), [state.desktop.rows[1]]);
+});
+
+it('stages a recovered title for a shortcut previously saved with the cache label', async () => {
+  const row = { id: 'link:cached', display: '(cached)', query: 'Resolved game', exe: 'game.exe',
+    shortcut: 'Desktop/(cached).lnk', signature: 'original' };
+  const { context, state } = renderer({ desktopScan: async () => ({ rows: [row], warnings: [] }) });
+  vm.runInContext('renderDesktop = status = () => {};', context);
+  state.cfg = { games_roots: [], desktop_overrides: { [row.id]: {
+    display: '(cached)', sgdbId: 7, sgdbName: '(cached)', signature: 'original',
+  } } };
+  await vm.runInContext('refreshDesktop()', context);
+  const recovered = state.desktop.rows[0];
+  assert.equal(recovered.display, 'Resolved game');
+  assert.equal(recovered.draft.display, 'Resolved game');
+  assert.equal(recovered.shortcut, row.shortcut);
+  assert.equal(recovered.signature, row.signature);
+  assert.equal(recovered.sgdbId, 7);
 });
 
 it('finds artwork for visible games without selection, matching first and staging only changed choices', async () => {
