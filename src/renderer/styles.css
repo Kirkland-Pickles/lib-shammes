@@ -266,12 +266,12 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 #toast { position: fixed; z-index: 200; bottom: 46px; left: 50%; max-width: min(560px, 84vw); padding: 10px 14px; transform: translate(-50%, 10px); border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-raised); box-shadow: 0 8px 24px #0005; opacity: 0; pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
 #toast.show { transform: translate(-50%, 0); opacity: 1; }
 #confirm-overlay { position: fixed; z-index: 150; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: #000a; }
-#confirm-box { width: min(470px, 92vw); max-height: 80vh; overflow: auto; padding: 22px; border: 1px solid var(--border); background: var(--panel); box-shadow: 0 16px 50px #0008; }
+#confirm-box { width: min(470px, 92vw); max-height: 80vh; overflow: auto; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); box-shadow: 0 16px 50px #0008; }
 #confirm-box h3 { margin-bottom: 10px; font-size: 13pt; }
 #confirm-box p { color: var(--muted); line-height: 1.55; white-space: pre-wrap; }
 #confirm-box p.danger-text { color: var(--red); font-weight: 650; }
 .confirm-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 17px; }
-#exe-picker { position: fixed; width: min(850px, 90vw); max-height: 85vh; margin: auto; padding: 20px; border: 1px solid var(--border); color: var(--fg); background: var(--panel); }
+#exe-picker { position: fixed; width: min(850px, 90vw); max-height: 85vh; margin: auto; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); background: var(--panel); }
 #exe-picker[open] { display: flex; flex-direction: column; gap: 12px; }
 #exe-picker::backdrop { background: #000b; }
 #exe-picker h2 { font-size: 13pt; }
@@ -282,7 +282,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 
 #art-overlay { position: fixed; z-index: 50; inset: 0; display: flex; align-items: center; justify-content: center; padding: 22px; background: #000c; }
 #art-overlay[hidden] { display: none !important; }
-#art-modal { display: flex; width: min(1120px, 96vw); height: min(760px, 94vh); min-height: 450px; flex-direction: column; padding: 20px 22px 16px; border: 1px solid var(--border); background: var(--panel); box-shadow: 0 20px 70px #0008; }
+#art-modal { display: flex; width: min(1120px, 96vw); height: min(760px, 94vh); min-height: 450px; flex-direction: column; padding: 20px 22px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); box-shadow: 0 20px 70px #0008; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .modal-head > div:first-child { display: grid; gap: 4px; }
 .modal-head h2 { font-size: 16pt; font-weight: 620; }
