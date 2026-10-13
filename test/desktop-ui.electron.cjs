@@ -328,6 +328,15 @@ app.whenReady().then(async () => {
   await wait(() => cfg.desktop_destination === 'both');
   await idle();
   assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply shortcuts');
+  await click('[data-page=settings]');
+  assert.ok(await run(`{
+    const list = document.querySelector('#settings-cards .settings-folders select[size]');
+    const box = list.getBoundingClientRect();
+    const option = list.options[0].getBoundingClientRect();
+    option.top >= box.top + 5 && option.left >= box.left + 5
+      && option.right <= box.right - 5 && box.height >= option.height * 3;
+  }`), 'Folder selection should be inset inside a usable multi-row list');
+  await click('[data-page=desktop]');
   console.log('Desktop fixture checks passed');
   win.destroy();
   app.exit(0);

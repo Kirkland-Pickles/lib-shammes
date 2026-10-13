@@ -47,9 +47,13 @@ input, textarea, [contenteditable="true"] { user-select: text; }
 button, input, select { font: inherit; color: inherit; }
 button, select, input[type="checkbox"] { cursor: pointer; }
 input:not([type="checkbox"]), select { min-width: 0; height: var(--control-height); padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); }
-input:not([type="checkbox"]):focus, select:focus { outline: 2px solid var(--focus); border-color: var(--accent); }
+input:not([type="checkbox"]):focus, select:focus { outline: none; border-color: var(--accent); }
 input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); flex: 0 0 auto; }
-button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, input[type="checkbox"]:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select[size] option { padding: 4px 6px; }
+select[size] option:checked { color: var(--fg); background: var(--selection); }
+.settings-folders select[size] { height: 112px; padding: 6px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.settings-folders select[size] option { border-radius: 3px; }
 button:disabled, select:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 button { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-raised); color: var(--fg); min-height: var(--control-height); padding: 0 13px; transition: background .14s ease, border-color .14s ease, color .14s ease; }
 button:hover:not(:disabled) { background: var(--selection); border-color: var(--accent); }
@@ -306,7 +310,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .thumb { position: relative; min-width: 0; }
 .thumb-select { display: block; width: 100%; min-height: 0; overflow: hidden; padding: 5px; border: 1px solid var(--line); background: var(--bg); text-align: left; }
 .thumb-select:hover:not(:disabled) { border-color: var(--accent); background: var(--bg); }
-.thumb.picked .thumb-select { border-color: var(--accent); outline: 1px solid var(--accent); }
+.thumb.picked .thumb-select { border-color: var(--accent); }
 .thumb-image { position: relative; }
 .thumb img { display: block; width: 100%; max-height: 250px; object-fit: contain; background: var(--panel-raised); }
 .thumb .meta { display: block; margin-top: 6px; color: var(--muted); font-size: 8pt; line-height: 1.4; }
