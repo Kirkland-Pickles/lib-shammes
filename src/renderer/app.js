@@ -1962,7 +1962,11 @@ function wireDesktop() {
     const card = e.target.closest('.game-card-row');
     const row = S.desktop.rows.find((item) => item.id === card?.dataset.key);
     if (!row) return;
-    if (e.target.closest('[data-act="toggle"]')) { row.checked = !row.checked; renderDesktop(false, false); }
+    if (e.target.closest('[data-act="toggle"]')) {
+      if (!e.target.matches('.row-check')) return;
+      row.checked = e.target.checked;
+      renderDesktop(false, false);
+    }
     else { S.desktop.detail = row.id; renderDesktop(true, false); }
   };
   $('#desktop-games tbody').ondblclick = (e) => {
@@ -2697,8 +2701,9 @@ function wireToolbar() {
     const tr = e.target.closest('tr');
     if (!tr) return;
     if (e.target.closest('[data-act="toggle"]')) {
+      if (!e.target.matches('.row-check')) return;
       const r = rowByKey(tr.dataset.key);
-      if (r) { r.checked = !r.checked; updateLibrarySelection(); }
+      if (r) { r.checked = e.target.checked; updateLibrarySelection(); }
       return;
     }
     selectRow(tr.dataset.key);

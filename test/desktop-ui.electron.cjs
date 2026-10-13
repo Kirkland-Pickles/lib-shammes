@@ -107,6 +107,10 @@ app.whenReady().then(async () => {
   assert.deepEqual(await selection(), [false, false]);
   await click('#desktop-games input');
   assert.deepEqual(await selection(), [true, false]);
+  await click('#desktop-games .cover-check');
+  assert.deepEqual(await selection(), [false, false]);
+  await click('#desktop-games .cover-check');
+  assert.deepEqual(await selection(), [true, false]);
   await click('#desktop-games .game-name');
   await wait("document.querySelector('#desktop-detail img').complete && document.querySelector('#desktop-detail img').naturalWidth > 0");
   assert.ok(iconPreviews > 0);
@@ -283,6 +287,14 @@ app.whenReady().then(async () => {
   await wait("!!document.querySelector('#confirm-overlay')");
   await click('#confirm-overlay [data-v="0"]');
   assert.equal(steamRequest, undefined);
+  const steamSelection = () => run("Array.from(document.querySelectorAll('#games .row-check'), input => input.checked)");
+  const beforeLabel = await steamSelection();
+  await click('#select-multiple');
+  await click('#games .cover-check');
+  assert.deepEqual(await steamSelection(), [!beforeLabel[0]]);
+  await click('#games .cover-check');
+  assert.deepEqual(await steamSelection(), beforeLabel);
+  await click('#select-multiple');
   await click('#games tbody input');
   await click('#games .game-name');
   await change('#d-name', 'New name');
