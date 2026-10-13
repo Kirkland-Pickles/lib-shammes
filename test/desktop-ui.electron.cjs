@@ -368,7 +368,16 @@ app.whenReady().then(async () => {
     option.top >= box.top + 5 && option.left >= box.left + 5
       && option.right <= box.right - 5 && box.height >= option.height * 3;
   }`), 'Folder selection should be inset inside a usable multi-row list');
+  const chromeBounds = () => run(`['#app-header', '#pages', '#bottomdock', '#statusbar'].map(selector => {
+    const box = document.querySelector(selector).getBoundingClientRect();
+    return [box.y, box.height];
+  })`);
+  const settingsBounds = await chromeBounds();
+  await click('[data-page=desktop]');
+  await idle();
+  assert.deepEqual(await chromeBounds(), settingsBounds, 'Shared header and bottom controls must not shift between pages');
   await click('[data-page=library]');
+  assert.deepEqual(await chromeBounds(), settingsBounds, 'Steam and Desktop should use the same available page bounds');
   await click('#d-preview-open');
   assert.equal(await run("document.querySelector('#art-overlay').hidden"), false);
   assert.equal(await run("document.querySelector('#art-overlay').getAnimations({ subtree: true }).length"), 0);
