@@ -212,6 +212,33 @@ it('applies visible Desktop games by default, independently of the focused game'
   assert.deepEqual(targets(), [state.desktop.rows[1]]);
 });
 
+it('preserves Desktop matches after refresh without treating saved metadata as pending edits', async () => {
+  const rows = [1, 2].map(id => ({ id, display: 'Game ' + id, exe: 'game.exe', signature: 'same' }));
+  const { context, state } = renderer({ desktopScan: async () => ({ rows, warnings: [] }) });
+  vm.runInContext('renderDesktop = status = () => {};', context);
+  state.cfg = { games_roots: [], desktop_overrides: {
+    1: { display: 'Saved game', exe: 'game.exe', sgdbId: 7, sgdbName: 'Matched title', signature: 'same' },
+    2: { display: 'Edited game', exe: 'game.exe', args: '', signature: 'same', iconChoice: { file: 'chosen.ico' } },
+  } };
+  await vm.runInContext('refreshDesktop()', context);
+  assert.equal(state.desktop.rows[0].display, 'Saved game');
+  assert.equal(state.desktop.rows[0].sgdbId, 7);
+  assert.equal(state.desktop.rows[0].draft, null);
+  assert.equal(state.desktop.rows[1].draft.iconChoice.file, 'chosen.ico');
+  rows[1].signature = 'external edit';
+  await vm.runInContext('refreshDesktop()', context);
+  assert.equal(state.desktop.rows[0].sgdbId, 7);
+  assert.equal(state.desktop.rows[1].draft, null);
+  assert.equal(state.desktop.rows[1].iconChoice, undefined);
+  rows[0].signature = 'external arguments';
+  await vm.runInContext('refreshDesktop()', context);
+  assert.equal(state.desktop.rows[0].sgdbId, 7);
+  assert.equal(state.desktop.rows[0].draft, null);
+  rows[0].exe = 'another-game.exe';
+  await vm.runInContext('refreshDesktop()', context);
+  assert.equal(state.desktop.rows[0].sgdbId, undefined);
+});
+
 it('stages a recovered title for a shortcut previously saved with the cache label', async () => {
   const row = { id: 'link:cached', display: '(cached)', query: 'Resolved game', exe: 'game.exe',
     shortcut: 'Desktop/(cached).lnk', signature: 'original' };

@@ -1708,11 +1708,14 @@ async function refreshDesktop(force = true) {
       const previous = old.get(row.id);
       let draft = previous?.draft || S.cfg.desktop_overrides[row.id];
       if (draft?.display === '(cached)' && draft.sgdbName === '(cached)' && row.query) {
-        draft = { ...draft, display: row.query, sgdbName: row.query, exe: row.exe };
+        draft = { ...draft, display: row.query, sgdbName: row.query, exe: row.exe, args: row.args };
       }
       const stale = draft && draft.signature !== row.signature;
-      return { ...row, ...(stale ? {} : draft), source: 'desktop', checked: previous?.checked || false,
-        draft: stale ? null : draft, art: draft?.iconChoice && !stale ? { icon: draft.iconChoice } : {},
+      const pending = draft && Object.hasOwn(draft, 'args');
+      const sameGame = folderKey(draft?.exe || previous?.exe) === folderKey(row.exe);
+      const match = stale && sameGame ? { sgdbId: draft.sgdbId, sgdbName: draft.sgdbName } : {};
+      return { ...row, ...match, ...(stale ? {} : draft), source: 'desktop', checked: previous?.checked || false,
+        draft: stale || !pending ? null : draft, art: draft?.iconChoice && !stale ? { icon: draft.iconChoice } : {},
         saved: !stale && previous?.saved, error: '' };
     });
     result.warnings.forEach(line => log(line, 'desktop'));

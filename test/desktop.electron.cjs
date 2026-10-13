@@ -84,12 +84,21 @@ app.whenReady().then(async () => {
   assert.equal(desktop.read(saved.shortcut).args, '--profile "two words" & literal');
 
   assert.ok(shell.writeShortcutLink(saved.shortcut, 'update', { args: '-external' }));
+  saved.sgdbId = 17;
+  saved.sgdbName = 'Matched game';
   result = await desktop.apply([{ ...saved, args: '-should-not-write' }]);
   assert.equal(result[0].ok, false);
   assert.equal(result[0].refreshed, true);
   assert.equal(result[0].row.args, '-external');
   assert.equal(result[0].row.iconChoice, null);
+  assert.equal(result[0].row.sgdbId, 17);
+  assert.equal(result[0].row.sgdbName, 'Matched game');
   assert.equal(desktop.read(saved.shortcut).args, '-external');
+  assert.ok(shell.writeShortcutLink(saved.shortcut, 'update', { target: alternate }));
+  const retargeted = (await desktop.apply([saved]))[0];
+  assert.equal(retargeted.refreshed, true);
+  assert.equal(retargeted.row.sgdbId, null);
+  assert.ok(shell.writeShortcutLink(saved.shortcut, 'update', { target: exe }));
   saved = (await desktop.discover(games)).rows.find((row) => row.shortcut === saved.shortcut);
   const resource = await desktop.apply([{ ...saved, iconChoice: { file: exe } }]);
   assert.equal(resource[0].ok, true, resource[0].error);
@@ -97,6 +106,28 @@ app.whenReady().then(async () => {
   assert.equal(desktop.read(saved.shortcut).icon, exe);
   const image = path.join(root, 'custom.png');
   fs.writeFileSync(image, nativeImage.createFromBitmap(Buffer.alloc(16, 255), { width: 2, height: 2 }).toPNG());
+  const batchPersonal = path.join(root, 'Batch Desktop'), batchShared = path.join(root, 'Batch Shared');
+  for (const dir of [batchPersonal, batchShared]) fs.mkdirSync(dir);
+  const batch = createDesktop({ app, shell, nativeImage, personal: batchPersonal, shared: batchShared,
+    iconDir: path.join(root, 'Batch icons') });
+  const batchRows = Array.from({ length: 4 }, (_, id) => ({ id: `batch:${id}`, exe, display: `Batch game ${id}`,
+    args: `--profile ${id}`, admin: false, iconChoice: { file: image } }));
+  const created = await batch.apply(batchRows);
+  assert.equal(created.filter(result => result.ok).length, 4, JSON.stringify(created));
+  for (const result of created) {
+    const link = batch.read(result.row.shortcut);
+    assert.equal(link.target, exe);
+    assert.equal(link.args, result.row.args);
+    assert.ok(fs.existsSync(link.icon));
+    assert.equal(path.basename(result.row.shortcut), `${result.row.display}.lnk`);
+  }
+  const updated = await batch.apply(created.map(result => ({ ...result.row, args: '--updated', iconChoice: { exeIcon: true } })));
+  assert.equal(updated.filter(result => result.ok).length, 4, JSON.stringify(updated));
+  assert.equal(fs.readdirSync(batchPersonal).filter(file => file.endsWith('.lnk')).length, 4);
+  for (const result of updated) {
+    assert.equal(batch.read(result.row.shortcut).args, '--updated');
+    assert.equal(batch.read(result.row.shortcut).icon, '');
+  }
   const menus = createDesktop({ app, shell, nativeImage, personal, shared, startMenu, sharedStartMenu,
     iconDir: path.join(root, 'Menu icons') });
   const menuRows = (await menus.discover(games, 'both')).rows;

@@ -306,10 +306,12 @@ function createDesktop({ app, shell, nativeImage, personal, shared, startMenu, s
         } else if (e.code === 'DESKTOP_CHANGED') {
           try {
             const link = read(row.shortcut);
+            const sameGame = pathKey(link.target) === pathKey(row.exe);
             results.push({ id: row.id, ok: false, refreshed: true, error: e.message, row: { ...row,
               display: path.basename(row.shortcut, path.extname(row.shortcut)), exe: link.target, cwd: link.cwd,
               args: link.args, admin: link.admin, icon: link.icon, iconIndex: link.iconIndex,
-              signature: link.signature, iconChoice: null, sgdbId: null } });
+              signature: link.signature, iconChoice: null, sgdbId: sameGame ? row.sgdbId : null,
+              sgdbName: sameGame ? row.sgdbName : null } });
           } catch (refreshError) { results.push({ id: row.id, ok: false, error: refreshError.message }); }
         } else results.push({ id: row.id, ok: false, error: e.message });
       }

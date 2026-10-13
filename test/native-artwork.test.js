@@ -263,6 +263,15 @@ it('returns saved Desktop shortcuts when config persistence fails', async (t) =>
   assert.equal(env.cfg.desktop_overrides[row.id].display, 'Game');
 });
 
+it('persists the match and executable identity when refreshing a changed Desktop shortcut', async t => {
+  const row = { id: 'link:saved', display: 'Game', exe: 'game.exe', sgdbId: 7, sgdbName: 'Matched game', signature: 'new' };
+  const env = main(t, {}, { apply: async () => [{ id: row.id, ok: false, refreshed: true, row }] });
+  await env.invoke('desktop:apply', []);
+  assert.equal(env.cfg.desktop_overrides[row.id].sgdbId, 7);
+  assert.equal(env.cfg.desktop_overrides[row.id].exe, row.exe);
+  assert.equal(env.cfg.desktop_overrides[row.id].signature, 'new');
+});
+
 it('retains explicitly added executables separately from scan roots and ignores missing files', async (t) => {
   const env = main(t);
   const exe = path.join(env.root, 'manual.exe');

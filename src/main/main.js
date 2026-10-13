@@ -475,7 +475,8 @@ ipcMain.handle('desktop:apply', async (_e, rows) => {
     const results = await desktop.apply(rows, (i, total, name) => progress(i, total, `Saving shortcut ${i + 1}/${total}: ${name}`));
     for (const result of results) if (result.ok || result.refreshed) {
       delete cfg.desktop_overrides[result.id];
-      if (result.ok) cfg.desktop_overrides[result.row.id] = { display: result.row.display, sgdbId: result.row.sgdbId, sgdbName: result.row.sgdbName, signature: result.row.signature };
+      if (result.row) cfg.desktop_overrides[result.row.id] = { display: result.row.display, exe: result.row.exe,
+        sgdbId: result.row.sgdbId, sgdbName: result.row.sgdbName, signature: result.row.signature };
     }
     try { store.save(cfg); }
     catch (e) {
