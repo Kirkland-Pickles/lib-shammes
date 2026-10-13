@@ -291,7 +291,13 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 #art-filter-fields fieldset { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px; border: 0; }
 #art-filter-fields legend { margin-bottom: 5px; color: var(--muted); font-size: 8pt; }
 #art-filter-fields .check { min-height: 22px; }
-#art-filter-fields .filter-dimensions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); }
+#art-filter-fields .filter-dimensions { grid-column: 1 / -1; min-width: 0; }
+.dimension-select { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); }
+#art-filters .dimension-select summary { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 7px 10px; font-weight: 400; }
+.dimension-select summary span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dimension-select summary::after { content: ''; width: 6px; height: 6px; margin-right: 3px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); }
+.dimension-select[open] summary::after { transform: rotate(225deg); }
+.dimension-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 4px 12px; padding: 4px 10px 10px; }
 .tabs { display: flex; flex: 0 0 auto; flex-wrap: wrap; min-height: 39px; align-items: stretch; gap: 4px; border-bottom: 1px solid var(--line); }
 .tab { position: relative; min-height: 38px; padding: 8px 13px 10px; border: 0; border-radius: 0; color: var(--muted); background: transparent; white-space: nowrap; }
 .tab:hover { color: var(--fg); background: transparent; }

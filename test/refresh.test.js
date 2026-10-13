@@ -34,6 +34,22 @@ it('invalidates desktop cover previews when switching back to executable icons',
   assert.notEqual(token(), original);
 });
 
+it('uses per-type dimension defaults and preserves explicit dimension selections', () => {
+  const { context, state } = renderer({});
+  state.cfg = { artwork_filters: {} };
+  const dimensions = kind => Array.from(vm.runInContext(`pickerFilters('${kind}').dimensions || []`, context));
+  assert.deepEqual(dimensions('grid'), ['600x900', '342x482', '660x930']);
+  assert.deepEqual(dimensions('wide'), ['460x215', '920x430']);
+  assert.deepEqual(dimensions('hero'), ['1920x620', '3840x1240', '1600x650']);
+  assert.deepEqual(dimensions('logo'), []);
+  assert.equal(dimensions('icon').length, 37);
+  assert.ok(dimensions('icon').includes('256'));
+  state.cfg.artwork_filters.grid = { dimensions: ['512x512'] };
+  assert.deepEqual(dimensions('grid'), ['512x512']);
+  state.cfg.artwork_filters.grid.dimensions = [];
+  assert.deepEqual(dimensions('grid'), []);
+});
+
 it('uses suggested covers when local previews fail and resolves native games without saving a match', async () => {
   let nativeLookups = 0;
   const { context, state } = renderer({

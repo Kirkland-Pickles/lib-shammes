@@ -2054,9 +2054,20 @@ function animateArtModal(open) {
   });
 }
 
+const ART_DIMENSIONS = {
+  grid: ['600x900', '342x482', '660x930', '512x512', '1024x1024'],
+  wide: ['460x215', '920x430', '512x512', '1024x1024'],
+  hero: ['1920x620', '3840x1240', '1600x650'],
+  icon: [1024, 768, 512, 310, 256, 194, 192, 180, 160, 152, 150, 144, 128, 120, 114,
+    100, 96, 90, 80, 76, 72, 64, 60, 57, 56, 54, 48, 40, 35, 32, 28, 24, 20, 16, 14, 10, 8].map(String),
+};
+const dimensionLabel = (kind, value) => kind === 'icon' ? `${value}x${value}` : value;
+
 function pickerFilters(kind) {
   return { static: true, animated: !!S.cfg.include_animated, untagged: true,
     nsfw: !!S.cfg.include_nsfw, humor: !!S.cfg.include_humor, epilepsy: true,
+    ...(ART_DIMENSIONS[kind] ? { dimensions: ART_DIMENSIONS[kind].filter(value =>
+      !['grid', 'wide'].includes(kind) || !['512x512', '1024x1024'].includes(value)) } : {}),
     ...S.cfg.artwork_filters?.[kind], ...(S.modal?.row.source === 'desktop' ? { static: true, animated: false } : {}) };
 }
 
@@ -2078,11 +2089,7 @@ function renderArtFilters() {
   const styles = kind === 'logo' ? ['official', 'white', 'black', 'custom']
     : kind === 'icon' ? ['official', 'custom']
     : ['alternate', ...(kind === 'hero' ? [] : ['white_logo', 'no_logo']), 'blurred', 'material'];
-  const dimensions = kind === 'grid' ? ['600x900', '342x482', '660x930', '512x512', '1024x1024']
-    : kind === 'wide' ? ['460x215', '920x430', '512x512', '1024x1024']
-    : kind === 'hero' ? ['1920x620', '3840x1240', '1600x650']
-    : kind === 'icon' ? [1024, 768, 512, 310, 256, 194, 192, 180, 160, 152, 150, 144, 128, 120, 114,
-      100, 96, 90, 80, 76, 72, 64, 60, 57, 56, 54, 48, 40, 35, 32, 28, 24, 20, 16, 14, 10, 8].map(String) : [];
+  const dimensions = ART_DIMENSIONS[kind] || [];
   const formats = kind === 'icon' ? ['image/png', 'image/vnd.microsoft.icon']
     : kind === 'logo' ? ['image/png', 'image/webp'] : ['image/png', 'image/jpeg', 'image/webp'];
   const labels = { static: 'Static', animated: 'Animated', untagged: 'Untagged', nsfw: 'Adult Content',
@@ -2091,13 +2098,19 @@ function renderArtFilters() {
   const groups = [['Types', null, ['static', 'animated']], ['Tags', null, ['untagged', 'nsfw', 'humor', 'epilepsy']],
     ['Styles', 'styles', styles], ['File types', 'mimes', formats], ['Dimensions', 'dimensions', dimensions]];
   const host = $('#art-filter-fields');
-  host.innerHTML = groups.filter(([, , options]) => options.length).map(([title, field, options]) =>
-    `<fieldset${field === 'dimensions' ? ' class="filter-dimensions"' : ''}><legend>${title}</legend>${options.map(value => {
-      const selected = field ? values[field]?.includes(value) ?? (field !== 'dimensions' || kind === 'icon' || !value.includes('512') && !value.includes('1024')) : values[value];
-      const label = field === 'dimensions' && kind === 'icon' ? `${value}x${value}` : labels[value] || value.charAt(0).toUpperCase() + value.slice(1);
+  host.innerHTML = groups.filter(([, , options]) => options.length).map(([title, field, options]) => {
+    const choices = options.map(value => {
+      const selected = field ? values[field]?.includes(value) ?? true : values[value];
+      const label = field === 'dimensions' ? dimensionLabel(kind, value) : labels[value] || value.charAt(0).toUpperCase() + value.slice(1);
       return `<label class="check"><input type="checkbox" data-filter="${field || value}" value="${value}" ${selected ? 'checked' : ''}
         ${m.row.source === 'desktop' && ['static', 'animated'].includes(value) ? 'disabled' : ''}>${label}</label>`;
-    }).join('')}</fieldset>`).join('');
+    }).join('');
+    if (field !== 'dimensions') return `<fieldset><legend>${title}</legend>${choices}</fieldset>`;
+    const summary = values.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || '…';
+    return `<fieldset class="filter-dimensions"><legend>${title}</legend><details class="dimension-select">
+      <summary title="${esc(summary)}"><span>${esc(summary)}</span></summary><div class="dimension-options">${choices}</div>
+      </details></fieldset>`;
+  }).join('');
   host.onchange = event => handleAction('Artwork filters', async () => {
     const inputs = [...event.target.closest('fieldset').querySelectorAll('input')];
     if (!inputs.some(input => input.checked) && ['static', 'animated'].includes(event.target.dataset.filter)) {
@@ -2109,6 +2122,12 @@ function renderArtFilters() {
       if (['styles', 'mimes', 'dimensions'].includes(field)) {
         next[field] = [...host.querySelectorAll(`input[data-filter="${field}"]:checked`)].map(node => node.value);
       } else next[field] = input.checked;
+    }
+    const summary = host.querySelector('.dimension-select summary');
+    if (summary) {
+      const text = next.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || '…';
+      summary.title = text;
+      summary.querySelector('span').textContent = text;
     }
     await savePatch({ artwork_filters: { ...S.cfg.artwork_filters, [kind]: next } });
     if (S.modal !== m || m.tab !== kind) return;
@@ -2813,7 +2832,7 @@ function wireToolbar() {
   document.addEventListener('keydown', (e) => {
     if (S.exePicker) return;
     if (S.modal && e.key === 'Tab') {
-      const focusable = $$('#art-modal button:not(:disabled), #art-modal input:not(:disabled), #art-modal select:not(:disabled)')
+      const focusable = $$('#art-modal button:not(:disabled), #art-modal input:not(:disabled), #art-modal select:not(:disabled), #art-modal summary')
         .filter((element) => !element.closest('[hidden]') && element.getClientRects().length);
       const at = focusable.indexOf(document.activeElement);
       if (e.shiftKey && at <= 0) { e.preventDefault(); focusable.at(-1)?.focus(); }

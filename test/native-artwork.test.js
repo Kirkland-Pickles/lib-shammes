@@ -34,7 +34,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
       saveEntries: () => { calls.push('write shortcuts'); throw new Error('Native artwork must not write shortcuts'); }, ...steamOverrides },
     './sgdb': { ...realRequire('./sgdb'), SGDBClient: class {
       steamMetadata = async () => { calls.push('metadata'); if (metadata instanceof Error) throw metadata; return metadata; };
-      gridsVertical = async () => [{ id: 9, url: 'https://test.invalid/art.jpg' }];
+      gridsVertical = async (_id, options) => { if (options) artworkQueries.push(options); return [{ id: 9, url: 'https://test.invalid/art.jpg' }]; };
       logos = this.gridsVertical;
       icons = async (_id, options) => { artworkQueries.push(options); return this.gridsVertical(); };
       downloadBytes = async () => { calls.push('download'); return Buffer.from('new artwork'); };
@@ -461,6 +461,14 @@ it('requests selected content tags and animation types without mixing in untagge
   assert.equal(params.get('styles'), 'custom');
   assert.equal(params.get('mimes'), 'image/png');
   assert.equal(params.get('dimensions'), '256');
+});
+
+it('keeps an explicitly cleared dimension filter instead of restoring per-type defaults', async t => {
+  const env = main(t);
+  await env.invoke('art:list', { sgdbId: 7, kind: 'grid', filters: { dimensions: [] } });
+  assert.equal(env.artworkQueries.at(-1).dimensions, '');
+  const params = new URLSearchParams(new SGDBClient('fixture').buildParams(env.artworkQueries.at(-1)));
+  assert.equal(params.has('dimensions'), false);
 });
 
 it('uses saved picker filters for preparation and automatic downloads, keeping Desktop icons static', async t => {

@@ -562,7 +562,7 @@ async function listArtwork(req, c = client()) {
     humor: filters.humor || filters.untagged === false ? 'any' : 'false',
     epilepsy: filters.epilepsy === false && filters.untagged !== false ? 'false' : 'any',
     ...(filters.untagged === false ? { oneoftag: ['nsfw', 'humor', 'epilepsy'].filter(tag => filters[tag]).join(',') } : {}),
-    ...Object.fromEntries(['styles', 'dimensions', 'mimes'].filter(key => filters[key]?.length)
+    ...Object.fromEntries(['styles', 'dimensions', 'mimes'].filter(key => Array.isArray(filters[key]))
       .map(key => [key, filters[key].join(',')])),
     limit: 30,
     page: Number.isSafeInteger(req.page) && req.page >= 0 ? req.page : 0,

@@ -192,9 +192,12 @@ app.whenReady().then(async () => {
   await wait("document.querySelector('#art-filter-fields input[data-filter=untagged]').checked");
   assert.equal(await run("document.querySelector('#art-filter-fields input[data-filter=nsfw]').checked"), false);
   assert.equal(await run("document.querySelector('#art-filter-fields input[data-filter=static]').checked"), true);
+  assert.equal(await run("document.querySelector('.dimension-select').open"), false);
+  await click('.dimension-select summary');
   await click('#art-filter-fields input[data-filter=dimensions][value="512"]');
   await wait(() => cfg.artwork_filters.icon.dimensions?.includes('256') && !cfg.artwork_filters.icon.dimensions.includes('512'));
   await wait(() => artRequests.at(-1).filters.dimensions?.includes('256') && !artRequests.at(-1).filters.dimensions.includes('512'));
+  assert.equal(await run("document.querySelector('.dimension-select summary').textContent.includes('512x512')"), false);
   await click('#art-filter-reset');
   await wait("document.querySelector('#art-filter-fields input[data-filter=dimensions][value=\"512\"]').checked");
   await click('#art-filters summary');
