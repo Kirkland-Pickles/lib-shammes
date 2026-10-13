@@ -368,7 +368,20 @@ app.whenReady().then(async () => {
     option.top >= box.top + 5 && option.left >= box.left + 5
       && option.right <= box.right - 5 && box.height >= option.height * 3;
   }`), 'Folder selection should be inset inside a usable multi-row list');
+  await click('[data-page=library]');
+  await click('#d-preview-open');
+  assert.equal(await run("document.querySelector('#art-overlay').hidden"), false);
+  assert.equal(await run("document.querySelector('#art-overlay').getAnimations({ subtree: true }).length"), 0);
+  await click('#art-cancel');
+  assert.equal(await run("document.querySelector('#art-overlay').hidden"), true);
   await run("window.matchMedia = originalMatchMedia; delete globalThis.originalMatchMedia");
+  await run("document.querySelector('#d-preview-open').click(); document.querySelector('#art-cancel').click(); document.querySelector('#d-preview-open').click()");
+  await wait("!document.querySelector('#art-overlay').hidden && document.querySelector('#art-overlay').getAnimations({ subtree: true }).length === 0");
+  assert.equal(await run("document.querySelector('#art-overlay').inert"), false);
+  assert.equal(await run("getComputedStyle(document.querySelector('#art-overlay')).opacity"), '1');
+  assert.equal(await run("getComputedStyle(document.querySelector('#art-modal')).transform"), 'none');
+  await click('#art-cancel');
+  await wait("document.querySelector('#art-overlay').hidden");
   console.log('Desktop fixture checks passed');
   win.destroy();
   app.exit(0);

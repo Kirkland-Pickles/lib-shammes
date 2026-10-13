@@ -2038,6 +2038,32 @@ const ART_TABS = [['wide', 'Wide Capsule'], ['grid', 'Vertical Grid'], ['hero', 
 const modalTabs = () => S.modal?.row.source === 'desktop' ? [['icon', 'Icon']] : [...ART_TABS, ['manage', 'Manage']];
 let artModalMotion = 0;
 
+function animateArtModal(open) {
+  const overlay = $('#art-overlay');
+  const modal = $('#art-modal');
+  const motion = ++artModalMotion;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const opacity = overlay.hidden || reduced ? 0 : getComputedStyle(overlay).opacity;
+  const transform = overlay.hidden || reduced ? 'translateY(8px) scale(.99)' : getComputedStyle(modal).transform;
+  overlay.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+  overlay.inert = !open;
+  if (reduced) {
+    overlay.hidden = !open;
+    return;
+  }
+  overlay.hidden = false;
+  const options = { duration: open ? 240 : 150, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' };
+  const animations = [
+    overlay.animate([{ opacity }, { opacity: open ? 1 : 0 }], options),
+    modal.animate([{ transform }, { transform: open ? 'none' : 'translateY(4px) scale(.99)' }], options),
+  ];
+  Promise.allSettled(animations.map(animation => animation.finished)).then(() => {
+    if (motion !== artModalMotion) return;
+    overlay.hidden = !open;
+    animations.forEach(animation => animation.cancel());
+  });
+}
+
 function pickerFilters(kind) {
   return { static: true, animated: !!S.cfg.include_animated, untagged: true,
     nsfw: !!S.cfg.include_nsfw, humor: !!S.cfg.include_humor, epilepsy: true,
@@ -2136,12 +2162,7 @@ async function openArtModal(row, focusKind) {
   $('#art-grid').replaceChildren();
   renderArtTabs();
   renderArtFilters();
-  const overlay = $('#art-overlay');
-  artModalMotion++;
-  overlay.getAnimations().forEach((animation) => animation.cancel());
-  overlay.classList.remove('closing');
-  overlay.hidden = false;
-  overlay.inert = false;
+  animateArtModal(true);
   if (row.source !== 'desktop') {
     const m = S.modal;
     window.api.artLogoPosition(rowPayload(row)).then(position => {
@@ -2178,22 +2199,7 @@ function closeArtModal(save) {
   if (m.previewLoader) m.previewLoader.src = '';
   $('#art-url-entry').hidden = true;
   S.modal = null;
-  const overlay = $('#art-overlay');
-  overlay.inert = true;
-  const motion = ++artModalMotion;
-  overlay.getAnimations().forEach((animation) => animation.cancel());
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    overlay.hidden = true;
-  } else {
-    overlay.classList.add('closing');
-    const exit = overlay.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-in', fill: 'both' });
-    exit.finished.then(() => {
-      if (motion !== artModalMotion || S.modal) return;
-      overlay.hidden = true;
-      overlay.classList.remove('closing');
-      exit.cancel();
-    }).catch(() => {});
-  }
+  animateArtModal(false);
   if (save) {
     if (m.row.source === 'desktop') {
       m.row.iconChoice = m.sel.icon || null;
