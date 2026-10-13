@@ -110,13 +110,17 @@ app.whenReady().then(async () => {
   for (const dir of [batchPersonal, batchShared]) fs.mkdirSync(dir);
   const batch = createDesktop({ app, shell, nativeImage, personal: batchPersonal, shared: batchShared,
     iconDir: path.join(root, 'Batch icons') });
-  const batchRows = Array.from({ length: 4 }, (_, id) => ({ id: `batch:${id}`, exe, display: `Batch game ${id}`,
-    args: `--profile ${id}`, admin: false, iconChoice: { file: image } }));
+  const batchRows = Array.from({ length: 4 }, (_, id) => {
+    const target = path.join(root, `Batch game ${id}.exe`);
+    fs.writeFileSync(target, 'fixture');
+    return { id: `batch:${id}`, exe: target, display: `Batch game ${id}`,
+      args: `--profile ${id}`, admin: false, iconChoice: { file: image } };
+  });
   const created = await batch.apply(batchRows);
   assert.equal(created.filter(result => result.ok).length, 4, JSON.stringify(created));
   for (const result of created) {
     const link = batch.read(result.row.shortcut);
-    assert.equal(link.target, exe);
+    assert.equal(link.target, result.row.exe);
     assert.equal(link.args, result.row.args);
     assert.ok(fs.existsSync(link.icon));
     assert.equal(path.basename(result.row.shortcut), `${result.row.display}.lnk`);
@@ -130,6 +134,36 @@ app.whenReady().then(async () => {
   }
   const menus = createDesktop({ app, shell, nativeImage, personal, shared, startMenu, sharedStartMenu,
     iconDir: path.join(root, 'Menu icons') });
+  const pairedMenu = path.join(root, 'Batch Start menu');
+  fs.mkdirSync(pairedMenu);
+  const paired = createDesktop({ app, shell, nativeImage, personal: batchPersonal, shared: batchShared,
+    startMenu: pairedMenu, iconDir: path.join(root, 'Batch icons') });
+  const renderer = require('node:vm').createContext({ document: { addEventListener() {} } });
+  require('node:vm').runInContext(fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8'), renderer);
+  const pairedGames = batchRows.map(row => ({ exePath: row.exe, query: row.display }));
+  renderer.discovered = (await paired.discover(pairedGames, 'both')).rows;
+  const grouped = require('node:vm').runInContext('groupDesktopDestinations(discovered)', renderer);
+  assert.equal(grouped.length, 4);
+  assert.ok(grouped.every(group => group.length === 2));
+  const pairedResults = await paired.apply(grouped.flat());
+  assert.ok(pairedResults.every(result => result.ok), JSON.stringify(pairedResults));
+  assert.equal(fs.readdirSync(batchPersonal).filter(file => file.endsWith('.lnk')).length, 4);
+  assert.equal(fs.readdirSync(pairedMenu).filter(file => file.endsWith('.lnk')).length, 4);
+  renderer.discovered = (await paired.discover(pairedGames, 'both')).rows;
+  const rescanned = require('node:vm').runInContext('groupDesktopDestinations(discovered)', renderer);
+  assert.equal(rescanned.length, 4);
+  const pair = rescanned[0];
+  const identities = pair.map(row => fs.statSync(row.shortcut).ino);
+  const renamedPair = await paired.apply(pair.map(row => ({ ...row, display: 'Paired rename', iconChoice: { file: image } })));
+  assert.ok(renamedPair.every(result => result.ok), JSON.stringify(renamedPair));
+  for (let index = 0; index < renamedPair.length; index++) {
+    const row = renamedPair[index].row;
+    assert.equal(fs.statSync(row.shortcut).ino, identities[index]);
+    assert.equal(path.basename(row.shortcut), 'Paired rename.lnk');
+    assert.equal(paired.read(row.shortcut).icon, renamedPair[0].row.icon);
+  }
+  assert.equal(fs.readdirSync(batchPersonal).filter(file => file.endsWith('.lnk')).length, 4);
+  assert.equal(fs.readdirSync(pairedMenu).filter(file => file.endsWith('.lnk')).length, 4);
   const menuRows = (await menus.discover(games, 'both')).rows;
   assert.equal(menuRows.filter(row => row.destination === 'start-menu').length, 1);
   assert.equal(menuRows.filter(row => row.destination === 'desktop').length, 2);

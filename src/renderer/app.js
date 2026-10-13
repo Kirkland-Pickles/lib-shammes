@@ -1657,13 +1657,51 @@ async function doPruneMissing() {  let stale;
 }
 
 let desktopSave = Promise.resolve();
+const desktopEditFields = ['display', 'exe', 'args', 'admin', 'iconChoice', 'sgdbId', 'sgdbName'];
+function groupDesktopDestinations(rows) {
+  rows = rows.map(row => ({ ...row, destination: row.destination || 'desktop' }));
+  const groups = [];
+  const existing = rows.filter(row => row.shortcut);
+  for (const row of rows.filter(row => row.shortcut || !existing.some(link => folderKey(link.exe) === folderKey(row.exe)))) {
+    const group = groups.find(group => folderKey(group[0].exe) === folderKey(row.exe));
+    if (group) group.push(row);
+    else groups.push([row]);
+  }
+  for (const group of groups) {
+    group.sort((a, b) => Number(a.destination === 'start-menu') - Number(b.destination === 'start-menu'));
+    const source = group[0];
+    for (const destination of ['desktop', 'start-menu']) if (!group.some(row => row.destination === destination)) {
+      const placeholder = rows.find(row => !row.shortcut && row.destination === destination
+        && folderKey(row.exe) === folderKey(source.exe) && !groups.some(group => group.some(member => member.id === row.id)));
+      group.push({ ...source, id: placeholder?.id || `paired:${destination}:${source.id}`, destination,
+        shortcut: null, signature: undefined });
+    }
+  }
+  return groups;
+}
+function desktopMembers(row) {
+  return S.desktop.groups?.find(group => group.includes(row))?.filter(member => S.desktop.rows.includes(member)) || [row];
+}
+function desktopCards() {
+  return S.desktop.groups ? S.desktop.groups.map(group => group.find(row => S.desktop.rows.includes(row))).filter(Boolean) : S.desktop.rows;
+}
+function desktopApplyRows(cards) {
+  return cards.flatMap(row => {
+    const shared = Object.fromEntries([...desktopEditFields, 'icon', 'iconIndex'].map(key => [key, row[key]]));
+    return desktopMembers(row).map(member => ({ ...member, ...shared }));
+  });
+}
 function saveDesktopDraft(row) {
-  row.saved = false;
-  const draft = Object.fromEntries(['display', 'exe', 'args', 'admin', 'iconChoice', 'sgdbId', 'sgdbName', 'signature']
-    .map((key) => [key, row[key]]));
-  row.draft = draft;
+  const edits = Object.fromEntries(desktopEditFields.map(key => [key, row[key]]));
+  const drafts = {};
+  for (const member of desktopMembers(row)) {
+    Object.assign(member, edits, { saved: false });
+    member.art = { ...(row.art || {}) };
+    member.draft = { ...edits, signature: member.signature };
+    drafts[member.id] = member.draft;
+  }
   desktopSave = desktopSave.catch(() => {}).then(() => savePatch({ desktop_overrides: {
-    ...S.cfg.desktop_overrides, [row.id]: draft,
+    ...S.cfg.desktop_overrides, ...drafts,
   } }));
   return desktopSave;
 }
@@ -1680,7 +1718,8 @@ async function refreshDesktop(force = true) {
     await desktopSave;
     const old = new Map(d.rows.map((row) => [row.id, row]));
     const result = await window.api.desktopScan();
-    d.rows = result.rows.map((row) => {
+    const groups = S.cfg.desktop_destination === 'both' ? groupDesktopDestinations(result.rows) : null;
+    d.rows = (groups ? groups.flat() : result.rows).map((row) => {
       const previous = old.get(row.id);
       let draft = previous?.draft || S.cfg.desktop_overrides[row.id];
       if (draft?.display === '(cached)' && draft.sgdbName === '(cached)' && row.query) {
@@ -1694,6 +1733,16 @@ async function refreshDesktop(force = true) {
         draft: stale || !pending ? null : draft, art: draft?.iconChoice && !stale ? { icon: draft.iconChoice } : {},
         saved: !stale && previous?.saved, error: '' };
     });
+    d.groups = groups?.map(group => group.map(row => d.rows.find(member => member.id === row.id))) || null;
+    for (const group of d.groups || []) {
+      const source = group.find(row => row.draft) || group[0];
+      const match = group.find(row => row.sgdbId);
+      if (!source.sgdbId && match) Object.assign(source, { sgdbId: match.sgdbId, sgdbName: match.sgdbName });
+      for (const member of group) if (member !== source) {
+        for (const field of [...desktopEditFields, 'icon', 'iconIndex']) member[field] = source[field];
+        member.art = { ...source.art };
+      }
+    }
     result.warnings.forEach(line => log(line, 'desktop'));
     if (!d.rows.some((row) => row.id === d.detail)) d.detail = null;
     d.loadedKey = key;
@@ -1704,7 +1753,7 @@ async function refreshDesktop(force = true) {
 function desktopVisible() {
   const query = $('#desktop-filter').value.toLocaleLowerCase();
   const direction = $('#desktop-sort').value === 'za' ? -1 : 1;
-  return S.desktop.rows.filter((row) => (!$('#desktop-hide').checked || !row.shortcut)
+  return desktopCards().filter((row) => (!$('#desktop-hide').checked || desktopMembers(row).some(member => !member.shortcut))
     && `${row.display} ${row.exe} ${row.shortcut || ''} ${row.args}`.toLocaleLowerCase().includes(query))
     .sort((a, b) => direction * a.display.localeCompare(b.display, undefined, { sensitivity: 'base', numeric: true }));
 }
@@ -1739,11 +1788,12 @@ function renderDesktop(detail = true, rebuildGrid = true) {
   $('#desktop-destination').disabled = d.busy;
   $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu'
     : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop';
-  $('#desktop-count').textContent = `${S.desktop.rows.length} game${S.desktop.rows.length === 1 ? '' : 's'}`;
-  const pending = d.rows.filter((row) => !!row.draft).length;
+  const cards = desktopCards();
+  $('#desktop-count').textContent = `${cards.length} game${cards.length === 1 ? '' : 's'}`;
+  const pending = cards.filter(row => desktopMembers(row).some(member => member.draft)).length;
   $('#desktop-pending').hidden = pending === 0;
   $('#desktop-pending').textContent = pending ? `${pending} ready to apply` : '';
-  $('#desktop-grid-count').textContent = visible.length === S.desktop.rows.length ? '' : `${visible.length} shown`;
+  $('#desktop-grid-count').textContent = visible.length === cards.length ? '' : `${visible.length} shown`;
   $('#desktop-selection-count').textContent = `${visible.filter(row => row.checked).length} selected`;
   if (rebuildGrid) {
     const body = $('#desktop-games tbody');
@@ -1764,10 +1814,11 @@ function renderDesktop(detail = true, rebuildGrid = true) {
       body.appendChild(tr);
     }
     for (const row of visible) {
-      const state = row.error ? ['Issue', 'issue'] : row.draft ? ['Ready', 'pending']
-        : row.saving ? ['Saving…', 'pending'] : row.saved ? ['Applied', '']
-          : row.shortcut ? ['Existing', ''] : ['Not added', ''];
-      const destination = row.destination === 'start-menu' ? 'Start menu'
+      const members = desktopMembers(row);
+      const state = members.some(member => member.error) ? ['Issue', 'issue'] : members.some(member => member.saving) ? ['Saving…', 'pending']
+        : members.some(member => member.draft) ? ['Ready', 'pending'] : members.every(member => member.saved) ? ['Applied', '']
+          : members.every(member => member.shortcut) ? ['Existing', ''] : ['Not added', ''];
+      const destination = members.length > 1 ? 'Desktop + Start menu' : row.destination === 'start-menu' ? 'Start menu'
         : row.destination === 'both' ? 'Desktop + Start menu' : 'Desktop';
       const token = desktopCoverToken(row);
       const tr = document.createElement('tr');
@@ -1827,18 +1878,21 @@ function renderDesktopDetail() {
   const row = d.rows.find((item) => item.id === d.detail);
   const host = $('#desktop-detail');
   if (!row) { host.innerHTML = '<button class="text-btn detail-close" id="desktop-detail-close" type="button">Back to games</button><div class="detail-empty"><h2>Select a game</h2><p>Review its shortcut name, launcher and icon.</p></div>'; return; }
+  const members = desktopMembers(row);
+  const pending = members.some(member => member.draft);
+  const error = members.map(member => member.error).filter(Boolean).join('\n');
   const exes = [...new Set([row.exe, ...(row.candidates || []).map((item) => item.path)])];
   host.innerHTML = `<button class="text-btn detail-close" id="desktop-detail-close" type="button">Back to games</button>
     <div class="det-head"><button class="cover-button" data-desktop="icon" title="Choose icon"><img class="desktop-icon" alt="Shortcut icon"><span class="cover-edit">Change icon</span></button>
-      <div class="det-titles"><div class="page-kicker">${esc(row.destination === 'start-menu' ? 'START MENU' : 'DESKTOP SHORTCUT')}</div><h2>${esc(row.display)}</h2>
-      <div class="detail-state${row.draft ? ' pending' : ''}" role="status">${row.error ? esc(row.error) : row.draft ? 'Ready to apply' : row.saved ? 'Applied this session' : row.shortcut ? 'Existing shortcut' : 'Not added yet'}</div>
+      <div class="det-titles"><div class="page-kicker">${esc(members.length > 1 ? 'DESKTOP & START MENU' : row.destination === 'start-menu' ? 'START MENU' : 'DESKTOP SHORTCUT')}</div><h2>${esc(row.display)}</h2>
+      <div class="detail-state${pending ? ' pending' : ''}" role="status">${error ? esc(error) : pending ? 'Ready to apply' : members.every(member => member.saved) ? 'Applied this session' : members.every(member => member.shortcut) ? 'Existing shortcut' : 'Not added yet'}</div>
       <button class="btn primary" id="desktop-detail-apply" type="button" ${d.busy ? 'disabled' : ''}>${S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu' : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop'}</button></div></div>
     <label class="fld"><span>Shortcut name</span><input type="text" data-field="display" value="${esc(row.display)}"></label>
     <label class="field-label" for="desktop-exe">Launcher</label><div class="control-combo"><select id="desktop-exe" data-field="exe" title="${esc(row.exe)}">${exes.map((exe) => `<option value="${esc(exe)}" ${exe === row.exe ? 'selected' : ''}>${esc(baseName(exe))}</option>`).join('')}</select>
     <button class="btn sm" data-desktop="browse" type="button">Browse</button></div>
     <label class="fld"><span>Launch arguments</span><input type="text" data-field="args" value="${esc(row.args)}"></label>
     <label class="check desktop-admin"><input type="checkbox" data-field="admin" ${row.admin ? 'checked' : ''}> Run as administrator</label>
-    <div class="status-line">${esc(row.error || row.shortcut || '')}</div>
+    <div class="status-line">${members.map(member => esc(member.error || member.shortcut || '')).filter(Boolean).join('<br>')}</div>
     <section class="detail-section"><div class="section-head match-head"><h3>Game match</h3>
     <span class="match-status${row.sgdbId ? ' ok' : ''}" role="status">${row.sgdbId ? `${esc(row.sgdbName || '(cached)')} · ${row.sgdbId}` : 'Not matched'}</span></div>
     ${S.cfg.api_key ? '' : '<p class="muted small">Matching requires SGDB API key.</p>'}
@@ -1993,13 +2047,13 @@ async function applyDesktopShortcuts(rowsOverride = null) {
   d.busy = true; renderDesktop(false);
   try {
     await desktopSave;
-    const rows = rowsOverride || desktopSelected();
+    const rows = desktopApplyRows(rowsOverride || desktopSelected());
     if (!rows.length) return;
     const updates = rows.filter((row) => row.shortcut).length;
     const title = rowsOverride ? $('#desktop-detail-apply')?.textContent || $('#desktop-add').textContent : $('#desktop-add').textContent;
     if (!await confirmDlg(title, `Create ${rows.length - updates} shortcut(s) and update ${updates} existing shortcut(s)?`)) return;
     d.applying = true;
-    rows.forEach((row) => { row.saving = true; });
+    rows.forEach((row) => { d.rows.find(member => member.id === row.id).saving = true; });
     renderDesktop(false);
     const results = await window.api.desktopApply(rows);
     await syncCfg();

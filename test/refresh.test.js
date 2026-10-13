@@ -255,6 +255,42 @@ it('preserves Desktop matches after refresh without treating saved metadata as p
   assert.equal(state.desktop.rows[0].sgdbId, undefined);
 });
 
+it('groups the same executable despite different shortcut names and arguments', async () => {
+  const { context, state } = renderer({ cfgSet: async patch => ({ ...state.cfg, ...patch }) });
+  vm.runInContext('applyTheme = () => {}; renderChecklist = async () => {};', context);
+  const desktop = { id: 'desktop:game', destination: 'desktop', shortcut: 'Desktop/Game.lnk', signature: 'desktop-sig',
+    display: 'My game', exe: 'game.exe', args: '-one', admin: false, icon: 'custom.ico', iconIndex: 2 };
+  const menu = { ...desktop, id: 'menu:game', display: 'Other name', args: '-two', destination: 'start-menu', shortcut: 'Programs/Game.lnk', signature: 'menu-sig' };
+  context.rows = [desktop, menu, { ...desktop, id: 'desktop:another', display: 'Another game', exe: 'another.exe' },
+    { id: 'missing-menu', destination: 'start-menu', display: 'Default title', exe: 'game.exe' }];
+  state.desktop.groups = vm.runInContext('groupDesktopDestinations(rows)', context);
+  state.desktop.rows = state.desktop.groups.flat();
+  assert.equal(state.desktop.groups.length, 2);
+  assert.equal(state.desktop.groups[0][0].shortcut, desktop.shortcut);
+  assert.equal(state.desktop.groups[0][1].shortcut, menu.shortcut);
+  assert.equal(state.desktop.groups[1][1].display, 'Another game');
+  assert.equal(state.desktop.groups[1][1].args, '-one');
+  assert.equal(state.desktop.groups[1][1].icon, 'custom.ico');
+  assert.equal(state.desktop.groups[1][1].shortcut, null);
+  assert.equal(new Set(state.desktop.rows.map(row => row.id)).size, 4);
+  const payload = vm.runInContext('desktopApplyRows(desktopCards())', context);
+  assert.equal(payload[1].display, desktop.display);
+  assert.equal(payload[1].args, desktop.args);
+  assert.equal(payload[1].shortcut, menu.shortcut);
+  assert.equal(payload[1].signature, menu.signature);
+  state.cfg = { desktop_overrides: {} };
+  context.edited = state.desktop.groups[0][0];
+  context.edited.display = 'Renamed';
+  context.edited.iconChoice = { file: 'new.ico' };
+  await vm.runInContext('saveDesktopDraft(edited)', context);
+  assert.equal(state.cfg.desktop_overrides[menu.id].display, 'Renamed');
+  assert.equal(state.cfg.desktop_overrides[menu.id].iconChoice.file, 'new.ico');
+  assert.equal(state.cfg.desktop_overrides[menu.id].signature, 'menu-sig');
+  assert.equal(state.cfg.desktop_overrides[menu.id].args, '-one');
+  assert.equal(state.cfg.desktop_overrides[desktop.id].signature, 'desktop-sig');
+  assert.equal(state.desktop.groups[1][0].display, 'Another game');
+});
+
 it('stages a recovered title for a shortcut previously saved with the cache label', async () => {
   const row = { id: 'link:cached', display: '(cached)', query: 'Resolved game', exe: 'game.exe',
     shortcut: 'Desktop/(cached).lnk', signature: 'original' };

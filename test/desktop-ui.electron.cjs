@@ -7,7 +7,7 @@ app.setPath('userData', path.join(process.argv[2], 'ui-profile'));
 app.disableHardwareAcceleration();
 let cfg = { ...DEFAULTS, onboarded: false, desktop_overrides: {}, games_roots: ['C:\\Games'] };
 let scans = 0, writes = 0, iconPreviews = 0, searches = 0, externalChange = false;
-let pauseApply = false, finishApply;
+let pauseApply = false, finishApply, lastDesktopApply;
 let steamRequest;
 let steamEntries = [];
 let pendingSearches = null;
@@ -45,6 +45,7 @@ const handlers = {
   'steam:running': () => false,
   'steam:add': (req) => { steamRequest = req; return { rows: req.rows, lines: [], added: 0, updated: 1, artworkSaved: 0 }; },
   'desktop:apply': async (selected) => {
+    lastDesktopApply = selected;
     writes++;
     if (pauseApply) await new Promise((resolve) => { finishApply = resolve; });
     return selected.map((row) => {
@@ -351,10 +352,28 @@ app.whenReady().then(async () => {
   await wait(() => cfg.desktop_destination === 'start-menu');
   await idle();
   assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply to Start menu');
+  rows[1].destination = 'start-menu';
+  rows[1].shortcut = 'C:\\Programs\\Other name.lnk';
   await change('#desktop-destination', 'both');
   await wait(() => cfg.desktop_destination === 'both');
   await idle();
   assert.equal(await run("document.querySelector('#desktop-add').textContent"), 'Apply shortcuts');
+  assert.equal(await run("document.querySelector('#desktop-count').textContent"), '1 game');
+  assert.equal(await run("document.querySelectorAll('#desktop-games .game-card-row').length"), 1);
+  assert.equal(await run("document.querySelector('#desktop-games .source-label').textContent"), 'Desktop + Start menu');
+  externalChange = false;
+  await click('#desktop-games .game-name');
+  await change('#desktop-detail [data-field=display]', 'Paired variant');
+  await wait(() => Object.values(cfg.desktop_overrides).filter(row => row.display === 'Paired variant').length === 2);
+  await click('#desktop-detail-apply');
+  await wait("!!document.querySelector('#confirm-overlay')");
+  await click('#confirm-overlay [data-v="1"]');
+  await idle();
+  assert.equal(lastDesktopApply.length, 2);
+  assert.deepEqual(lastDesktopApply.map(row => row.destination).sort(), ['desktop', 'start-menu']);
+  assert.ok(lastDesktopApply.every(row => row.display === 'Paired variant'));
+  assert.equal(lastDesktopApply[0].args, lastDesktopApply[1].args);
+  assert.deepEqual(lastDesktopApply[0].iconChoice, lastDesktopApply[1].iconChoice);
   await run("document.querySelector('[data-page=library]').click(); document.querySelector('[data-page=settings]').click(); document.querySelector('[data-page=desktop]').click()");
   await wait("!document.querySelector('.route-exit') && document.querySelectorAll('.page.on').length === 1 && document.querySelector('#page-desktop').getAnimations().length === 0");
   assert.equal(await run("document.querySelector('#page-desktop').inert"), false);
