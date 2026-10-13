@@ -14,7 +14,6 @@
   --selection: #28383a;
   --green: #7fc596;
   --red: #dd787b;
-  --focus: #86b7c355;
   --ui-font: "Segoe UI", system-ui, sans-serif;
   --mono-font: Consolas, "Cascadia Mono", monospace;
   --control-height: 36px;
@@ -37,7 +36,6 @@
   --selection: #dce9e7;
   --green: #315c3b;
   --red: #963e45;
-  --focus: #426c7233;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
@@ -173,8 +171,8 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .det-titles { display: grid; min-width: 0; align-content: start; gap: 7px; }
 #d-title, #desktop-detail .det-head h2 { font-size: 16pt; font-weight: 620; line-height: 1.2; overflow-wrap: anywhere; }
 #d-identity { line-height: 1.4; }
-.detail-state, .art-pending-state { color: var(--muted); font-size: 8.5pt; }
-.detail-state.pending, .art-pending-state.pending { color: var(--accent); }
+.detail-state { color: var(--muted); font-size: 8.5pt; }
+.detail-state.pending { color: var(--accent); }
 .detail-section { border-top: 1px solid var(--line); padding: 14px 0; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .section-head h3 { font-size: 10pt; font-weight: 650; }
@@ -194,11 +192,6 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .match-status.ok { color: var(--green); }
 .match-results { margin-top: 6px; }
 .auto-match { margin-top: 7px; padding-left: 0; }
-#art-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin-bottom: 9px; }
-#art-rows .arow { display: flex; min-width: 0; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--line); }
-#art-rows .aname { width: 36px; flex: 0 0 auto; font-size: 8pt; }
-#art-rows .aval { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: 8pt; text-overflow: ellipsis; white-space: nowrap; }
-#art-rows .btn { min-height: 27px; padding: 0 6px; font-size: 8pt; }
 
 /* Cautious empty, loading and feedback states */
 .checklist { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding: 8px 0; }

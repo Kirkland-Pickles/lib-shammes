@@ -16,7 +16,6 @@ function parentDir(p) {
   if (cut < 0) return '';
   return cut === 2 && /^[a-z]:/i.test(value) ? value.slice(0, 3) : value.slice(0, cut);
 }
-const KIND_LABEL = { wide: 'Wide', grid: 'Grid', hero: 'Hero', logo: 'Logo', icon: 'Icon' };
 const S = {
   cfg: null,
   rows: [],
@@ -855,15 +854,6 @@ function resetMatchResults(label = 'Search for a game first') {
 function isCurrentMatchRequest(token, key) {
   const row = cur();
   return token === S.matchSearchToken && !!row && rowKey(row) === key;
-}
-
-function artText(row, kind) {
-  const a = row.art[kind];
-  if (!a) return '(default)';
-  if (a.file) return `file ${baseName(a.file)}`;
-  if (a.url && !a.id) return 'custom URL';
-  if (a.id) return `#${a.id} ${a.author || ''} ${a.width || ''}x${a.height || ''}`.trim();
-  return '(default)';
 }
 
 function renderDetail() {
@@ -2136,7 +2126,6 @@ function renderArtFilters() {
 async function openArtModal(row, focusKind) {
   S.modal = {
     row, tab: focusKind || 'grid',
-    focusKind: focusKind || 'grid',
     returnFocus: document.activeElement,
     sgdbId: row.sgdbId || null,
     cache: {},           // `${sgdbId}:${kind}` -> items
