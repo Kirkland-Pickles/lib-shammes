@@ -331,7 +331,6 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .modal-foot .spacer { display: block; flex: 1; }
 
 @media (max-width: 1150px) {
-  .page { padding-right: 20px; padding-left: 20px; }
   .browse-tools { gap: 7px; flex-wrap: wrap; }
   .search-wrap { flex: 1 1 190px; }
   #games-body, #desktop-games tbody { gap: 14px 10px; }
