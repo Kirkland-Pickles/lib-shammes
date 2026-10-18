@@ -319,6 +319,22 @@ it('updates managed Steam shortcuts without duplicates', async (t) => {
   assert.equal(writes, 1);
 });
 
+it('keeps shortcut settings when writing to Steam fails', async t => {
+  const original = steam.buildEntry({ appName: 'Game', exePath: 'C:/Games/game.exe', tags: [steam.MANAGED_TAG] });
+  const env = main(t, {}, {}, { loadEntries: () => [structuredClone(original)],
+    saveEntries: () => { throw new Error('EACCES fixture'); } });
+  const folder = `shortcut://${original.appid}`;
+  const key = store.folderKey(folder);
+  env.cfg.title_map[key] = 'Saved game';
+  env.cfg.exe_map[key] = 'game.exe';
+  store.rememberSgdb(env.cfg, folder, 7);
+  env.cfg.steam_launch[key] = { startDir: 'C:/Original', launchOptions: '--saved' };
+  const before = structuredClone(env.cfg);
+  await assert.rejects(env.invoke('steam:add', { kinds: [], rows: [{ source: 'shortcut', shortcutIdx: 0,
+    appid: original.appid, folder, sgdbId: 7, exe: 'C:/Games/game.exe', display: 'Renamed' }] }), /EACCES fixture/);
+  assert.deepEqual(env.cfg, before);
+});
+
 it('backs up launch settings across renames and edits', async t => {
   const original = steam.buildEntry({ appName: 'Game', exePath: 'C:/Games/game.exe', startDir: 'C:/Original', launchOptions: '--original', tags: [steam.MANAGED_TAG] });
   const entries = [{ ...original }];

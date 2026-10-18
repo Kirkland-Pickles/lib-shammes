@@ -973,6 +973,8 @@ async function addSteam(req) {
   const changes = store.loadChanges();
   const beforeWrite = artworkBackup(changes);
   let cfgChanged = false;
+  const cfgUpdates = [];
+  const journalUpdates = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || {};
     row.appliedKinds = [];
@@ -1009,13 +1011,15 @@ async function addSteam(req) {
     if (row.source === 'shortcut') {
       const oldKey = store.folderKey(row.folder);
       const newKey = store.folderKey(`shortcut://${shortcut.appid}`);
-      if (oldKey !== newKey) for (const key of ['title_map', 'exe_map', 'sgdb_map', 'sgdb_cache', 'steam_launch']) {
-        if (!Object.hasOwn(cfg[key], oldKey)) continue;
-        cfg[key][newKey] = cfg[key][oldKey];
-        delete cfg[key][oldKey];
-        cfgChanged = true;
-      }
-      if (row.sgdbId) { store.rememberSgdb(cfg, `shortcut://${shortcut.appid}`, row.sgdbId); cfgChanged = true; }
+      cfgUpdates.push(() => {
+        if (oldKey !== newKey) for (const key of ['title_map', 'exe_map', 'sgdb_map', 'sgdb_cache', 'steam_launch']) {
+          if (!Object.hasOwn(cfg[key], oldKey)) continue;
+          cfg[key][newKey] = cfg[key][oldKey];
+          delete cfg[key][oldKey];
+          cfgChanged = true;
+        }
+        if (row.sgdbId) { store.rememberSgdb(cfg, `shortcut://${shortcut.appid}`, row.sgdbId); cfgChanged = true; }
+      });
     }
     row.shortcutIdx = r.index;
     row.appid = shortcut.appid;
@@ -1033,17 +1037,19 @@ async function addSteam(req) {
           try { fs.copyFileSync(source, dest); } finally { finish(); }
         }
       }
-      for (const item of changes.shortcuts) {
-        if (item.appid === old.appid) { item.appid = shortcut.appid; item.appName = shortcut.AppName; }
-      }
-      for (const item of changes.fields) {
-        if (item.appid === old.appid) item.appid = shortcut.appid;
-      }
-      for (const field of ['AppName', 'StartDir', 'LaunchOptions']) {
-        if (old[field] !== shortcut[field] && !changes.fields.some(item => item.appid === shortcut.appid && item.field === field)) {
-          changes.fields.push({ appid: shortcut.appid, field, before: old[field] || '' });
+      journalUpdates.push(() => {
+        for (const item of changes.shortcuts) {
+          if (item.appid === old.appid) { item.appid = shortcut.appid; item.appName = shortcut.AppName; }
         }
-      }
+        for (const item of changes.fields) {
+          if (item.appid === old.appid) item.appid = shortcut.appid;
+        }
+        for (const field of ['AppName', 'StartDir', 'LaunchOptions']) {
+          if (old[field] !== shortcut[field] && !changes.fields.some(item => item.appid === shortcut.appid && item.field === field)) {
+            changes.fields.push({ appid: shortcut.appid, field, before: old[field] || '' });
+          }
+        }
+      });
     } else if (r.existing) {
       lines.push(`  '${row.display}' is already in Steam`);
     } else {
@@ -1073,6 +1079,8 @@ async function addSteam(req) {
   let bak = null;
   try {
     if (shortcutsChanged) bak = steam.saveEntries(sp, uid, entries);
+    cfgUpdates.forEach(update => update());
+    journalUpdates.forEach(update => update());
     store.saveChanges(changes);
   } catch (err) {
     throw new Error(`FAILED to write shortcuts.vdf: ${String((err && err.message) || err)}`);
