@@ -11,6 +11,7 @@ let pauseApply = false, finishApply, lastDesktopApply;
 let steamRequest;
 let steamEntries = [];
 let pendingSearches = null;
+let failNextArtList = false;
 const artRequests = [];
 const artworkWrites = [];
 const rows = [1, 2].map((i) => ({ id: `link:${i}`, shortcut: `C:\\Desktop\\Variant ${i}.lnk`, signature: 'original',
@@ -57,6 +58,7 @@ const handlers = {
   },
   'art:list': (req) => {
     artRequests.push(req);
+    if (failNextArtList) { failNextArtList = false; throw new Error('temporary fixture failure'); }
     return Array.from({ length: req.page ? 2 : 30 }, (_, i) => ({ id: req.page * 30 + i + 1,
       url: `${icon}#${req.page * 30 + i}`, thumb: icon, width: 2, height: 2 }));
   },
@@ -338,7 +340,10 @@ app.whenReady().then(async () => {
   await click('#games .cover-wrap');
   await click('#games .cover-wrap');
   assert.equal(await run("document.querySelector('#art-overlay').hidden"), true);
+  failNextArtList = true;
   await run("document.querySelector('#games .cover-wrap').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }))");
+  await wait("document.querySelector('#art-grid .art-load-error button')?.textContent === 'Retry'");
+  await click('#art-grid .art-load-error button');
   await wait("document.querySelectorAll('#art-grid > .thumb').length > 0");
   assert.equal(await run("document.querySelector('#art-tabs .on').textContent.startsWith('Vertical Grid')"), true);
   await click('#art-grid > .thumb .thumb-select');

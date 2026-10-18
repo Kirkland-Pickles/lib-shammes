@@ -2483,6 +2483,22 @@ async function loadArtTabs(more = false) {
   } catch (e) {
     if (S.modal !== m || artworkCacheKey(m) !== key) return;
     artStatus(`Load failed: ${e.message || e}`);
+    if (start === 0 && !page.items.length) {
+      const grid = $('#art-grid');
+      grid.replaceChildren();
+      const panel = document.createElement('div');
+      panel.className = 'art-load-error';
+      const message = document.createElement('div');
+      message.className = 'muted';
+      message.textContent = `Load failed: ${e.message || e}`;
+      const retry = document.createElement('button');
+      retry.className = 'btn sm';
+      retry.type = 'button';
+      retry.textContent = 'Retry';
+      retry.addEventListener('click', () => loadArtTabs());
+      panel.append(message, retry);
+      grid.append(panel);
+    }
     if ($('#art-more')) $('#art-more').disabled = false;
   }
 }
