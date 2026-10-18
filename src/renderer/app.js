@@ -3111,7 +3111,6 @@ async function boot() {
     setBar(p.current || 0, p.total || 0);
     if (p.label) status(p.label);
   });
-  window.api.onLog((line) => log(line));
   if (!S.cfg.onboarded) {
     navReset('onboarding');
   } else {
