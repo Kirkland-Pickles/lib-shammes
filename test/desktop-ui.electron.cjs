@@ -162,6 +162,7 @@ app.whenReady().then(async () => {
   await wait(() => cfg.include_animated === true);
   await click('[data-page=desktop]');
   await idle();
+  cfg.artwork_filters.icon = {};
   await click('#desktop-detail [data-desktop=icon]');
   await wait("document.querySelector('#art-id').value === '17'");
   await wait(() => artRequests.length > 0);
@@ -181,6 +182,7 @@ app.whenReady().then(async () => {
     return fields.scrollWidth <= fields.clientWidth && groups[0].right <= groups[1].left
       && document.querySelector('.thumbScroll').getBoundingClientRect().height > 100;
   })()`), true);
+  await run("document.querySelector('#art-filter-fields input[data-filter=humor]').checked = false");
   await click('#art-filter-fields input[data-filter=humor]');
   await wait(() => cfg.artwork_filters?.icon?.humor === true);
   await click('#art-filter-fields input[data-filter=untagged]');
@@ -209,6 +211,13 @@ app.whenReady().then(async () => {
   }`);
   await wait(() => cfg.artwork_filters.icon.dimensions?.length === 0);
   assert.equal(await run("document.querySelector('.dimension-select summary').textContent.trim()"), 'Any size');
+  await run("document.querySelector('#art-filter-fields input[data-filter=humor]').checked = false");
+  await click('#art-filter-fields input[data-filter=humor]');
+  await wait(() => cfg.artwork_filters.icon.humor === true);
+  assert.equal(cfg.artwork_filters.icon.static, undefined);
+  assert.equal(cfg.artwork_filters.icon.animated, undefined);
+  assert.equal(artRequests.at(-1).filters.static, true);
+  assert.equal(artRequests.at(-1).filters.animated, false);
   assert.equal(await run("document.querySelector('#art-apply').textContent"), 'Save selection');
   await click('#art-filter-reset');
   await wait("document.querySelector('#art-filter-fields input[data-filter=dimensions][value=\"512\"]').checked");
