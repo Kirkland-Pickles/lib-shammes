@@ -210,7 +210,7 @@ function paintRoute() {
   $$('.nav').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
   $('.navigation-row').hidden = page === 'onboarding';
   $('.steam-controls').hidden = !['library', 'settings'].includes(page);
-  if (page === 'settings') renderSettingsCards();
+  if (page === 'settings') { renderSettingsCards(); renderChecklist(); }
   if (page === 'onboarding') {
     renderOnboarding();
   }
