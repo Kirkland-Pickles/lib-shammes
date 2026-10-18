@@ -82,6 +82,5 @@ function stripTrailingGroup(key) {
 }
 
 module.exports = {
-  RELEASE_GROUPS, PARENS_GROUPS, PARENS_GENERICS, DASH_SUFFIX_GROUPS,
-  tagPatterns, TAG_PATTERNS, toSearchQuery, stripTrailingGroup,
+  RELEASE_GROUPS, TAG_PATTERNS, toSearchQuery, stripTrailingGroup,
 };

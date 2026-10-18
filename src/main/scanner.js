@@ -242,6 +242,5 @@ function safeSize(p) {
 }
 
 module.exports = {
-  DIR_BLACKLIST, EXE_BLACKLIST_SUBSTRINGS,
-  cleanFolderName, pickExe, scanGames, findExecutables,
+  cleanFolderName, scanGames, findExecutables,
 };
