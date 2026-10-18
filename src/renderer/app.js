@@ -2103,7 +2103,11 @@ function animateArtModal(open) {
     overlay.animate([{ opacity }, { opacity: open ? 1 : 0 }], options),
     modal.animate([{ transform }, { transform: open ? 'none' : 'translateY(4px) scale(.99)' }], options),
   ];
-  Promise.allSettled(animations.map(animation => animation.finished)).then(() => {
+  const finished = Promise.allSettled(animations.map(animation => animation.finished));
+  let timer;
+  const fallback = new Promise((resolve) => { timer = setTimeout(resolve, options.duration + 250); });
+  finished.then(() => clearTimeout(timer));
+  Promise.race([finished, fallback]).then(() => {
     if (motion !== artModalMotion) return;
     overlay.hidden = !open;
     animations.forEach(animation => animation.cancel());
