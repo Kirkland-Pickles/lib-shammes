@@ -2289,7 +2289,6 @@ function closeArtModal(save) {
     if (m.row.source === 'desktop') {
       m.row.iconChoice = m.sel.icon || null;
       m.row.art = { ...m.sel };
-      m.row.pendingArt = true;
       const match = m.games.find((game) => game.id === m.sgdbId);
       if (match && m.sgdbId !== m.row.sgdbId) { m.row.display = m.row.sgdbName = match.name; }
       m.row.sgdbId = m.sgdbId;
@@ -2444,10 +2443,6 @@ async function openArtPreview(item) {
       if (S.modal === m && m.previewItem === item) artStatus('Full-size image could not load. Showing the preview.');
     });
   }
-}
-
-function filters() {
-  return { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor };
 }
 
 async function loadArtTabs(more = false) {
