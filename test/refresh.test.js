@@ -15,6 +15,20 @@ function renderer(api) {
   return { context, button, state: vm.runInContext('S', context), refresh: () => vm.runInContext('doRefresh()', context) };
 }
 
+it('does not open Clear confirmation or read Steam while another library operation is active', async () => {
+  let confirms = 0;
+  let reads = 0;
+  const { context, state } = renderer({ steamRead: async () => { reads++; return []; } });
+  context.confirmDlg = () => { confirms++; return Promise.resolve(true); };
+  for (const busy of ['applyingSteam', 'preparingArt', 'loadingLibrary']) {
+    state[busy] = true;
+    await vm.runInContext('doClear()', context);
+    state[busy] = false;
+  }
+  assert.equal(confirms, 0);
+  assert.equal(reads, 0);
+});
+
 it('invalidates desktop cover previews when switching back to executable icons', async () => {
   const requests = [];
   const { context } = renderer({ desktopIcon: async (file, index) => { requests.push([file, index]); return file; } });
