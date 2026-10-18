@@ -301,7 +301,7 @@ function renderOnboarding() {
 }
 function steamCard() {
   const d = document.createElement('div');
-  d.className = 'card settings-block settings-connection';
+  d.className = 'card settings-block';
   // No Detect button by design: detection runs itself on boot and every time
   // this card appears. Browse is the only manual action.
   d.innerHTML = `<h3>Steam installation</h3>
@@ -377,7 +377,7 @@ function steamCard() {
 
 function keyCard() {
   const d = document.createElement('div');
-  d.className = 'card settings-block settings-artwork';
+  d.className = 'card settings-block';
   d.innerHTML = `<h3>SteamGridDB API key</h3>
     <div class="row"><input type="password" data-r="key" style="flex:1" placeholder="paste key…" autocomplete="off">
     <button class="btn sm" data-r="show">Show</button></div>
@@ -466,7 +466,7 @@ function renderSettingsCards() {
   host.appendChild(keyCard());
   host.appendChild(foldersCard());
   const prefs = document.createElement('div');
-  prefs.className = 'card settings-block settings-defaults';
+  prefs.className = 'card settings-block';
   prefs.innerHTML = `<h3>Artwork defaults</h3>
     <div class="row" data-r="kinds"></div>
     <div class="row" data-r="flags"></div>
@@ -502,7 +502,7 @@ function renderSettingsCards() {
   q('missing').addEventListener('change', (e) => savePatch({ only_missing: e.target.checked }));
   host.appendChild(prefs);
   const danger = document.createElement('div');
-  danger.className = 'card settings-block settings-danger';
+  danger.className = 'card settings-block';
   danger.innerHTML = `<h3>Danger zone</h3>
     <div class="row"><button class="btn danger sm" data-r="purge">Purge</button>
     <button class="btn danger sm" data-r="wipe">Delete app data</button></div>`;
@@ -861,7 +861,6 @@ function renderDetail() {
   const row = cur();
   const empty = $('#detail-empty');
   const content = $('#detail-content');
-  $('#page-library').classList.toggle('details-open', !!row);
   if (!row) {
     empty.hidden = false;
     content.hidden = true;
@@ -1789,7 +1788,6 @@ function renderDesktop(detail = true, rebuildGrid = true) {
   const visible = desktopVisible();
   const selected = desktopSelected();
   $('#page-desktop').classList.toggle('bulk-selection', !!d.bulk);
-  $('#page-desktop').classList.toggle('details-open', !!d.detail);
   $('#desktop-multiple').setAttribute('aria-pressed', String(!!d.bulk));
   $('#desktop-multiple').disabled = d.busy;
   $('#desktop-destination').value = S.cfg.desktop_destination || 'desktop';
@@ -1836,7 +1834,7 @@ function renderDesktop(detail = true, rebuildGrid = true) {
       tr.dataset.key = row.id;
       const subtitle = [baseName(row.exe) || 'No launcher', row.args || ''].filter(Boolean).join(' · ');
       tr.innerHTML = `<td><div class="game-tile"><button class="game-open" type="button" aria-label="Open details for ${esc(row.display)}">
-        <div class="cover-wrap desktop-cover-wrap">
+        <div class="cover-wrap">
           <div class="cover-fallback"><img src="../assets/app-icon.svg" alt=""><span>${esc(initials(row.display))}</span></div>
           <img class="game-cover desktop-cover" data-cover-token="${esc(token)}" alt="Shortcut icon for ${esc(row.display)}" decoding="async" hidden>
         </div>
@@ -1887,13 +1885,12 @@ function renderDesktopDetail() {
   const d = S.desktop;
   const row = d.rows.find((item) => item.id === d.detail);
   const host = $('#desktop-detail');
-  if (!row) { host.innerHTML = '<button class="text-btn detail-close" id="desktop-detail-close" type="button">Back to games</button><div class="detail-empty"><h2>Select a game</h2><p>Review its shortcut name, launcher and icon.</p></div>'; return; }
+  if (!row) { host.innerHTML = '<div class="detail-empty"><h2>Select a game</h2><p>Review its shortcut name, launcher and icon.</p></div>'; return; }
   const members = desktopMembers(row);
   const pending = members.some(member => member.draft);
   const error = members.map(member => member.error).filter(Boolean).join('\n');
   const exes = [...new Set([row.exe, ...(row.candidates || []).map((item) => item.path)])];
-  host.innerHTML = `<button class="text-btn detail-close" id="desktop-detail-close" type="button">Back to games</button>
-    <div class="det-head"><button class="cover-button" data-desktop="icon" title="Choose icon"><img class="desktop-icon" alt="Shortcut icon"><span class="cover-edit">Change icon</span></button>
+  host.innerHTML = `<div class="det-head"><button class="cover-button" data-desktop="icon" title="Choose icon"><img class="desktop-icon" alt="Shortcut icon"><span class="cover-edit">Change icon</span></button>
       <div class="det-titles"><div class="page-kicker">${esc(members.length > 1 ? 'DESKTOP & START MENU' : row.destination === 'start-menu' ? 'START MENU' : 'DESKTOP SHORTCUT')}</div><h2>${esc(row.display)}</h2>
       <div class="detail-state${pending ? ' pending' : ''}" role="status">${error ? esc(error) : pending ? 'Ready to apply' : members.every(member => member.saved) ? 'Applied this session' : desktopLocationState(members) === 'Existing' ? 'Existing shortcut' : desktopLocationState(members) === 'Not added' ? 'Not added yet' : desktopLocationState(members)}</div>
       <button class="btn primary" id="desktop-detail-apply" type="button" ${d.busy ? 'disabled' : ''}>${S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu' : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop'}</button></div></div>
@@ -1910,8 +1907,7 @@ function renderDesktopDetail() {
     <div class="control-combo match-results"><select data-desktop="matches" aria-label="SteamGridDB search results"><option value="">Search for a game first</option></select><button class="btn sm" data-desktop="use" disabled>Use match</button></div>
     <button class="text-btn auto-match" data-desktop="auto" ${S.cfg.api_key ? '' : 'disabled'}>Match automatically</button></section>`;
   const image = $('.desktop-icon', host);
-  image.onload = () => image.classList.add('loaded');
-  image.onerror = () => { image.classList.remove('loaded'); log(`Icon preview could not load: ${row.display}`, 'desktop'); };
+  image.onerror = () => log(`Icon preview could not load: ${row.display}`, 'desktop');
   const choice = row.iconChoice;
   const preview = choice?.file ? localArtPreview(choice.file)
     : choice?.url ? Promise.resolve(choice.thumb || choice.url)
@@ -2014,12 +2010,6 @@ function wireDesktop() {
     const row = S.desktop.rows.find(item => item.id === e.target.closest('.game-card-row')?.dataset.key);
     if (row) openArtModal(row, 'icon');
   };
-  $('#desktop-detail').addEventListener('click', (e) => {
-    if (!e.target.closest('#desktop-detail-close')) return;
-    S.desktop.detail = null;
-    renderDesktop(false, false);
-    renderDesktopDetail();
-  });
   $('#desktop-download').onclick = handleAction('Find Desktop icons', async () => {
     const d = S.desktop;
     if (d.busy) return;
@@ -2800,11 +2790,6 @@ function wireToolbar() {
     if (S.applyingSteam || S.preparingArt || S.loadingLibrary || !e.target.closest('.cover-wrap')) return;
     const row = rowByKey(e.target.closest('.game-card-row')?.dataset.key);
     if (row) openArtModal(row, 'grid');
-  });
-  $('#detail-close').addEventListener('click', () => {
-    S.detailKey = null;
-    updateLibrarySelection();
-    renderDetail();
   });
   $('#d-apply').addEventListener('click', applyDetails);
   $('#d-exe-pick').addEventListener('change', (e) => { e.target.title = e.target.value; });
