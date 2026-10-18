@@ -136,23 +136,23 @@ ipcMain.handle('steam:open-grid', async () => {
 
 ipcMain.handle('steam:running', () => steam.isSteamRunning());
 
-ipcMain.handle('steam:kill', async () => steam.killSteam());
+ipcMain.handle('steam:kill', () => withSteamControl(() => steam.killSteam()));
 
-ipcMain.handle('steam:launch', async () => {
+ipcMain.handle('steam:launch', () => withSteamControl(async () => {
   if (!cfg.steam_path) throw new Error('Set Steam path first in Settings.');
   if (!(await steam.hasSteamExe(cfg.steam_path))) {
     throw new Error(`No steam.exe in ${cfg.steam_path} - check Settings.`);
   }
   return steam.launchSteam(cfg.steam_path);
-});
+}));
 
-ipcMain.handle('steam:restart', async () => {
+ipcMain.handle('steam:restart', () => withSteamControl(async () => {
   if (!cfg.steam_path) throw new Error('Set Steam path first in Settings.');
   if (!(await steam.hasSteamExe(cfg.steam_path))) {
     throw new Error(`No steam.exe in ${cfg.steam_path} - check Settings.`);
   }
   return steam.restartSteam(cfg.steam_path);
-});
+}));
 
 ipcMain.handle('steam:prune', async () => {
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
@@ -756,6 +756,13 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
 }
 
 let steamWriteBusy = false;
+async function withSteamControl(action) {
+  if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
+  steamWriteBusy = true;
+  try { return await action(); }
+  finally { steamWriteBusy = false; }
+}
+
 async function withSteamClosed(write) {
   if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');

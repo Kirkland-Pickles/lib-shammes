@@ -180,6 +180,32 @@ it('closes Steam before writing artwork and reopens it once afterward', async t 
   assert.deepEqual(events, ['closed', 'opened']);
 });
 
+it('blocks manual Steam controls while an artwork write owns the Steam lock', async t => {
+  let announceRunningCheck;
+  let releaseRunningCheck;
+  const runningCheckStarted = new Promise(resolve => { announceRunningCheck = resolve; });
+  const runningCheckGate = new Promise(resolve => { releaseRunningCheck = resolve; });
+  let restarts = 0;
+  let launches = 0;
+  let kills = 0;
+  const env = main(t, {}, {}, {
+    isSteamRunning: async () => { announceRunningCheck(); await runningCheckGate; return false; },
+    hasSteamExe: () => true,
+    restartSteam: async () => { restarts++; },
+    launchSteam: async () => { launches++; },
+    killSteam: async () => { kills++; },
+  });
+  env.cfg.api_key = 'fixture';
+  const writing = env.download(native({ grid: { url: 'https://test.invalid/art.png' } }));
+  await runningCheckStarted;
+  for (const control of ['steam:kill', 'steam:launch', 'steam:restart']) {
+    await assert.rejects(env.invoke(control), /Steam changes are already being applied/);
+  }
+  releaseRunningCheck();
+  await writing;
+  assert.deepEqual([kills, launches, restarts], [0, 0, 0]);
+});
+
 it('does not write when Steam refuses to close', async t => {
   const env = main(t, {}, {}, {
     isSteamRunning: async () => true,
