@@ -304,6 +304,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .tab.on::after { position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; background: var(--accent); content: ""; }
 .thumbScroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 2px; }
 #art-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; align-items: start; }
+#art-grid .art-load-error { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
 #art-grid[hidden], #art-preview[hidden] { display: none !important; }
 .thumb { position: relative; min-width: 0; }
 .thumb-select { display: block; width: 100%; min-height: 0; overflow: hidden; padding: 5px; border: 1px solid var(--line); background: var(--bg); text-align: left; }
