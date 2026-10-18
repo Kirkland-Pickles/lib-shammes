@@ -712,6 +712,7 @@ function updateLibrarySelection() {
   const button = $('#btn-add');
   const busy = S.applyingSteam || S.preparingArt || S.loadingLibrary;
   button.disabled = busy || !canApply;
+  $('#btn-clear').disabled = busy;
   button.textContent = !S.bulk || !selected.length ? 'Apply all to Steam'
     : applyRows.length === 1 && canWriteShortcut(applyRows[0]) && !applyRows[0].inSteam
       ? 'Add to Steam' : applyRows.length === 1 && applyRows[0].source === 'steam'
@@ -1260,6 +1261,7 @@ async function refreshLibrary() {
 }
 
 async function doClear() {
+  if (S.applyingSteam || S.preparingArt || S.loadingLibrary) return;
   if (!await confirmDlg('Clear unapplied changes?',
     "Clear changes that haven't been applied to Steam?\n\nNames and launchers already in Steam will be kept. Artwork already written to Steam won't be deleted. Your selection will stay the same.",
     { confirmText: 'Clear' })) return;
