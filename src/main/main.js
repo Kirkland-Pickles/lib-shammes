@@ -63,10 +63,6 @@ function createWindow() {
     if (cmd === 'browser-backward') { send('nav:cmd', 'back'); e.preventDefault(); }
     else if (cmd === 'browser-forward') { send('nav:cmd', 'fwd'); e.preventDefault(); }
   });
-  if (process.env.EXAMPLE_SMOKE) {
-    console.log('READY sgdb-app');
-    setTimeout(() => app.quit(), 3000);
-  }
 }
 
 // ---------------------------------------------------------------- config
@@ -125,14 +121,6 @@ ipcMain.handle('steam:browse', async () => {
 ipcMain.handle('steam:users', (_e, steamPath) => steam.getUserPersonas(steamPath));
 
 ipcMain.handle('steam:verify', (_e, steamPath) => steam.hasSteamExe(steam.normalizeSteamPath(steamPath)));
-
-ipcMain.handle('steam:open-grid', async () => {
-  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
-  const gd = steam.gridDir(cfg.steam_path, cfg.steam_user_id);
-  fs.mkdirSync(gd, { recursive: true });
-  await shell.openPath(gd);
-  return true;
-});
 
 ipcMain.handle('steam:running', () => steam.isSteamRunning());
 

@@ -17,7 +17,6 @@ contextBridge.exposeInMainWorld('api', {
   steamVerify: (p) => ipcRenderer.invoke('steam:verify', p),
   steamBrowse: () => ipcRenderer.invoke('steam:browse'),
   steamUsers: (steamPath) => ipcRenderer.invoke('steam:users', steamPath),
-  steamOpenGrid: () => ipcRenderer.invoke('steam:open-grid'),
   steamRunning: () => ipcRenderer.invoke('steam:running'),
   steamKill: () => ipcRenderer.invoke('steam:kill'),
   steamLaunch: () => ipcRenderer.invoke('steam:launch'),
@@ -53,9 +52,8 @@ contextBridge.exposeInMainWorld('api', {
   findExecutables: (req) => ipcRenderer.invoke('scan:find-executables', req),
   matchAuto: (req) => ipcRenderer.invoke('match:auto', req),
   artDownload: (req) => ipcRenderer.invoke('art:download', req),
-  // progress + log stream from long jobs
+  // progress stream from long jobs
   onProgress: (fn) => ipcRenderer.on('job:progress', (_e, p) => fn(p)),
-  onLog: (fn) => ipcRenderer.on('job:log', (_e, line) => fn(line)),
   // mouse back/forward buttons from the OS
   onNav: (fn) => ipcRenderer.on('nav:cmd', (_e, dir) => fn(dir)),
 });
