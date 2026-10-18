@@ -41,13 +41,13 @@
 [hidden] { display: none !important; }
 html, body { width: 100%; height: 100%; min-width: 0; }
 body { display: flex; flex-direction: column; overflow: hidden; color: var(--fg); background: var(--bg); font: 10pt var(--ui-font); -webkit-font-smoothing: antialiased; user-select: none; }
-input, textarea, [contenteditable="true"] { user-select: text; }
+input { user-select: text; }
 button, input, select { font: inherit; color: inherit; }
 button, select, input[type="checkbox"] { cursor: pointer; }
 input:not([type="checkbox"]), select { min-width: 0; height: var(--control-height); padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); }
 input:not([type="checkbox"]):focus, select:focus { outline: none; border-color: var(--accent); }
 input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); flex: 0 0 auto; }
-button:focus-visible, a:focus-visible, input[type="checkbox"]:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible, input[type="checkbox"]:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 select[size] option { padding: 4px 6px; }
 select[size] option:checked { color: var(--fg); background: var(--selection); }
 .settings-folders select[size] { height: 112px; padding: 6px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
@@ -127,7 +127,6 @@ button .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stro
 #games-body, #desktop-games tbody { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 17px 10px; align-content: start; }
 .game-card-row { display: block; min-width: 0; border: 1px solid transparent; border-radius: var(--radius); cursor: pointer; outline: 0; }
 .game-card-row:hover { border-color: var(--border); }
-.game-card-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .game-card-row.sel { border-color: var(--accent); background: color-mix(in srgb, var(--selection) 75%, transparent); }
 .game-card-row.is-checked { border-color: var(--accent); background: var(--selection); }
 .game-card-row td { display: block; }
@@ -157,7 +156,6 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .game-subtitle { display: block; min-width: 0; color: var(--muted); font-size: 8pt; overflow-wrap: break-word; }
 .list-empty { display: flex; min-height: 200px; grid-column: 1 / -1; align-items: center; justify-content: center; padding: 25px; color: var(--muted); text-align: center; }
 .detail { position: relative; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: auto; border-left: 1px solid var(--line); padding: 0 12px 8px 20px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; scrollbar-gutter: stable; }
-.detail-close { display: none; align-self: flex-start; }
 .detail-empty { display: flex; min-height: 230px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; color: var(--muted); }
 .detail-empty h2 { color: var(--fg); font-size: 13pt; font-weight: 600; }
 .detail-empty p { max-width: 235px; line-height: 1.5; }

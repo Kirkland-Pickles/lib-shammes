@@ -79,7 +79,7 @@
         <button class="btn sm" id="btn-download"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Find artwork</button>
         <button class="btn sm" id="btn-refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button>
       </div>
-      <div class="action-group manage-actions" aria-label="Steam shortcuts">
+      <div class="action-group" aria-label="Steam shortcuts">
         <button class="btn sm" id="btn-remove">Remove from Steam</button>
         <button class="btn sm" id="btn-prune" title="Remove shortcuts the app added whose games no longer exist">Prune missing</button>
       </div>
@@ -97,10 +97,10 @@
           <option value="az">Name A to Z</option><option value="za">Name Z to A</option>
         </select>
       </label>
-      <label class="check filter-toggle" title="Hide games installed through Steam"><input type="checkbox" id="hide-owned"> Hide installed</label>
+      <label class="check" title="Hide games installed through Steam"><input type="checkbox" id="hide-owned"> Hide installed</label>
       <button class="btn sm" id="select-multiple" aria-pressed="false">Select multiple</button>
       <span id="selection-count" class="selection-count">0 selected</span>
-      <label class="check filter-toggle select-all"><input type="checkbox" id="sel-all"> Select all</label>
+      <label class="check select-all"><input type="checkbox" id="sel-all"> Select all</label>
       <button class="text-btn clear-action" id="btn-clear">Clear</button>
     </div>
     <div class="library-workspace">
@@ -111,7 +111,6 @@
         </div>
       </section>
       <aside class="detail" id="detail" aria-label="Game details">
-        <button class="text-btn detail-close" id="detail-close" type="button">Back to games</button>
         <div class="detail-empty" id="detail-empty">
           <h2>Select a game</h2>
           <p>Select a cover to review its match, launcher and artwork.</p>
@@ -175,10 +174,10 @@
       <label class="tool-select">Sort
         <select id="desktop-sort" aria-label="Sort Desktop games"><option value="az">Name A to Z</option><option value="za">Name Z to A</option></select>
       </label>
-      <label class="check filter-toggle"><input type="checkbox" id="desktop-hide"> Hide existing shortcuts</label>
+      <label class="check"><input type="checkbox" id="desktop-hide"> Hide existing shortcuts</label>
       <button class="btn sm" id="desktop-multiple" aria-pressed="false">Select multiple</button>
       <span id="desktop-selection-count" class="selection-count">0 selected</span>
-      <label class="check filter-toggle select-all"><input type="checkbox" id="desktop-all"> Select all</label>
+      <label class="check select-all"><input type="checkbox" id="desktop-all"> Select all</label>
     </div>
     <div class="library-workspace">
       <section class="list-panel" aria-label="Desktop games">
@@ -187,13 +186,11 @@
           <table id="desktop-games" role="presentation"><tbody role="list"></tbody></table>
         </div>
       </section>
-      <aside class="detail" id="desktop-detail" aria-label="Desktop shortcut details">
-        <button class="text-btn detail-close" id="desktop-detail-close" type="button">Back to games</button>
-      </aside>
+      <aside class="detail" id="desktop-detail" aria-label="Desktop shortcut details"></aside>
     </div>
   </section>
 
-  <section class="page settings-page" id="page-settings">
+  <section class="page" id="page-settings">
     <header class="settings-heading">
       <div><div class="page-kicker">PREFERENCES</div><h1>Settings</h1><p class="sub">Manage connections, folders and artwork.</p></div>
       <div class="row">
@@ -214,7 +211,7 @@
 
 <div class="progress" id="progwrap" hidden><div id="fill"></div></div>
 <div id="bottomdock" class="collapsed">
-  <div id="dockhead"><span class="caption">Activity</span></div>
+  <div id="dockhead"><span>Activity</span></div>
   <div id="log" aria-live="polite"></div>
 </div>
 <footer id="statusbar"><span id="status" role="status"></span><button class="dock-toggle" id="dock-toggle" type="button" aria-expanded="false" aria-controls="log">Show log</button></footer>
@@ -227,7 +224,7 @@
       <input id="art-q" type="search" placeholder="Search SteamGridDB" aria-label="Search SteamGridDB" autocomplete="off">
       <button class="btn sm" id="art-search">Search</button>
       <select id="art-games" aria-label="Matching games"></select>
-      <label class="muted" for="art-id">ID</label><input id="art-id" type="text" class="w-id" aria-label="SteamGridDB game ID">
+      <label class="muted" for="art-id">ID</label><input id="art-id" type="text" aria-label="SteamGridDB game ID">
       <button class="btn sm" id="art-load">Load</button>
     </div>
     <div class="tabs" id="art-tabs" role="tablist" aria-label="Artwork types"></div>
