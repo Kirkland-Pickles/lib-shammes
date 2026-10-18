@@ -229,6 +229,23 @@ it('keeps Desktop bulk selections across filters and applies all visible games w
   assert.deepEqual(targets(), [state.desktop.rows[1]]);
 });
 
+it('keeps Desktop forced icon types out of saved filters when another picker filter changes', () => {
+  const { context, state } = renderer({});
+  state.cfg = { include_animated: true, artwork_filters: { icon: { humor: false } } };
+  state.modal = { tab: 'icon', row: { source: 'desktop' } };
+  const request = vm.runInContext("pickerFilters('icon')", context);
+  assert.equal(request.static, true);
+  assert.equal(request.animated, false);
+  const inputs = [
+    { disabled: true, checked: true, dataset: { filter: 'static' }, value: '' },
+    { disabled: true, checked: false, dataset: { filter: 'animated' }, value: '' },
+    { disabled: false, checked: true, dataset: { filter: 'humor' }, value: '' },
+  ];
+  const saved = vm.runInContext("collectSavedPickerFilters('icon', inputs)", Object.assign(context, { inputs }));
+  assert.deepEqual({ ...saved }, { humor: true });
+  assert.equal(state.cfg.artwork_filters.icon.animated, undefined);
+});
+
 it('preserves Desktop matches after refresh without treating saved metadata as pending edits', async () => {
   const rows = [1, 2].map(id => ({ id, display: 'Game ' + id, exe: 'game.exe', signature: 'same' }));
   const { context, state } = renderer({ desktopScan: async () => ({ rows, warnings: [] }) });

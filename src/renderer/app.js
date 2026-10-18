@@ -2127,12 +2127,29 @@ const ART_DIMENSIONS = {
 };
 const dimensionLabel = (kind, value) => kind === 'icon' ? `${value}x${value}` : value;
 
-function pickerFilters(kind) {
+function savedPickerFilters(kind) {
   return { static: true, animated: !!S.cfg.include_animated, untagged: true,
     nsfw: !!S.cfg.include_nsfw, humor: !!S.cfg.include_humor, epilepsy: true,
     ...(ART_DIMENSIONS[kind] ? { dimensions: ART_DIMENSIONS[kind].filter(value =>
       !['grid', 'wide'].includes(kind) || !['512x512', '1024x1024'].includes(value)) } : {}),
-    ...S.cfg.artwork_filters?.[kind], ...(S.modal?.row.source === 'desktop' ? { static: true, animated: false } : {}) };
+    ...S.cfg.artwork_filters?.[kind] };
+}
+
+function pickerFilters(kind) {
+  return { ...savedPickerFilters(kind), ...(S.modal?.row.source === 'desktop' ? { static: true, animated: false } : {}) };
+}
+
+function collectSavedPickerFilters(kind, inputs) {
+  inputs = [...inputs];
+  const next = { ...(S.cfg.artwork_filters?.[kind] || {}) };
+  for (const input of inputs) {
+    if (input.disabled) continue;
+    const field = input.dataset.filter;
+    if (['styles', 'mimes', 'dimensions'].includes(field)) {
+      next[field] = inputs.filter(node => node.dataset.filter === field && node.checked).map(node => node.value);
+    } else next[field] = input.checked;
+  }
+  return next;
 }
 
 function artworkCacheKey(m) {
@@ -2180,13 +2197,7 @@ function renderArtFilters() {
     if (!inputs.some(input => input.checked) && ['static', 'animated'].includes(event.target.dataset.filter)) {
       inputs.find(input => input !== event.target).checked = true;
     }
-    const next = { ...values };
-    for (const input of host.querySelectorAll('input')) {
-      const field = input.dataset.filter;
-      if (['styles', 'mimes', 'dimensions'].includes(field)) {
-        next[field] = [...host.querySelectorAll(`input[data-filter="${field}"]:checked`)].map(node => node.value);
-      } else next[field] = input.checked;
-    }
+    const next = collectSavedPickerFilters(kind, host.querySelectorAll('input'));
     const summary = host.querySelector('.dimension-select summary');
     if (summary) {
       const text = next.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || 'Any size';
