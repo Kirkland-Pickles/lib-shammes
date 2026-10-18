@@ -211,7 +211,7 @@ it('applies all eligible Steam rows by default and only narrows to explicit sele
   assert.deepEqual(targets(), [first]);
 });
 
-it('applies visible Desktop games by default, independently of the focused game', () => {
+it('keeps Desktop bulk selections across filters and applies all visible games when none are checked', () => {
   const { context, state } = renderer({});
   const fields = { '#desktop-filter': { value: '' }, '#desktop-sort': { value: 'az' }, '#desktop-hide': { checked: false } };
   context.document.querySelector = selector => fields[selector];
@@ -221,10 +221,11 @@ it('applies visible Desktop games by default, independently of the focused game'
   assert.equal(targets().length, 4);
   state.desktop.bulk = true;
   assert.equal(targets().length, 4);
-  state.desktop.rows[1].checked = true;
-  assert.deepEqual(targets(), [state.desktop.rows[1]]);
-  state.desktop.rows[1].checked = false;
+  state.desktop.rows[0].checked = true;
+  assert.deepEqual(targets(), [state.desktop.rows[0]]);
   fields['#desktop-filter'].value = 'two';
+  assert.deepEqual(targets(), [state.desktop.rows[0]]);
+  state.desktop.rows[0].checked = false;
   assert.deepEqual(targets(), [state.desktop.rows[1]]);
 });
 
