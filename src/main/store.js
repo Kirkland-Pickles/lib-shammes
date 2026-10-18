@@ -179,6 +179,6 @@ function statSig(p) {
 }
 
 module.exports = {
-  DEFAULTS, configDir, configPath, load, save, sanitizePatch, folderKey, rememberSgdb, sgdbIdFor,
-  changesPath, dataDirs, dataFiles, blankChanges, loadChanges, saveChanges, statSig, writeFileAtomic,
+  DEFAULTS, configDir, load, save, sanitizePatch, folderKey, rememberSgdb, sgdbIdFor,
+  dataDirs, dataFiles, blankChanges, loadChanges, saveChanges, statSig, writeFileAtomic,
 };

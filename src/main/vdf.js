@@ -178,5 +178,5 @@ function saveShortcuts(filePath, entries) {
 }
 
 module.exports = {
-  Reader, FIELD_ORDER, normalizeShortcut, loadShortcuts, dumpShortcuts, saveShortcuts,
+  Reader, normalizeShortcut, loadShortcuts, dumpShortcuts, saveShortcuts,
 };

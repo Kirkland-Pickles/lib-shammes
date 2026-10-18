@@ -677,4 +677,4 @@ function resolveExeStem(stem) {
   return null;
 }
 
-module.exports = { ALIASES, EXE_ALIASES, normalizeKey, resolveFolder, resolveExeStem, titleSimilarity, chooseTitleMatch, identifyFromCatalog };
+module.exports = { ALIASES, resolveFolder, resolveExeStem, titleSimilarity, chooseTitleMatch, identifyFromCatalog };

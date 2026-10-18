@@ -195,4 +195,4 @@ class SGDBClient {
   }
 }
 
-module.exports = { BASE_URL, SGDBError, SGDBClient, parseGame, parseImage, chooseArtwork, officialArtworkUrls };
+module.exports = { SGDBClient, chooseArtwork, officialArtworkUrls };

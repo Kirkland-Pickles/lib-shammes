@@ -579,10 +579,10 @@ function findStaleShortcuts(entries) {
 module.exports = {
   ART_SUFFIXES, GRID_IMAGE_EXTS, MANAGED_TAG,
   hasSteamExe, normalizeSteamPath, getUserPersonas,
-  findSteamPath, getUserIds, shortcutsPath, gridDir, parseLibraryFolders,
+  findSteamPath, shortcutsPath, gridDir,
   crc32, shortcutId, appidSigned, quoteExe,
   loadEntries, backupShortcuts, buildEntry, findByExe, isManagedEntry, upsertEntry, saveEntries,
-  gridStemFor, gridStemFromEntry, artDest, artworkStem, logoPosition, currentArtwork, clearConflictingExts, isSteamRunning,
+  gridStemFor, gridStemFromEntry, artDest, logoPosition, currentArtwork, clearConflictingExts, isSteamRunning,
   killSteam, closeSteam, launchSteam, restartSteam, findStaleShortcuts,
   listInstalledGames, planPurge,
 };

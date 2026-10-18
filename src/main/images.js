@@ -73,4 +73,4 @@ function gridHasArt(gridFolder, stem, kindSuffix) {
   return false;
 }
 
-module.exports = { extFromUrl, isWebp, isPng, saveGridBytes, pngSize, writePngIco, gridHasArt };
+module.exports = { extFromUrl, isWebp, isPng, saveGridBytes, writePngIco, gridHasArt };
