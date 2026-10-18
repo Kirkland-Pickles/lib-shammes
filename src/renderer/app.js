@@ -1767,7 +1767,7 @@ function desktopVisible() {
 function desktopSelected() {
   const d = S.desktop;
   const visible = desktopVisible();
-  const selected = d.bulk ? visible.filter(row => row.checked) : [];
+  const selected = d.bulk ? d.rows.filter(row => row.checked) : [];
   return selected.length ? selected : visible.filter(row => row.exe);
 }
 
@@ -1792,7 +1792,8 @@ function renderDesktop(detail = true, rebuildGrid = true) {
   $('#desktop-multiple').disabled = d.busy;
   $('#desktop-destination').value = S.cfg.desktop_destination || 'desktop';
   $('#desktop-destination').disabled = d.busy;
-  const scope = !d.bulk || !visible.some(row => row.checked) ? 'all ' : '';
+  const selectedCount = d.bulk ? d.rows.filter(row => row.checked).length : 0;
+  const scope = selectedCount ? '' : 'all ';
   $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? `Apply ${scope}to Start menu`
     : S.cfg.desktop_destination === 'both' ? `Apply ${scope}shortcuts` : `Apply ${scope}to Desktop`;
   const cards = desktopCards();
@@ -1801,7 +1802,7 @@ function renderDesktop(detail = true, rebuildGrid = true) {
   $('#desktop-pending').hidden = pending === 0;
   $('#desktop-pending').textContent = pending ? `${pending} ready to apply` : '';
   $('#desktop-grid-count').textContent = visible.length === cards.length ? '' : `${visible.length} shown`;
-  $('#desktop-selection-count').textContent = `${visible.filter(row => row.checked).length} selected`;
+  $('#desktop-selection-count').textContent = `${selectedCount} selected`;
   if (rebuildGrid) {
     const body = $('#desktop-games tbody');
     body.innerHTML = '';
