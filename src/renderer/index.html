@@ -220,6 +220,7 @@
 <div id="art-overlay" hidden>
   <section id="art-modal" role="dialog" aria-modal="true" aria-labelledby="art-title">
     <header class="modal-head"><div><div class="page-kicker">ARTWORK</div><h2 id="art-title">Choose artwork</h2></div><div class="muted small" id="art-status" role="status">Choose a game match, then select artwork.</div></header>
+    <div id="art-key-notice" class="banner art-key-notice" hidden><span class="art-key-notice-copy"><strong>No SteamGridDB API key.</strong> <span id="art-key-notice-text"></span></span><button class="text-btn" id="art-key-settings" type="button">Add key in Settings</button></div>
     <div class="modal-search">
       <input id="art-q" type="search" placeholder="Search SteamGridDB" aria-label="Search SteamGridDB" autocomplete="off">
       <button class="btn sm" id="art-search">Search</button>
@@ -238,9 +239,9 @@
     <div class="thumbScroll"><div id="art-grid"></div><div id="art-preview" hidden><button class="btn sm" id="art-preview-back">Back to artwork</button><img id="art-preview-image" alt="Artwork preview" decoding="async"></div></div>
     <form id="art-url-entry" hidden><label class="fld"><span>Image URL</span><input id="art-url-input" type="url" placeholder="https://…" required></label><button class="btn sm" type="submit">Use image</button><button class="btn sm" id="art-url-cancel" type="button">Cancel</button></form>
     <footer class="modal-foot">
-      <span class="muted small" id="art-apply-note">Select images, then apply your choices.</span><span class="spacer"></span>
+      <span class="muted small" id="art-apply-note">Select images, then save your choices.</span><span class="spacer"></span>
       <button class="btn sm" id="art-url">From URL…</button><button class="btn sm" id="art-file">From file…</button>
-      <button class="btn sm" id="art-clear">Restore default</button><button class="btn sm" id="art-cancel">Cancel</button><button class="btn primary sm" id="art-apply">Save selection</button>
+      <button class="btn sm" id="art-clear">Restore default</button><button class="btn sm" id="art-cancel">Cancel</button><button class="btn sm" id="art-apply">Apply to Steam</button><button class="btn primary sm" id="art-save">Save</button>
     </footer>
   </section>
 </div>

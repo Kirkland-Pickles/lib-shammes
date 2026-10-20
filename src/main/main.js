@@ -524,7 +524,7 @@ ipcMain.handle('desktop:download', async (_e, rows) => {
       try {
         if (!row.sgdbId) { results.push({ id: row.id, skipped: 'Not matched.' }); continue; }
         if (cfg.only_missing && (row.icon || row.iconChoice)) {
-          results.push({ id: row.id, skipped: 'Icon already present; skipping is enabled.' }); continue;
+          results.push({ id: row.id, skipped: 'Icon already present - skipping.' }); continue;
         }
         progress(results.length, rows.length, row.display);
         const filters = { ...artworkFilters('icon'), static: true, animated: false };
@@ -657,7 +657,7 @@ ipcMain.handle('match:auto', async (_e, req) => {
         continue;
       }
       if (row.source === 'steam') {
-        lines.push(`  ${row.display}: no SGDB match for Steam ${row.steamAppid}; choose a match manually.`);
+        lines.push(`  ${row.display}: no SGDB match for Steam ${row.steamAppid}. Choose a match manually.`);
         continue;
       }
       lines.push(`  ${row.display}: Steam ${row.steamAppid} not on SGDB, trying title search…`);
@@ -676,7 +676,7 @@ ipcMain.handle('match:auto', async (_e, req) => {
         lines.push(`  ${row.display} -> ${top.name} [${top.id}] (title search)`);
         ok++;
       } else if (games.length) {
-        lines.push(`  ${row.display}: no clear match; choose a match manually.`);
+        lines.push(`  ${row.display}: no clear match. Choose a match manually.`);
       } else {
         lines.push(`  ${row.display}: no match`);
       }
@@ -890,7 +890,7 @@ async function downloadArtwork(req) {
     const stem = isNative ? String(appid) : hit ? steam.gridStemFromEntry(hit)
       : (row.exe && row.display ? steam.gridStemFor(steam.quoteExe(row.exe), row.display) : null);
     if (!stem) {
-      lines.push(`  ${row.display}: not in Steam yet - add to Steam first (need shortcut id).`);
+      lines.push(`  ${row.display}: not in Steam yet - add it to Steam first.`);
       continue;
     }
     let metadata;

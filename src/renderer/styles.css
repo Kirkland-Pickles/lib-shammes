@@ -279,6 +279,10 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .modal-head > div:first-child { display: grid; gap: 4px; }
 .modal-head h2 { font-size: 16pt; font-weight: 620; }
 .modal-head #art-status { max-width: 46%; text-align: right; line-height: 1.4; }
+.art-key-notice { flex-wrap: wrap; padding: 9px 0 10px; font-size: 8.5pt; }
+.art-key-notice-copy { min-width: 0; line-height: 1.45; }
+.art-key-notice-copy strong { color: var(--fg); font-weight: 600; }
+.art-key-notice .text-btn { min-height: 26px; margin-left: auto; padding: 0 4px; color: var(--accent); font-size: 8.5pt; }
 .modal-search { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 15px 0 10px; }
 #art-q { width: min(250px, 32vw); }
 #art-games { flex: 1; min-width: 170px; }

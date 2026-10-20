@@ -342,7 +342,7 @@ function createDesktop({ app, shell, nativeImage, personal, shared, startMenu, s
       let retained = failures.length > 0;
       for (const file of links) {
         try {
-          if (file === null || !fs.existsSync(file)) throw new Error('Shortcut location is unknown; its icon was kept.');
+          if (file === null || !fs.existsSync(file)) throw new Error('Shortcut location is unknown, so its icon was kept.');
           const link = read(file);
           if (pathKey(link.icon) !== pathKey(icon)) continue;
           await writeWithElevation({ shortcut: file, signature: link.signature, display: path.basename(file, path.extname(file)),

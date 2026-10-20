@@ -472,6 +472,27 @@ it('warns on Refresh when the saved Steam path is gone but still refreshes', asy
   assert.match(context.toastMessage, /Steam was not found at the saved path/);
 });
 
+it('applies saved artwork for multiple native Steam games in one batch', async () => {
+  const calls = [];
+  const { context, state } = renderer({
+    artDownload: async (req) => {
+      calls.push(req);
+      return { rows: req.rows.map((row) => ({ ...row, art: { ...row.art }, appliedKinds: ['grid'] })),
+        saved: req.rows.length, failed: 0, lines: [] };
+    },
+  });
+  vm.runInContext('updateLibrarySelection = status = log = toast = reportArtwork = () => {}; confirmDlg = async () => true;', context);
+  state.cfg = {};
+  state.rows = [
+    { source: 'steam', folder: 'steam:1', steamAppid: 1, display: 'One', pendingArt: true, art: { grid: { url: 'one' } } },
+    { source: 'steam', folder: 'steam:2', steamAppid: 2, display: 'Two', pendingArt: true, art: { grid: { url: 'two' } } },
+  ];
+  await vm.runInContext('doAddToSteam()', context);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].rows.map((row) => row.display), ['One', 'Two']);
+  assert.equal(calls[0].kinds.length, 0);
+});
+
 it('keeps failed artwork pending while recording successful writes', async () => {
   const { context, state } = renderer({ artDownload: async req => ({ rows: [{ ...req.rows[0],
     art: { hero: req.rows[0].art.hero }, appliedKinds: ['grid'], failedKinds: ['hero'] }], lines: [] }) });

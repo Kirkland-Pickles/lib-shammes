@@ -7,7 +7,10 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 test('Desktop shortcuts round-trip through Electron without touching the real Desktop', { skip: process.platform !== 'win32' }, () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lib-shammes-desktop-'));
+  // Use the canonical temp path so Windows 8.3 aliases (RUNNER~1) do not
+  // differ from the long paths returned by shortcut APIs.
+  const temp = fs.realpathSync.native(os.tmpdir());
+  const dir = fs.mkdtempSync(path.join(temp, 'lib-shammes-desktop-'));
   try {
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;

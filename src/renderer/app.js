@@ -420,7 +420,7 @@ function foldersCard() {
     <button class="btn sm" data-r="add">Add…</button>
     <button class="btn sm" data-r="remove">Remove</button></span></div>
     <label class="row">Game folder depth <select data-r="depth" aria-label="Game folder depth">${[0, 1, 2, 3, 4, 5, 6].map((n) => `<option>${n}</option>`).join('')}</select></label>
-    <div class="note">Choose the folder containing your games and use depth 1. For a single game folder, use 0. Use 2 if your game folders are inside another folder; increase it for further levels. The app looks up to 3 levels inside each game folder for its executable.</div>`;
+    <div class="note">Choose the folder containing your games and use depth 1. For a single game folder, use 0. Use 2 if your game folders are inside another folder. Increase it for further levels. The app looks up to 3 levels inside each game folder for its executable.</div>`;
   const q = (s) => d.querySelector(`[data-r="${s}"]`);
   const showDepth = () => {
     q('depth').disabled = !q('list').value;
@@ -471,7 +471,7 @@ function renderSettingsCards() {
     <div class="row" data-r="flags"></div>
     <label class="check" style="margin-top:8px"><input type="checkbox" data-r="missing">
     Skip already populated artwork</label>
-    <div class="note">Per-game / per-type picks. manually choosing artwork will override these settings</div>`;
+    <div class="note">Per-game and per-type picks. Choosing artwork manually overrides these settings.</div>`;
   const q = (s) => prefs.querySelector(`[data-r="${s}"]`);
   const kinds = [['wide', 'Wide'], ['grid', 'Grid'], ['hero', 'Hero'], ['logo', 'Logo'], ['icon', 'Icon']];
   q('kinds').innerHTML = kinds.map(([k, label]) =>
@@ -2048,7 +2048,7 @@ function wireDesktop() {
         await saveDesktopDraft(row);
         log(`${row.display}: SGDB icon #${result.choice.id} downloaded.`, 'desktop');
       }
-      status(`${results.filter((result) => result.choice).length} icon(s) downloaded; ${results.filter((result) => result.skipped).length} skipped; ${results.filter((result) => result.error).length} failed.`);
+      status(`${results.filter((result) => result.choice).length} icon(s) downloaded, ${results.filter((result) => result.skipped).length} skipped, ${results.filter((result) => result.error).length} failed.`);
     } finally { d.busy = false; renderDesktop(); }
   });
   $('#desktop-add').onclick = handleAction('Add to Desktop', () => applyDesktopShortcuts());
@@ -2083,7 +2083,7 @@ async function applyDesktopShortcuts(rowsOverride = null) {
     }
     const refreshed = results.filter((result) => result.refreshed).length;
     const saved = results.filter(result => result.ok).length;
-    status(`${saved} shortcut${saved === 1 ? '' : 's'} saved; ${results.filter((result) => !result.ok && !result.refreshed).length} failed.`);
+    status(`${saved} shortcut${saved === 1 ? '' : 's'} saved, ${results.filter((result) => !result.ok && !result.refreshed).length} failed.`);
     if (refreshed) toast('Shortcut refreshed. Review changes and apply again.');
   } finally {
     d.busy = false; d.applying = false;
@@ -2238,17 +2238,22 @@ async function openArtModal(row, focusKind) {
     games: [],
   };
   $('#art-title').textContent = `Artwork - ${row.display}`;
+  const keyless = !S.cfg.api_key;
   const writesSteam = row.source !== 'desktop' && (row.source === 'steam' || row.inSteam);
-  $('#art-apply').textContent = writesSteam ? 'Apply to Steam' : 'Save selection';
+  $('#art-apply').hidden = !writesSteam;
   $('#art-apply-note').textContent = writesSteam
-    ? 'Steam closes while artwork is applied, then reopens if it was running.'
-    : 'Select images, then apply your choices.';
+    ? 'Save stages your choices. Apply to Steam writes now and restarts Steam.'
+    : 'Select images, then save your choices.';
+  $('#art-key-notice').hidden = !keyless;
+  if (keyless) $('#art-key-notice-text').textContent = row.source === 'desktop'
+    ? 'You can still choose local icons and images.'
+    : 'You can still choose local artwork.';
   $('#art-url').hidden = row.source === 'desktop';
   $('#art-clear').hidden = row.source === 'desktop';
   $('#art-q').value = row.query || row.display;
   $('#art-id').value = row.sgdbId || '';
   $('#art-games').innerHTML = '';
-  for (const id of ['art-q', 'art-search', 'art-games', 'art-id', 'art-load']) $('#' + id).disabled = !S.cfg.api_key;
+  for (const id of ['art-q', 'art-search', 'art-games', 'art-id', 'art-load']) $('#' + id).disabled = keyless;
   $('#art-url-entry').hidden = true;
   closeArtPreview();
   $('#art-grid').replaceChildren();
@@ -2265,10 +2270,8 @@ async function openArtModal(row, focusKind) {
   }
   const focusTarget = $('#art-q').disabled ? $('#art-file') : $('#art-q');
   focusTarget.focus({ preventScroll: true });
-  if (!S.cfg.api_key || !row.sgdbId) renderArtGrid();
-  if (!S.cfg.api_key) artStatus(row.source === 'desktop'
-    ? 'Choose an executable icon or a local image.'
-    : 'Choose local artwork, or add an API key for online search.');
+  if (keyless || !row.sgdbId) renderArtGrid();
+  if (keyless) artStatus('');
   else if (row.sgdbId) loadArtTabs();
   else if (row.source === 'steam') {
     const m = S.modal;
@@ -2324,18 +2327,21 @@ function closeArtModal(save) {
 async function applyArtModal() {
   const m = S.modal;
   if (!m || m.applying) return;
-  if (m.row.source === 'desktop' || !m.row.inSteam && m.row.source !== 'steam') {
+  if (m.row.source === 'desktop' || !m.row.inSteam && m.row.source !== 'steam') return;
+  const changed = Object.fromEntries(Object.entries(m.sel).filter(([kind, image]) =>
+    JSON.stringify(image) !== JSON.stringify(m.row.art?.[kind])));
+  if (!Object.keys(changed).length && m.logoPosition === undefined && !m.row.pendingArt) {
     closeArtModal(true);
     return;
   }
-  const changed = Object.fromEntries(Object.entries(m.sel).filter(([kind, image]) =>
-    JSON.stringify(image) !== JSON.stringify(m.row.art?.[kind])));
-  if (!Object.keys(changed).length && m.logoPosition === undefined) { closeArtModal(true); return; }
+  const art = m.row.pendingArt
+    ? Object.fromEntries(Object.entries(m.sel).filter(([, image]) => !image.automatic && !image.current))
+    : changed;
   m.applying = true;
   $('#art-apply').disabled = true;
   $('#art-modal').inert = true;
   try {
-    const payload = { ...rowPayload(m.row), sgdbId: m.sgdbId, art: changed,
+    const payload = { ...rowPayload(m.row), sgdbId: m.sgdbId, art,
       ...(m.logoPosition !== undefined ? { logoPosition: m.logoPosition } : {}) };
     const result = await window.api.artDownload({ rows: [payload], kinds: [], onlyMissing: false });
     result.lines.forEach(line => log(line, 'library'));
@@ -2910,6 +2916,12 @@ function wireToolbar() {
     closeArtPreview();
   });
   $('#art-cancel').addEventListener('click', () => closeArtModal(false));
+  $('#art-save').addEventListener('click', () => closeArtModal(true));
+  $('#art-key-settings').addEventListener('click', () => {
+    closeArtModal(false);
+    navGo('settings');
+    $('[data-r="key"]')?.focus();
+  });
   $('#art-apply').addEventListener('click', handleAction('Apply artwork', applyArtModal));
   for (const id of ['art-logo-anchor', 'art-logo-width', 'art-logo-height']) $('#' + id).addEventListener('change', () => {
     S.modal.logoPosition = { pinnedPosition: $('#art-logo-anchor').value,

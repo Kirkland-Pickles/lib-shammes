@@ -90,7 +90,7 @@ By default, bulk artwork downloads skip files that are already present in
 Steam's grid folder. Animated, NSFW, and humor artwork are disabled by default
 and can be enabled separately in Settings.
 Automatic selection prefers the enabled adult/humor tags and varies among the
-top results; ordinary artwork uses the highest-ranked result.
+top results. Ordinary artwork uses the highest-ranked result.
 
 ## What it changes
 
