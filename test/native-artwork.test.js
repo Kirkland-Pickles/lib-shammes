@@ -345,6 +345,23 @@ it('updates an app-managed shortcut from the Steam list without adding a duplica
   assert.equal(writes, 1);
 });
 
+it('adds a shortcut with only the chosen artwork when automatic finding is off', async (t) => {
+  let entries = [];
+  const env = main(t, {}, {}, { loadEntries: () => entries, saveEntries: (_sp, _uid, list) => { entries = list; return null; } });
+  const row = { source: 'folder', folder: 'C:/Games/Game', display: 'Game', exe: 'C:/Games/game.exe',
+    art: { grid: { url: 'https://test.invalid/chosen.jpg' } } };
+  const result = await env.invoke('steam:add', { rows: [row], kinds: ['grid', 'hero'], autoArt: false });
+  assert.equal(result.added, 1);
+  assert.equal(result.artworkSaved, 1);
+  assert.equal(result.artworkFailed, 0);
+  assert.equal(result.rows[0].appliedKinds.join(), 'grid');
+  assert.equal(entries.length, 1);
+  const stem = steam.gridStemFromEntry(entries[0]);
+  assert.equal(fs.readFileSync(steam.artDest(env.grid, stem, 'grid', '.jpg'), 'utf8'), 'new artwork');
+  assert.equal(fs.existsSync(steam.artDest(env.grid, stem, 'hero', '.jpg')), false);
+  assert.equal(env.artworkQueries.length, 0);
+});
+
 it('keeps saved shortcut metadata unchanged when the Steam shortcut write fails', async t => {
   const original = steam.buildEntry({ appName: 'Game', exePath: 'C:/Games/game.exe', tags: [steam.MANAGED_TAG] });
   const env = main(t, {}, {}, { loadEntries: () => [structuredClone(original)],

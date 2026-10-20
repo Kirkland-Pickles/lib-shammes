@@ -98,12 +98,11 @@ function confirmDlg(title, body, opts = {}) {
     const previousFocus = document.activeElement;
     const ov = document.createElement('div');
     ov.id = 'confirm-overlay';
+    const cancelButton = `<button class="btn${opts.cancelPrimary ? ' primary' : ''} sm" data-v="0">${esc(opts.cancelText || 'Cancel')}</button>`;
+    const confirmButton = `<button class="btn${opts.cancelPrimary ? '' : ' primary'} sm" data-v="1">${esc(opts.confirmText || 'Continue')}</button>`;
     ov.innerHTML = `<div id="confirm-box" role="alertdialog">
       <h3>${esc(title)}</h3><p class="muted${opts.danger ? ' danger-text' : ''}${opts.small ? ' small' : ''}">${esc(body)}</p>
-      <div class="confirm-btns">
-        <button class="btn sm" data-v="0">${esc(opts.cancelText || 'Cancel')}</button>
-        <button class="btn primary sm" data-v="1">${esc(opts.confirmText || 'Continue')}</button>
-      </div></div>`;
+      <div class="confirm-btns">${opts.cancelPrimary ? confirmButton + cancelButton : cancelButton + confirmButton}</div></div>`;
     document.body.appendChild(ov);
     const close = (value) => {
       ov.remove();
@@ -127,7 +126,7 @@ function confirmDlg(title, body, opts = {}) {
       close(v);
     });
     document.addEventListener('keydown', keydown, true);
-    $('button[data-v="1"]', ov).focus({ preventScroll: true });
+    $(`button[data-v="${opts.cancelPrimary ? '0' : '1'}"]`, ov).focus({ preventScroll: true });
   });
 }
 async function syncCfg() { S.cfg = await window.api.cfgGet(); }
@@ -1500,7 +1499,7 @@ async function applyToSteam(targetRows) {
   if (missingArt) {
     autoArt = await confirmDlg('Artwork',
       'Also find artwork automatically for types you did not choose?',
-      { confirmText: 'Find artwork', cancelText: 'Add without artwork' });
+      { confirmText: 'Find more artwork', cancelText: 'Add', cancelPrimary: true });
   }
   if (autoArt) await doAutoMatch(eligible);
   const kinds = [...new Set([...wantedKinds(), ...eligible.flatMap((r) =>
