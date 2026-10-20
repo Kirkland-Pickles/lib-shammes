@@ -423,13 +423,15 @@ it('matches during Apply only after accepting automatic artwork and blocks overl
       calls.push('apply');
       assert.equal(req.autoArt, offerArtwork);
       assert.equal(req.rows[0].sgdbId, offerArtwork ? 7 : undefined);
+      assert.equal(req.rows[0].art.grid.url, 'https://test.invalid/chosen-grid.jpg');
       return { rows: req.rows, lines: [], added: 1, updated: 0, artworkSaved: 0 };
     },
   });
   context.offer = () => offerArtwork;
   vm.runInContext('updateLibrarySelection = status = log = toast = () => {}; confirmDlg = async title => title !== "Artwork" || offer();', context);
-  state.cfg = { api_key: 'fixture', want_grid: true };
-  state.rows = [{ source: 'folder', folder: 'one', display: 'One', exe: 'one.exe', art: {} }];
+  state.cfg = { api_key: 'fixture', want_grid: true, want_hero: true };
+  state.rows = [{ source: 'folder', folder: 'one', display: 'One', exe: 'one.exe',
+    art: { grid: { url: 'https://test.invalid/chosen-grid.jpg' } } }];
   await vm.runInContext('Promise.all([doAddToSteam(), doAddToSteam()])', context);
   assert.deepEqual(calls, ['match', 'apply']);
   offerArtwork = false;

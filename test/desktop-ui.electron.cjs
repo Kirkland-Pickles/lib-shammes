@@ -331,7 +331,7 @@ app.whenReady().then(async () => {
   await wait("!!document.querySelector('#confirm-overlay')");
   await click('#confirm-overlay [data-v="1"]');
   await wait("document.querySelector('#confirm-overlay h3')?.textContent === 'Artwork'");
-  assert.equal(await run(`document.querySelector('#confirm-overlay [data-v="0"]').textContent`), 'Add without artwork');
+  assert.equal(await run(`document.querySelector('#confirm-overlay [data-v="0"]').textContent`), 'Add');
   await click('#confirm-overlay [data-v="0"]');
   await wait("document.querySelector('#status').textContent.includes('updated')");
   assert.equal(steamRequest.rows[0].display, 'New name');
