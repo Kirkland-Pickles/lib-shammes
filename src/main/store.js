@@ -143,7 +143,7 @@ function dataDirs() {
 }
 
 function dataFiles() {
-  return dataDirs().flatMap((dir) => ['config.json', 'changes.json'].map((file) => path.join(dir, file)));
+  return dataDirs().flatMap((dir) => ['config.json', 'changes.json', 'cover-cache.json'].map((file) => path.join(dir, file)));
 }
 
 function blankChanges() {

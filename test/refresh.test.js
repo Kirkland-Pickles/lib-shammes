@@ -66,12 +66,21 @@ it('uses per-type dimension defaults and preserves explicit dimension selections
 
 it('uses suggested covers when local previews fail and resolves native games without saving a match', async () => {
   let nativeLookups = 0;
+  const puts = [];
+  const saved = new Map();
   const { context, state } = renderer({
     artCurrent: async () => ({ file: 'unreadable.png' }),
     artThumbnail: async () => { throw new Error('cannot decode'); },
     artPreviewFile: async () => { throw new Error('missing file'); },
     sgdbBySteam: async id => { assert.equal(id, 123); nativeLookups++; return { id: 7 }; },
     artList: async () => [{ thumb: 'https://test.invalid/thumb', url: 'https://test.invalid/full' }],
+    coverCacheGet: async req => saved.get(`id:${req.sgdbId}`) || saved.get(`steam:${req.appid}`) || null,
+    coverCachePut: async req => {
+      puts.push(req);
+      saved.set(`id:${req.sgdbId}`, { src: req.src, fallback: req.fallback });
+      saved.set(`steam:${req.appid}`, { src: req.src, fallback: req.fallback });
+      return true;
+    },
   });
   state.cfg = { api_key: 'fixture' };
   context.game = { source: 'steam', steamAppid: 123, art: {} };
@@ -80,9 +89,44 @@ it('uses suggested covers when local previews fail and resolves native games wit
   assert.equal(cover.fallback, 'https://test.invalid/full');
   assert.equal(nativeLookups, 1);
   assert.equal(context.game.sgdbId, undefined);
+  assert.equal(puts.length, 1);
+  assert.equal(puts[0].sgdbId, 7);
+  assert.equal(puts[0].appid, 123);
+  assert.equal(puts[0].src, 'https://test.invalid/thumb');
+  assert.equal(puts[0].fallback, 'https://test.invalid/full');
   state.cfg.api_key = '';
-  assert.equal(await vm.runInContext('cardCoverSource(game)', context), null);
+  const cached = await vm.runInContext('cardCoverSource(game)', context);
+  assert.equal(cached.src, 'https://test.invalid/thumb');
   assert.equal(nativeLookups, 1);
+});
+
+it('refreshes a saved cover while the API key still works', async () => {
+  const { context, state } = renderer({
+    artCurrent: async () => null,
+    coverCacheGet: async () => ({ src: 'https://test.invalid/stale', fallback: null }),
+    artList: async () => [{ thumb: 'https://test.invalid/fresh', url: 'https://test.invalid/full' }],
+    coverCachePut: async () => true,
+  });
+  state.cfg = { api_key: 'fixture' };
+  context.game = { source: 'shortcut', sgdbId: 7, art: {} };
+  const cover = await vm.runInContext('cardCoverSource(game)', context);
+  assert.equal(cover.src, 'https://test.invalid/fresh');
+});
+
+it('shows a saved cover for a matched game without an API key', async () => {
+  const { context, state } = renderer({
+    artCurrent: async () => null,
+    coverCacheGet: async req => {
+      assert.equal(req.sgdbId, 7);
+      assert.equal(req.appid, null);
+      return { src: 'https://test.invalid/saved', fallback: null };
+    },
+  });
+  state.cfg = {};
+  context.game = { source: 'shortcut', sgdbId: 7, art: {} };
+  const cover = await vm.runInContext('cardCoverSource(game)', context);
+  assert.equal(cover.src, 'https://test.invalid/saved');
+  assert.equal(cover.fallback, null);
 });
 
 it('shows applied grid artwork from the saved file without reselecting it', async () => {
