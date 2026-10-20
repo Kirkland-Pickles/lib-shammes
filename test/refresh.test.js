@@ -440,6 +440,38 @@ it('matches during Apply only after accepting automatic artwork and blocks overl
   assert.deepEqual(calls, ['match', 'apply', 'apply']);
 });
 
+it('does not add games when the saved Steam path is gone', async () => {
+  let adds = 0;
+  const { context, state } = renderer({
+    steamVerify: async () => false,
+    steamAdd: async () => {
+      adds++;
+      return { rows: [], lines: [], added: 0, updated: 0, artworkSaved: 0 };
+    },
+  });
+  vm.runInContext('updateLibrarySelection = () => {}; toast = (message) => { globalThis.toastMessage = message; };', context);
+  state.cfg = { steam_path: 'C:/Gone' };
+  state.rows = [{ source: 'folder', folder: 'one', display: 'One', exe: 'one.exe', art: {} }];
+  await vm.runInContext('doAddToSteam()', context);
+  assert.equal(adds, 0);
+  assert.equal(state.applyingSteam, false);
+  assert.match(context.toastMessage, /Steam was not found at the saved path/);
+});
+
+it('warns on Refresh when the saved Steam path is gone but still refreshes', async () => {
+  let reads = 0;
+  const { context, state, refresh } = renderer({
+    steamVerify: async () => false,
+    steamRead: async () => { reads++; return []; },
+    steamGames: async () => [],
+  });
+  vm.runInContext('toast = (message) => { globalThis.toastMessage = message; };', context);
+  state.cfg = { steam_path: 'C:/Gone', games_roots: [] };
+  await refresh();
+  assert.equal(reads, 1);
+  assert.match(context.toastMessage, /Steam was not found at the saved path/);
+});
+
 it('keeps failed artwork pending while recording successful writes', async () => {
   const { context, state } = renderer({ artDownload: async req => ({ rows: [{ ...req.rows[0],
     art: { hero: req.rows[0].art.hero }, appliedKinds: ['grid'], failedKinds: ['hero'] }], lines: [] }) });

@@ -1234,8 +1234,9 @@ function loadLibrary(force = false) {
   libraryLoad = refreshLibrary().then(() => { loadedLibraryKey = key; }).finally(() => { libraryLoad = null; });
   return libraryLoad;
 }
-function doRefresh() {
+async function doRefresh() {
   if (S.applyingSteam || S.preparingArt) return Promise.resolve();
+  await steamPresentOrToast();
   return loadLibrary(true);
 }
 
@@ -1448,8 +1449,10 @@ async function doAddToSteam(targetRows = null) {
   if (S.applyingSteam || S.preparingArt || S.loadingLibrary) return;
   S.applyingSteam = true;
   updateLibrarySelection();
-  try { await applyToSteam(targetRows); }
-  finally { S.applyingSteam = false; updateLibrarySelection(); }
+  try {
+    if (!await steamPresentOrToast()) return;
+    await applyToSteam(targetRows);
+  } finally { S.applyingSteam = false; updateLibrarySelection(); }
 }
 async function applyToSteam(targetRows) {
   const selected = targetRows || steamApplyRows();
@@ -1581,6 +1584,13 @@ async function doRemoveFromSteam() {
   log(`Removed ${removed} shortcuts. Backup: ${backup || 'none'}.`);
   status(`Removed ${removed}.`);
   if (warning) { log(warning); toast(warning); }
+}
+
+async function steamPresentOrToast() {
+  if (!S.cfg.steam_path) return true;
+  const ok = await window.api.steamVerify(S.cfg.steam_path).catch(() => false);
+  if (!ok) toast('Steam was not found at the saved path - check Settings.');
+  return ok;
 }
 
 async function steamPathOrToast() {
@@ -3085,6 +3095,7 @@ function checkedRows() {
 
 async function boot() {
   S.cfg = await window.api.cfgGet();
+  await steamPresentOrToast();
   applyTheme();
   console.log('RENDERER booted');
   log('ready.');
