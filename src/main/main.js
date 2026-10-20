@@ -408,6 +408,45 @@ ipcMain.handle('art:current', async (_e, req) => {
   return { file, ...(req.existsOnly ? {} : { url: await previewFile(file, extension) }) };
 });
 
+const coverCacheFile = () => path.join(store.configDir(), 'cover-cache.json');
+let coverCache = null;
+function loadCoverCache() {
+  if (coverCache) return coverCache;
+  try {
+    const data = JSON.parse(fs.readFileSync(coverCacheFile(), 'utf8'));
+    coverCache = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch { coverCache = {}; }
+  return coverCache;
+}
+const coverCacheUrl = (url) => (typeof url === 'string' && url.startsWith('https://') && url.length <= 2048 ? url : null);
+ipcMain.handle('cover:cache-get', (_e, req) => {
+  const cache = loadCoverCache();
+  const sgdbId = Number(req?.sgdbId);
+  const appid = Number(req?.appid);
+  const entry = (Number.isSafeInteger(sgdbId) && cache[`id:${sgdbId}`])
+    || (Number.isSafeInteger(appid) && cache[`steam:${appid}`])
+    || null;
+  const src = coverCacheUrl(entry?.src);
+  return src ? { src, fallback: coverCacheUrl(entry.fallback) } : null;
+});
+ipcMain.handle('cover:cache-put', (_e, req) => {
+  const src = coverCacheUrl(req?.src);
+  if (!src) return false;
+  const sgdbId = Number(req?.sgdbId);
+  const appid = Number(req?.appid);
+  const keys = [
+    Number.isSafeInteger(sgdbId) && sgdbId > 0 ? `id:${sgdbId}` : null,
+    Number.isSafeInteger(appid) && appid > 0 ? `steam:${appid}` : null,
+  ].filter(Boolean);
+  if (!keys.length) return false;
+  const entry = { src, fallback: coverCacheUrl(req?.fallback) };
+  const cache = loadCoverCache();
+  if (keys.every((key) => cache[key]?.src === entry.src && cache[key]?.fallback === entry.fallback)) return false;
+  for (const key of keys) cache[key] = entry;
+  try { store.writeFileAtomic(coverCacheFile(), JSON.stringify(cache)); } catch { return false; }
+  return true;
+});
+
 ipcMain.handle('shell:open', (_e, p) => shell.openPath(p));
 ipcMain.handle('util:open-url', (_e, url) => shell.openExternal(url));
 

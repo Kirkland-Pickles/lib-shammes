@@ -28,7 +28,7 @@ const S = {
   detailKey: null,          // rowKey() of selected row
   searchCache: [],          // sgdb search results for detail pane
   matchSearchToken: 0,
-  previewCache: {},         // sgdbId -> thumb url
+  previewCache: {},         // sgdbId -> saved cover source
   modal: null,              // artwork picker state
   exePicker: null,
   onboardingStep: 0,
@@ -629,15 +629,19 @@ async function cardCoverSource(row) {
     }
     if (art.thumb || art.url) return { src: art.thumb || art.url, fallback: art.url };
   }
-  if (!S.cfg.api_key) return null;
-  const sgdbId = row.sgdbId || (row.source === 'steam'
+  const appid = row.source === 'steam' ? row.steamAppid : null;
+  const sgdbId = row.sgdbId || (row.source === 'steam' && S.cfg.api_key
     ? (await window.api.sgdbBySteam(row.steamAppid).catch(() => null))?.id : null);
-  if (!sgdbId) return null;
-  if (S.previewCache[sgdbId]) return S.previewCache[sgdbId];
+  if (sgdbId && S.previewCache[sgdbId]) return S.previewCache[sgdbId];
+  const saved = await window.api.coverCacheGet({ sgdbId, appid }).catch(() => null);
+  if (!sgdbId || !S.cfg.api_key) return saved;
   const items = await window.api.artList({ sgdbId, kind: 'grid' }).catch(() => []);
   const preview = items[0]?.thumb || items[0]?.url || null;
-  if (preview) S.previewCache[sgdbId] = preview;
-  return preview ? { src: preview, fallback: items[0]?.url } : null;
+  if (!preview) return saved;
+  const source = { src: preview, fallback: items[0]?.url || null };
+  S.previewCache[sgdbId] = source;
+  window.api.coverCachePut({ sgdbId, appid, src: source.src, fallback: source.fallback }).catch(() => {});
+  return source;
 }
 
 let coverRequests = 0;

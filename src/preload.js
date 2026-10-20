@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('api', {
   artCurrent: (req) => ipcRenderer.invoke('art:current', req),
   artOfficial: (req) => ipcRenderer.invoke('art:official', req),
   artLogoPosition: (row) => ipcRenderer.invoke('art:logo-position', row),
+  coverCacheGet: (req) => ipcRenderer.invoke('cover:cache-get', req),
+  coverCachePut: (req) => ipcRenderer.invoke('cover:cache-put', req),
   // library ops (progress streams back on 'job:progress')
   scanStart: (req) => ipcRenderer.invoke('scan:start', req),
   findExecutables: (req) => ipcRenderer.invoke('scan:find-executables', req),
