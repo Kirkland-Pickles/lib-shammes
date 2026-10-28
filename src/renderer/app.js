@@ -67,19 +67,75 @@ function setBar(cur_, total) {
   const wrap = $('#progwrap');
   if (wrap) wrap.hidden = !(total > 0);
 }
+const TOAST_FLIGHT_DELAY = 800;
+const TOAST_FLIGHT_MS = 520;
+
+// Clone an element, fly it into a target, then remove the clone.
+function flyClone(source, target, className, duration) {
+  const from = source.getBoundingClientRect();
+  const to = target.getBoundingClientRect();
+  if (!from.width || !from.height || !to.width || !to.height) return null;
+
+  const ghost = source.cloneNode(true);
+  ghost.removeAttribute('id');
+  ghost.removeAttribute('role');
+  ghost.removeAttribute('aria-live');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.className = className;
+  Object.assign(ghost.style, {
+    left: `${from.left}px`,
+    top: `${from.top}px`,
+    width: `${from.width}px`,
+    height: `${from.height}px`,
+  });
+  document.body.appendChild(ghost);
+
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+  const anim = ghost.animate([
+    { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+    { transform: `translate(${dx}px, ${dy}px) scale(.2)`, opacity: 0 },
+  ], {
+    duration,
+    easing: 'cubic-bezier(.4, 0, .2, 1)',
+    fill: 'forwards',
+  });
+  anim.finished.catch(() => {}).finally(() => ghost.remove());
+  return ghost;
+}
+
+function clearToastFlight(t) {
+  if (t?._fly) clearTimeout(t._fly);
+  if (t) t._fly = null;
+  $$('.toast-ghost').forEach((g) => {
+    g.getAnimations().forEach((a) => a.cancel());
+    g.remove();
+  });
+}
+
+function flyToastToLog(t) {
+  t._fly = null;
+  const dock = $('#bottomdock');
+  if (!t.isConnected || !dock || !dock.classList.contains('collapsed')
+    || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const target = $('#dock-toggle') || $('#statusbar');
+  if (!target || !flyClone(t, target, 'toast-ghost', TOAST_FLIGHT_MS)) return;
+  t.style.visibility = 'hidden';
+  t.classList.remove('show');
+}
+
 function toast(msg) {
-  let t = $('#toast');
-  if (!t) {
-    t = document.createElement('div');
-    t.id = 'toast';
-    t.setAttribute('role', 'status');
-    t.setAttribute('aria-live', 'polite');
-    document.body.appendChild(t);
-  }
+  const t = $('#toast');
+  clearToastFlight(t);
   t.textContent = msg;
-  t.classList.add('show');
+  t.style.visibility = '';
   clearTimeout(t._h);
   t._h = setTimeout(() => t.classList.remove('show'), 3200);
+  t.classList.add('show');
+  const dock = $('#bottomdock');
+  if (!dock || dock.classList.contains('collapsed')) {
+    t._fly = setTimeout(() => flyToastToLog(t), TOAST_FLIGHT_DELAY);
+  }
 }
 function handleAction(name, fn) {
   return () => {

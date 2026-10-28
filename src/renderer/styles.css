@@ -255,8 +255,9 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .dock-toggle { min-height: 27px; padding: 0 5px; border: 0; color: var(--muted); background: transparent; font-size: 8.5pt; }
 
 /* Confirmation, picker and executable dialogs */
-#toast { position: fixed; z-index: 200; bottom: 46px; left: 50%; max-width: min(560px, 84vw); padding: 10px 14px; transform: translate(-50%, 10px); border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-raised); box-shadow: 0 8px 24px #0005; opacity: 0; pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
+#toast { position: fixed; z-index: 200; bottom: 46px; left: 50%; max-width: min(560px, 84vw); padding: 10px 14px; transform: translate(-50%, 10px); border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-raised); box-shadow: 0 8px 24px #0005; opacity: 0; pointer-events: none; transition: opacity .2s var(--ease), transform .24s var(--ease); }
 #toast.show { transform: translate(-50%, 0); opacity: 1; }
+.toast-ghost { position: fixed; z-index: 201; max-width: none; margin: 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); background: var(--panel-raised); box-shadow: 0 8px 24px #0005; font: inherit; pointer-events: none; will-change: transform, opacity; }
 #confirm-overlay { position: fixed; z-index: 150; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: #000a; }
 #confirm-box { width: min(470px, 92vw); max-height: 80vh; overflow: auto; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); box-shadow: 0 16px 50px #0008; }
 #confirm-box h3 { margin-bottom: 10px; font-size: 13pt; }
