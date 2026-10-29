@@ -6,8 +6,14 @@ from SteamGridDB. Instead of setting up every shortcut and image one at a time,
 point Lib Shammes at one or more game folders, review what it finds, and add the
 games you want in less time.
 
-It is made for games that are already installed but are not properly set up in
-your Steam library. It does not install, move, or change the game files.
+It is made for games that are already installed (or portable) but are not properly
+set up in your Steam library. It does not install, move, or change the game files.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/steam-library.png" width="48%" alt="Steam library" />&nbsp;&nbsp;&nbsp;<img src="docs/screenshots/artwork-picker.png" width="48%" alt="Artwork picker" />
+</p>
 
 ## How it works
 
@@ -155,6 +161,7 @@ app.
 Use GitHub Issues to report a bug or suggest a change. Include what you were
 doing when the problem happened. Do not include your SteamGridDB API key.
 
-## License
+## Credits
 
-Lib Shammes is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
+- SteamGridDB for the game matching and artwork: https://www.steamgriddb.com/
+
