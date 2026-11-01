@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   // config
   cfgGet: () => ipcRenderer.invoke('cfg:get'),
   cfgSet: (patch) => ipcRenderer.invoke('cfg:set', patch),
+  steamDraftsSave: (request) => ipcRenderer.invoke('steam:drafts-save', request),
   // steam
   steamDetect: (hint) => ipcRenderer.invoke('steam:detect', hint),
   steamVerify: (p) => ipcRenderer.invoke('steam:verify', p),

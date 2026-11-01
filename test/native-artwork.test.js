@@ -53,6 +53,33 @@ function native(art = {}, appid = 123) {
   return { source: 'steam', folder: `steam:${appid}`, steamAppid: appid, display: 'Game', sgdbId: 7, art };
 }
 
+it('persists artwork drafts without Steam writes and rejects stale accounts or failed saves', async t => {
+  let file;
+  let failSave = false;
+  const env = main(t, {}, {}, {}, value => {
+    if (failSave) throw new Error('disk full');
+    store.writeFileAtomic(file, JSON.stringify(value));
+  });
+  file = path.join(env.root, 'draft-config.json');
+  const scope = JSON.stringify([store.folderKey(env.root), '1']);
+  const draft = { art: { grid: { file: 'C:/missing/image.png' } }, sgdbId: 7 };
+  env.invoke('steam:drafts-save', { scope, updates: { 'steam:123': draft } });
+  env.invoke('steam:drafts-save', { scope, updates: { 'steam:456': draft } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file)).steam_art_drafts[scope], {
+    'steam:123': draft, 'steam:456': draft,
+  });
+  env.cfg.steam_user_id = '2';
+  assert.throws(() => env.invoke('steam:drafts-save', { scope, updates: { 'steam:123': null } }), /account changed/);
+  env.cfg.steam_user_id = '1';
+  failSave = true;
+  assert.throws(() => env.invoke('steam:drafts-save', { scope, updates: { 'steam:123': null } }), /disk full/);
+  assert.deepEqual(env.cfg.steam_art_drafts[scope]['steam:123'], draft);
+  failSave = false;
+  env.invoke('steam:drafts-save', { scope, updates: { 'steam:123': null } });
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file)).steam_art_drafts[scope]), ['steam:456']);
+  assert.deepEqual(env.calls, []);
+});
+
 it('uses the game title rather than a cache label when matching Desktop games from saved IDs', async t => {
   const env = main(t);
   env.cfg.api_key = 'fixture';

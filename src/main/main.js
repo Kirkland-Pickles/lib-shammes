@@ -68,6 +68,24 @@ function createWindow() {
 // ---------------------------------------------------------------- config
 ipcMain.handle('app:is-development', () => !app.isPackaged);
 ipcMain.handle('cfg:get', () => cfg);
+ipcMain.handle('steam:drafts-save', (_e, { scope, updates }) => {
+  const currentScope = JSON.stringify([store.folderKey(cfg.steam_path), String(cfg.steam_user_id || '')]);
+  if (!cfg.steam_path || !cfg.steam_user_id || scope !== currentScope) {
+    throw new Error('Steam account changed. Artwork choices were not saved.');
+  }
+  const drafts = { ...cfg.steam_art_drafts };
+  const account = { ...drafts[scope] };
+  for (const [key, draft] of Object.entries(updates || {})) {
+    if (!/^(exe:|folder:|shortcut:|steam:)/.test(key)) continue;
+    if (draft) account[key] = draft;
+    else delete account[key];
+  }
+  if (Object.keys(account).length) drafts[scope] = account;
+  else delete drafts[scope];
+  const next = { ...cfg, steam_art_drafts: drafts };
+  store.save(next);
+  Object.assign(cfg, next);
+});
 ipcMain.handle('cfg:set', (_e, patch) => {
   const clean = store.sanitizePatch(patch);
   if (steamWriteBusy && ['steam_path', 'steam_user_id'].some(key => Object.hasOwn(clean, key) && clean[key] !== cfg[key])) {

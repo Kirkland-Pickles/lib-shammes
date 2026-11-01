@@ -15,6 +15,57 @@ function renderer(api) {
   return { context, button, state: vm.runInContext('S', context), refresh: () => vm.runInContext('doRefresh()', context) };
 }
 
+it('restores pending artwork after restart without applying it and keeps only failed choices after Apply', async () => {
+  let disk = { steam_path: 'C:/Steam', steam_user_id: '1', sgdb_map: {}, sgdb_cache: {}, steam_art_drafts: {} };
+  let writes = 0;
+  const api = {
+    cfgGet: async () => structuredClone(disk),
+    steamDraftsSave: async ({ scope, updates }) => {
+      const account = disk.steam_art_drafts[scope] ||= {};
+      for (const [key, draft] of Object.entries(updates)) {
+        if (draft) account[key] = structuredClone(draft);
+        else delete account[key];
+      }
+    },
+    artDownload: async ({ rows }) => {
+      writes++;
+      return { rows: rows.map(row => ({ ...row,
+        art: { ...row.art, grid: { ...row.art.grid, appliedFile: 'C:/Steam/grid.png' } },
+        appliedKinds: ['grid'], failedKinds: ['logo'] })), lines: [] };
+    },
+  };
+  const first = renderer(api);
+  first.state.cfg = structuredClone(disk);
+  first.context.game = { source: 'steam', steamAppid: 123, folder: 'steam:123', sgdbId: 7,
+    pendingArt: true, art: { grid: { url: 'https://example.test/grid.png' }, logo: { file: 'C:/missing/logo.png' } } };
+  await vm.runInContext('saveSteamDrafts([game])', first.context);
+  const reboot = renderer(api);
+  reboot.state.cfg = structuredClone(disk);
+  await vm.runInContext('syncSteamLibrary([], [{ appid: 123, name: "Game" }])', reboot.context);
+  assert.equal(reboot.state.rows[0].pendingArt, true);
+  assert.equal(reboot.state.rows[0].art.logo.file, 'C:/missing/logo.png');
+  assert.equal(writes, 0);
+  vm.runInContext('log = () => {}', reboot.context);
+  await vm.runInContext('writeArtwork(S.rows, [])', reboot.context);
+  const again = renderer(api);
+  again.state.cfg = structuredClone(disk);
+  await vm.runInContext('syncSteamLibrary([], [{ appid: 123, name: "Game" }])', again.context);
+  assert.deepEqual(Object.keys(again.state.rows[0].art), ['logo']);
+  again.state.cfg.steam_user_id = '2';
+  await vm.runInContext('syncSteamLibrary([], [{ appid: 123, name: "Game" }])', again.context);
+  assert.equal(again.state.rows[0].pendingArt, false);
+  assert.deepEqual(Object.keys(again.state.rows[0].art), []);
+  again.state.cfg.steam_user_id = '1';
+  await vm.runInContext('syncSteamLibrary([], [{ appid: 123, name: "Game" }])', again.context);
+  assert.deepEqual(Object.keys(again.state.rows[0].art), ['logo']);
+  await vm.runInContext('saveSteamDrafts([], S.rows.map(steamDraftKey))', again.context);
+  const cleared = renderer(api);
+  cleared.state.cfg = structuredClone(disk);
+  await vm.runInContext('syncSteamLibrary([], [{ appid: 123, name: "Game" }])', cleared.context);
+  assert.equal(cleared.state.rows[0].pendingArt, false);
+  assert.equal(writes, 1);
+});
+
 it('does not open Clear confirmation or read Steam while another library operation is active', async () => {
   let confirms = 0;
   let reads = 0;
@@ -188,7 +239,7 @@ it('keeps failed picker choices available and retries only types that were not a
     requests.push(req);
     const kind = requests.length === 1 ? 'grid' : 'hero';
     return { rows: [{ ...req.rows[0], art: { ...req.rows[0].art, [kind]: { ...req.rows[0].art[kind], appliedFile: `${kind}.png` } },
-      appliedKinds: [kind] }], saved: 1, failed: requests.length === 1 ? 1 : 0, lines: [] };
+      appliedKinds: [kind], failedKinds: requests.length === 1 ? ['hero'] : [] }], saved: 1, failed: requests.length === 1 ? 1 : 0, lines: [] };
   } });
   vm.runInContext('log = () => {}; syncCfg = async () => {}; reportArtwork = () => {}; closeArtModal = () => { S.modal = null; };', context);
   state.cfg = {};
@@ -196,7 +247,8 @@ it('keeps failed picker choices available and retries only types that were not a
   state.modal = { row, sel: { grid: { url: 'grid' }, hero: { url: 'hero' } } };
   await vm.runInContext('applyArtModal()', context);
   assert.equal(row.art.grid.appliedFile, 'grid.png');
-  assert.equal(row.art.hero, undefined);
+  assert.equal(row.art.hero.url, 'hero');
+  assert.equal(row.pendingArt, true);
   assert.ok(state.modal);
   await vm.runInContext('applyArtModal()', context);
   assert.deepEqual(Object.keys(requests[1].rows[0].art), ['hero']);
