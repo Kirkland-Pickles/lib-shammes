@@ -600,30 +600,114 @@ it('rebuilds scanned and Steam rows while keeping staged artwork for surviving g
     scanStart: async ({ roots }) => {
       assert.deepEqual(Array.from(roots), ['games']);
       return [{ folder: 'games/one', exePath: 'game.exe', displayName: 'Game' },
-        { folder: 'games/new', exePath: 'new.exe', displayName: 'New game' }];
+        { folder: 'games/new', exePath: 'new.exe', displayName: 'New game' },
+        { folder: 'games/installed/bin', exePath: 'installed.exe', displayName: 'Installed game folder' }];
     },
     steamRead: async () => { reads++; return [{ exe: 'game.exe', appid: 10, index: 0, managed: true }, { exe: 'other.exe', appName: 'New name', appid: 20, index: 1 }]; },
-    steamGames: async () => [{ appid: 30, name: 'Installed game' }],
+    steamGames: async () => [{ appid: 30, name: 'Installed game', installdir: 'games/installed' }],
     resolveName: async () => null,
+    steamVerify: async () => true,
   });
-  state.cfg = { games_roots: ['games'], sgdb_map: {}, sgdb_cache: {} };
+  const scope = JSON.stringify(['c:\\steam', '1']);
+  state.cfg = { games_roots: ['games'], sgdb_map: {}, sgdb_cache: {},
+    steam_path: 'C:/Steam', steam_user_id: '1',
+    steam_art_drafts: { [scope]: { 'exe:game.exe': { art: { hero: 'saved draft' } } } } };
   const folder = { source: 'folder', folder: 'games/one', exe: 'old.exe', checked: true, art: { grid: 'chosen' } };
   const shortcut = { source: 'shortcut', exe: 'other.exe', checked: true, sgdbId: 5, art: { hero: 'chosen' } };
   state.rows = [folder, shortcut, { source: 'steam', display: 'Removed game' },
     { source: 'folder', folder: 'removed/game', exe: 'removed.exe' }];
   await refresh();
   assert.equal(reads, 1);
-  assert.equal(state.rows[0].exe, 'game.exe');
-  assert.equal(state.rows[0].inSteam, true);
-  assert.equal(state.rows[0].checked, true);
-  assert.equal(state.rows[0].art.grid, 'chosen');
-  assert.equal(state.rows[1].display, 'New game');
+  assert.equal(state.rows[0].display, 'New game');
+  const existing = state.rows.find(row => row.source === 'shortcut' && row.exe === 'game.exe');
+  assert.equal(existing.inSteam, true);
+  assert.equal(existing.checked, true);
+  assert.equal(existing.art.hero, 'saved draft');
   assert.equal(state.rows[2].display, 'New name');
   assert.equal(state.rows[2].sgdbId, 5);
   assert.equal(state.rows[2].art, shortcut.art);
   assert.equal(state.rows[3].display, 'Installed game');
   assert.equal(state.rows.length, 4);
+  assert.ok(!state.rows.some((r) => r.folder === 'games/installed/bin'));
+  assert.deepEqual(state.cfg.steam_art_drafts[scope]['exe:game.exe'], { art: { hero: 'saved draft' } });
   assert.equal(button.disabled, false);
+});
+
+it('deduplicates exact executables without hiding neighboring games or rewriting saved choices', async () => {
+  const { context, state } = renderer({ resolveName: async () => null });
+  const scope = JSON.stringify(['c:\\steam', '1']);
+  state.cfg = { steam_path: 'C:/Steam', steam_user_id: '1', sgdb_map: {}, sgdb_cache: {},
+    steam_art_drafts: { [scope]: { 'exe:d:\\games\\one\\game.exe': {
+      art: { grid: { url: 'saved-grid' } }, sgdbId: 7,
+    } } } };
+  const before = JSON.stringify(state.cfg);
+  state.rows = [
+    { source: 'folder', folder: 'D:/Games/One', exe: 'D:/Games/One/game.exe', art: {}, checked: true },
+    { source: 'folder', folder: 'D:/Games', exe: 'D:/Games/other.exe', art: {} },
+    { source: 'folder', folder: 'D:/Games/One', exe: 'D:/Games/One/other.exe', art: {} },
+  ];
+  context.entries = [{ exe: '"d:\\GAMES\\one\\GAME.exe"', appName: 'Steam name', appid: 10, startDir: 'D:/Games' }];
+  await vm.runInContext('syncSteamLibrary(entries, [])', context);
+  assert.equal(state.rows.length, 3);
+  const owner = state.rows.find(row => row.source === 'shortcut');
+  assert.equal(owner.display, 'Steam name');
+  assert.equal(owner.pendingArt, true);
+  assert.equal(owner.art.grid.url, 'saved-grid');
+  assert.equal(owner.sgdbId, 7);
+  assert.equal(owner.checked, true);
+  assert.equal(JSON.stringify(state.cfg), before);
+  // A later launch without scan roots still finds the original executable-keyed draft.
+  state.rows = [];
+  await vm.runInContext('syncSteamLibrary(entries, [])', context);
+  assert.equal(state.rows[0].art.grid.url, 'saved-grid');
+  assert.equal(JSON.stringify(state.cfg), before);
+});
+
+it('excludes unmatched native game folders and restores their saved artwork without scan roots', async () => {
+  const scope = JSON.stringify(['c:\\steam', '1']);
+  const originalKey = 'exe:d:\\steamlibrary\\steamapps\\common\\onimushawots\\onimushawots.exe';
+  let disk = { steam_path: 'C:/Steam', steam_user_id: '1', sgdb_map: {}, sgdb_cache: {},
+    steam_art_drafts: { [scope]: { [originalKey]: {
+      art: { grid: { url: 'saved-grid' }, logo: { file: 'chosen-logo.png' } }, sgdbId: 7,
+    } } } };
+  const { context, state } = renderer({
+    cfgGet: async () => structuredClone(disk),
+    steamDraftsSave: async ({ scope, updates }) => {
+      for (const [key, draft] of Object.entries(updates)) {
+        if (draft) disk.steam_art_drafts[scope][key] = structuredClone(draft);
+        else delete disk.steam_art_drafts[scope][key];
+      }
+    },
+  });
+  state.cfg = structuredClone(disk);
+  const root = 'D:/SteamLibrary/steamapps/common/OnimushaWotS';
+  context.installed = [{ appid: 2638890, name: 'Onimusha: Way of the Sword', installdir: root }];
+  state.rows = [
+    { source: 'folder', folder: root, display: 'OnimushaWotS', exe: `${root}/OnimushaWotS.exe`, art: {} },
+    { source: 'folder', folder: `${root}/Tool`, exe: `${root}/Tool/other.exe`, art: {} },
+    { source: 'folder', folder: `${root}2`, exe: `${root}2/game.exe`, art: {} },
+    { source: 'folder', folder: 'D:/Games/OnimushaWotS', exe: 'D:/Games/OnimushaWotS/game.exe', art: {} },
+  ];
+  const before = JSON.stringify(state.cfg);
+  await vm.runInContext('syncSteamLibrary([], installed)', context);
+  assert.equal(state.rows.length, 3);
+  assert.equal(state.rows.filter(r => r.source === 'folder').length, 2);
+  assert.equal(JSON.stringify(state.cfg), before);
+  // Closing/reopening with no scanned rows still restores the old executable-keyed choices.
+  state.rows = [];
+  await vm.runInContext('syncSteamLibrary([], installed)', context);
+  assert.equal(state.rows[0].art.grid.url, 'saved-grid');
+  assert.equal(state.rows[0].pendingArt, true);
+  assert.equal(state.rows[0].checked, false);
+  // Saving/clearing native choices consumes the alias so stale choices cannot return later.
+  await vm.runInContext('saveSteamDrafts(S.rows)', context);
+  assert.equal(disk.steam_art_drafts[scope][originalKey], undefined);
+  assert.equal(disk.steam_art_drafts[scope]['steam:2638890'].art.logo.file, 'chosen-logo.png');
+  await vm.runInContext('saveSteamDrafts([], S.rows.flatMap(steamDraftKeys))', context);
+  state.rows = [];
+  await vm.runInContext('syncSteamLibrary([], installed)', context);
+  assert.equal(state.rows[0].pendingArt, false);
+  assert.deepEqual(Object.keys(state.rows[0].art), []);
 });
 
 it('keeps the list on read failure and re-enables Refresh', async () => {

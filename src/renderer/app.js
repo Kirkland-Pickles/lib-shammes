@@ -1027,6 +1027,19 @@ function steamDraftKey(row) {
   if (row.source === 'shortcut' && row.appid != null) return `shortcut:${row.appid}`;
   return `folder:${folderKey(row.folder)}`;
 }
+function insideGameFolder(file, folder) {
+  const dir = folderKey(folder);
+  const key = folderKey(file);
+  return !!dir && !!key && (key === dir || key.startsWith(`${dir}\\`));
+}
+function steamDraftKeys(row) {
+  const key = steamDraftKey(row);
+  if (row.source !== 'steam' || !row.startDir) return [key];
+  // Older scanned choices remain readable without migrating config on Refresh.
+  const drafts = S.cfg.steam_art_drafts?.[steamDraftScope()] || {};
+  return [key, ...Object.keys(drafts).filter(k => k.startsWith('exe:')
+    && insideGameFolder(k.slice(4), row.startDir)).sort()];
+}
 function restoreSteamDraft(row) {
   const scope = steamDraftScope();
   // A settings change must not carry another account's in-memory choices over.
@@ -1034,12 +1047,13 @@ function restoreSteamDraft(row) {
     row.art = {}; row.pendingArt = false; row.artApplied = false;
   }
   row.artDraftScope = scope;
-  const draft = S.cfg.steam_art_drafts?.[scope]?.[steamDraftKey(row)];
-  if (!row.pendingArt && draft?.art && typeof draft.art === 'object') {
-    row.art = JSON.parse(JSON.stringify(draft.art));
+  const drafts = steamDraftKeys(row).map(key => S.cfg.steam_art_drafts?.[scope]?.[key])
+    .filter(draft => draft?.art && typeof draft.art === 'object');
+  if (!row.pendingArt && !Object.keys(row.art || {}).length && drafts.length) {
+    row.art = JSON.parse(JSON.stringify(Object.assign({}, ...drafts.map(d => d.art).reverse())));
     row.pendingArt = Object.keys(row.art).length > 0;
-    row.sgdbId = draft.sgdbId ?? row.sgdbId;
-    row.sgdbName = draft.sgdbName || row.sgdbName;
+    row.sgdbId = drafts[0].sgdbId ?? row.sgdbId;
+    row.sgdbName = drafts[0].sgdbName || row.sgdbName;
   }
   return row;
 }
@@ -1051,6 +1065,7 @@ async function saveSteamDrafts(rows, removedKeys = []) {
     if (row.source === 'desktop' || row.artDraftScope !== undefined && row.artDraftScope !== scope) continue;
     const art = Object.fromEntries(Object.entries(row.art || {}).filter(([, image]) =>
       image && !image.current && !image.automatic && !image.appliedFile));
+    for (const key of steamDraftKeys(row)) updates[key] = null;
     updates[steamDraftKey(row)] = row.pendingArt && Object.keys(art).length
       ? { art, sgdbId: row.sgdbId, sgdbName: row.sgdbName } : null;
   }
@@ -1093,8 +1108,7 @@ function toRow(g, useLegacy = false) {
 
 // ------------------------------------------------------------------ steam library
 // Steam's own rows: existing non-Steam shortcuts ('shortcut') and installed
-// store games ('steam'). Folder rows aren't touched here; match/art/checks
-// survive rebuilds through stable per-source keys.
+// store games ('steam'). Steam rows replace duplicates from scanned folders.
 async function syncSteamLibrary(entries, installed) {
   if (!entries) { try { entries = await window.api.steamRead(); } catch { entries = []; } }
   if (!installed) { try { installed = await window.api.steamGames(); } catch { installed = []; } }
@@ -1104,13 +1118,11 @@ async function syncSteamLibrary(entries, installed) {
     keep.set(r.source === 'steam' ? `steam:${r.steamAppid}` : `${r.source}:${(r.exe || r.display).toLowerCase()}`, r);
   }
   S.rows = S.rows.filter((r) => r.source === 'folder');
-  const folderExe = new Set(S.rows.map((r) => (r.exe || '').toLowerCase()).filter(Boolean));
   S.ownedAppids = new Set(installed.map((g) => g.appid));
 
   for (const e of entries) {
     const exe = String(e.exe || '').replace(/^"|"$/g, '');
     const name = String(e.appName || '(unnamed)');
-    if (exe && folderExe.has(exe.toLowerCase())) continue;
     const old = keep.get(`shortcut:${(exe || name).toLowerCase()}`);
     const folder = `shortcut://${e.appid ?? e.index}`;
     const sgdbId = old?.sgdbId || S.cfg.sgdb_map?.[folderKey(folder)] || S.cfg.sgdb_cache?.[folderKey(folder)] || null;
@@ -1151,6 +1163,33 @@ async function syncSteamLibrary(entries, installed) {
     });
   }
   S.rows.forEach(restoreSteamDraft);
+  // Shortcuts identify their executable; native games identify their install folder.
+  const shortcutByExe = new Map();
+  const nativeRows = S.rows.filter(row => row.source === 'steam' && row.startDir)
+    .sort((a, b) => folderKey(b.startDir).length - folderKey(a.startDir).length);
+  for (const row of S.rows) {
+    if (row.source !== 'shortcut' || !row.exe) continue;
+    const key = folderKey(row.exe);
+    if (!shortcutByExe.has(key)) shortcutByExe.set(key, row);
+  }
+  S.rows = S.rows.filter((row) => {
+    if (row.source !== 'folder') return true;
+    const owner = nativeRows.find(native => insideGameFolder(row.folder, native.startDir))
+      || row.exe && shortcutByExe.get(folderKey(row.exe));
+    if (!owner) return true;
+    // Prefer pending edits over an applied preview; existing Steam edits win ties.
+    if ((!owner.pendingArt && row.pendingArt)
+      || !Object.keys(owner.art || {}).length && Object.keys(row.art || {}).length) {
+      owner.art = row.art;
+      owner.pendingArt = row.pendingArt;
+      owner.artApplied = row.artApplied;
+      owner.sgdbId = row.sgdbId;
+      owner.sgdbName = row.sgdbName;
+    }
+    if (owner.source === 'shortcut') owner.checked ||= row.checked;
+    if (S.detailKey === rowKey(row)) S.detailKey = rowKey(owner);
+    return false;
+  });
   renderRows();
   if (S.detailKey && !cur()) { S.detailKey = null; renderDetail(); }
 }
@@ -1408,7 +1447,7 @@ async function doClear() {
     }
   }
   await savePatch(patch);
-  await saveSteamDrafts([], S.rows.map(steamDraftKey));
+  await saveSteamDrafts([], S.rows.flatMap(steamDraftKeys));
   let detail = cur();
   for (const [row, reset] of resets) Object.assign(row, reset);
   const folderExes = new Set(S.rows.filter((row) => row.source === 'folder' && row.exe).map((row) => folderKey(row.exe)));
