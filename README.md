@@ -1,13 +1,8 @@
-# Lib Shammes (game shortcut manager for Windows)
+# Lib Shammes
 
-Lib Shammes is a helper for portable game libraries. It adds games you already
-have on your PC to Steam as non-Steam shortcuts, then finds matching artwork
-from SteamGridDB. Instead of setting up every shortcut and image one at a time,
-point Lib Shammes at one or more game folders, review what it finds, and add the
-games you want in less time.
+Lib Shammes is an app made to customize and modify your steam game artwork using SteamGridDB.
 
-It is made for games that are already installed (or portable) but are not properly
-set up in your Steam library. It does not install, move, or change the game files.
+It is also for portable games and games installed from sources other than steam. It scans your game folders and finds installed games based on name matching and folder structure, then adds them as non-Steam shortcuts with filled in artwork via SteamGridDB, so you don't have to add everything one at a time.
 
 ## Screenshots
 
@@ -15,151 +10,53 @@ set up in your Steam library. It does not install, move, or change the game file
   <img src="docs/screenshots/steam-library.png" width="48%" alt="Steam library" />&nbsp;&nbsp;&nbsp;<img src="docs/screenshots/artwork-picker.png" width="48%" alt="Artwork picker" />
 </p>
 
-## How it works
+## Install
 
-1. **Connect Steam.** Lib Shammes finds your Steam installation and lets you
-   choose which Steam user should receive the shortcuts.
-2. **Add your SteamGridDB API key.** This is free and is used for game matching
-   and artwork. You can skip this if you do not want artwork, although artwork
-   is kind of the whole point.
-3. **Add your game folders.** You can add one folder or several folders from
-   different drives.
-4. **Scan.** Lib Shammes checks each game folder, picks the most likely
-   launcher, and tries to identify the game and its Steam AppID automatically.
-5. **Choose artwork.** Match selected games automatically, search
-   SteamGridDB yourself, or choose individual images.
-6. **Review.** You can change the name, choose a different executable, correct
-   the match, or change the artwork before anything is added to Steam.
-7. **Add selected games.** Lib Shammes adds the selected games to Steam as
-   non-Steam shortcuts and applies their artwork.
+[Windows installer is here](https://github.com/Kirkland-Pickles/lib-shammes/releases/latest).
+Windows only.
 
-Lib Shammes uses checkboxes to choose which games an action applies to. Newly
-scanned games with a launcher are selected automatically.
+## How to use
 
-## Game folders
+You'll also need a free
+[SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api) for
+online matching and artwork. You can skip the key and use your own images if you want.
 
-The normal layout is one folder per game:
+Add your game folders and scan them.
+Check the results before adding them to Steam, especially if a folder has more
+than one launcher. You can change the name, pick another executable or correct
+the game match if it got something wrong.
 
-```text
-D:\Games\
-  First Game\
-    game.exe
-  Second Game\
-    launcher.exe
-```
+For artwork, you can let it pick the images or choose them yourself in the
+artwork picker. Then use **Apply all to Steam**, or **Select multiple** first if
+you only want certain games. Apply all uses the games shown by your current
+filters. Steam will close to apply the changes and reopen if it was running.
 
-The game folders do not need to be on the same drive. Set the depth separately
-for each added folder. Use 0 if you selected a single game's folder, 1 if it
-contains your game folders directly, or 2 if they are another level down.
-New folders default to 1.
+Desktop and Start-menu shortcuts are supported too, and don't need Steam.
 
-The scan keeps the executables it finds as launcher choices. It ranks them
-using the folder name, executable name, location, and file size, then chooses
-the most likely launcher for the game. You can change its choice from the game
-details if Lib Shammes gets it wrong.
+## Undoing changes
 
-**Find executables** searches each added folder up to 10 levels down and lets
-you choose individual executables to show as separate rows in Lib Shammes.
+Use **Purge** to undo the changes made by Lib Shammes. It uses a saved
+record of those changes for this purpose. Steam's shortcut
+file is also backed up before it's changed.
 
-## Identifying and matching games
+Do this before using **Delete app data** if you want the changes undone. Deleting
+the app data removes that saved record too.
 
-Lib Shammes removes common tags from folder and executable names before trying
-to identify a game. If it knows the exact Steam AppID, it uses that for an exact
-SteamGridDB lookup. Otherwise, it searches SteamGridDB with the cleaned title.
+## Building
 
-Matches below the confidence limit are left unmatched for review. You can
-search SteamGridDB from the game details and choose the correct match yourself.
-
-Identification and artwork matching are separate from adding the shortcut.
-You can correct the name, launcher, match, and artwork before writing anything
-to Steam.
-
-## Artwork
-
-Lib Shammes supports wide capsules, vertical grids, heroes, logos, and icons.
-You can let it find artwork for selected games or open the artwork picker and
-choose each image yourself.
-
-For games already in Steam, the picker's **Apply to Steam** button writes all
-changed artwork types together. Choices for games not yet added stay pending
-until you add the game. Cancel leaves Steam unchanged.
-
-The main **Apply all to Steam** button applies all eligible games shown by your
-current filters. You can use **Select multiple** to limit it to specific games,
-or apply a single game from its details.
-
-**Manage** shows each artwork type and lets you restore its default. Official
-Steam artwork stays available in the picker when it can be found locally or
-fetched from Steam. The Logo tab also controls placement and size.
-
-By default, bulk artwork downloads skip files that are already present in
-Steam's grid folder. Animated, NSFW, and humor artwork are disabled by default
-and can be enabled separately in Settings.
-Automatic selection prefers the enabled adult/humor tags and varies among the
-top results. Ordinary artwork uses the highest-ranked result.
-
-## What it changes
-
-Lib Shammes writes to the following local files and folders:
-
-- Shortcuts: `Steam\userdata\<user>\config\shortcuts.vdf`
-- Artwork: `Steam\userdata\<user>\config\grid\`
-- Native game icons: `Steam\appcache\librarycache\<appid>\`
-- Lib Shammes settings and change journal: `%APPDATA%\Lib Shammes\`
-
-Before changing an existing `shortcuts.vdf`, Lib Shammes makes a unique backup.
-If the backup fails, the shortcut file is not written.
-
-Adding a game will not claim or rewrite a shortcut created somewhere else.
-Explicit artwork actions can change the artwork or icon for an existing
-shortcut you selected.
-
-Lib Shammes records the changes it makes to Steam. **Purge** uses that journal
-to remove shortcuts added by Lib Shammes, restore supported shortcut fields,
-and delete its artwork files if they have not been changed since. Purge before
-using **Delete app data** if you want those changes undone. Deleting app data
-removes the settings, saved matches, and journal needed for a complete undo.
-
-When applying Steam changes, Lib Shammes closes Steam and reopens it afterward
-if it was running. Artwork replacements and logo positions are backed up in
-the change journal so Purge can restore them while preserving later user edits.
-
-## Existing Steam entries
-
-Existing non-Steam shortcuts appear beside scanned games. They can be matched,
-given artwork, or removed when you explicitly select them. Lib Shammes does not
-adopt them as app-managed shortcuts.
-
-Installed Steam games appear in the list and support artwork changes. Their
-Steam-managed names and launchers remain unchanged.
-
-## Requirements
-
-- Windows is the only supported platform.
-- A SteamGridDB API key is needed for online matching and SGDB artwork. Local
-  images, executable icons and Desktop shortcuts work without one.
-
-The API key is stored in `%APPDATA%\Lib Shammes\config.json` and is
-used for requests to SteamGridDB.
-
-## Building from source
-
-Building Lib Shammes requires Node.js LTS. Install the locked dependencies and
-create the Windows installer with:
+Install Node.js LTS, then run:
 
 ```bat
 npm ci
 npm run build
 ```
 
-The installer is written to `dist\`. Lib Shammes has no runtime npm
-dependencies. Electron and electron-builder are used to run and package the
-app.
+The installer will be in `dist\`.
 
 ## Help
 
-Use GitHub Issues to report a bug or suggest a change. Include what you were
-doing when the problem happened. Do not include your SteamGridDB API key.
+[Open an issue](https://github.com/Kirkland-Pickles/lib-shammes/issues) for bugs
+or suggestions.
 
 ## Credits
 
