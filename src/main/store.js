@@ -29,6 +29,7 @@ const DEFAULTS = {
   exe_map: {},
   title_map: {},
   steam_launch: {},
+  steam_art_drafts: {},
   desktop_overrides: {},
   desktop_executables: [],
   desktop_destination: 'desktop',
