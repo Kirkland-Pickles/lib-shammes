@@ -737,7 +737,7 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
     src = `file ${sel.file}`;
     srcUrl = store.loadChanges().files.find((f) => f.before === sel.file)?.path || sel.file;
   } else if (sel && sel.url) {
-    data = await c.downloadBytes(sel.url);
+    data = await c.downloadBytes(sel.url, 32 * 1024 * 1024);
     src = sel.custom ? 'custom URL' : `#${sel.id}`;
     srcUrl = sel.url;
   } else {
@@ -745,7 +745,7 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing,
     if (!items.length) return { line: `${row.display} [${kind}]: no image on SGDB.`, saved: false };
     const img = sgdbMod.chooseArtwork(items, artworkFilters(kind, filters));
     row.art = row.art || {};
-    data = await c.downloadBytes(img.url);
+    data = await c.downloadBytes(img.url, 32 * 1024 * 1024);
     row.art[kind] = { id: img.id, url: img.url, author: img.author, width: img.width, height: img.height,
       automatic: true };
     src = `#${img.id} ${img.author}`;
