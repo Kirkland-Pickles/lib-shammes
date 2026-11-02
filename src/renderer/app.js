@@ -476,7 +476,10 @@ function foldersCard() {
     <button class="btn sm" data-r="add">Add…</button>
     <button class="btn sm" data-r="remove">Remove</button></span></div>
     <label class="row">Game folder depth <select data-r="depth" aria-label="Game folder depth">${[0, 1, 2, 3, 4, 5, 6].map((n) => `<option>${n}</option>`).join('')}</select></label>
-    <div class="note">Choose the folder containing your games and use depth 1. For a single game folder, use 0. Use 2 if your game folders are inside another folder. Increase it for further levels. The app looks up to 3 levels inside each game folder for its executable.</div>`;
+    <div class="note">Use <strong>0</strong> if you added a single game's folder.<br>
+    Use <strong>1</strong> if the added folder contains your game folders.<br>
+    Use <strong>2</strong> if those game folders are another level down. Increase it for more levels.</div>
+    <div class="note">Inside each game folder, the app searches up to 3 levels down for executables.</div>`;
   const q = (s) => d.querySelector(`[data-r="${s}"]`);
   const showDepth = () => {
     q('depth').disabled = !q('list').value;
@@ -2386,7 +2389,7 @@ async function openArtModal(row, focusKind) {
   const writesSteam = row.source !== 'desktop' && (row.source === 'steam' || row.inSteam);
   $('#art-apply').hidden = !writesSteam;
   $('#art-apply-note').textContent = writesSteam
-    ? 'Save stages your choices. Apply to Steam writes now and restarts Steam.'
+    ? 'Save your choices without applying them, or apply them to Steam now.'
     : 'Select images, then save your choices.';
   $('#art-key-notice').hidden = !keyless;
   if (keyless) $('#art-key-notice-text').textContent = row.source === 'desktop'
