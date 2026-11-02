@@ -17,7 +17,7 @@ Windows only.
 
 ## How to use
 
-You'll also need a free
+Get a
 [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api) for
 online matching and artwork. You can skip the key and use your own images if you want.
 
