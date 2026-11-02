@@ -37,7 +37,10 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
       gridsVertical = async (_id, options) => { if (options) artworkQueries.push(options); return [{ id: 9, url: 'https://test.invalid/art.jpg' }]; };
       logos = this.gridsVertical;
       icons = async (_id, options) => { artworkQueries.push(options); return this.gridsVertical(); };
-      downloadBytes = async () => { calls.push('download'); return Buffer.from('new artwork'); };
+      downloadBytes = async (_url, maxBytes) => {
+        assert.equal(maxBytes, 32 * 1024 * 1024);
+        calls.push('download'); return Buffer.from('new artwork');
+      };
     } },
   };
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
@@ -187,6 +190,16 @@ it('times out an SGDB response that stalls after its headers arrive', async t =>
   t.mock.method(globalThis, 'fetch', async (_url, { signal }) => ({ ok: true, status: 200,
     json: () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }));
   await assert.rejects(new SGDBClient('fixture', 10).searchGame('Game'), /Network error/);
+});
+
+it('stops an oversized image stream even without a content-length header', async t => {
+  let cancelled = false;
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, body: (async function* () {
+    try { yield Buffer.alloc(4); yield Buffer.alloc(4); assert.fail('must stop reading at the limit'); }
+    finally { cancelled = true; }
+  })() }));
+  await assert.rejects(new SGDBClient().downloadBytes('https://test.invalid/image', 7), /size limit/);
+  assert.equal(cancelled, true);
 });
 
 it('leaves the active config unchanged when a settings write fails', t => {
