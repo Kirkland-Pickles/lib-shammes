@@ -60,5 +60,6 @@ or suggestions.
 
 ## Credits
 
-- SteamGridDB for the game matching and artwork: https://www.steamgriddb.com/
+- Game matching and artwork: https://www.steamgriddb.com/
+- Layout inspiration and artwork-selection flow: https://github.com/SteamGridDB/decky-steamgriddb
 
