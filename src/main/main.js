@@ -88,6 +88,8 @@ ipcMain.handle('steam:drafts-save', (_e, { scope, updates }) => {
 });
 ipcMain.handle('cfg:set', (_e, patch) => {
   const clean = store.sanitizePatch(patch);
+  delete clean.api_key_check;
+  if (Object.hasOwn(clean, 'api_key') && clean.api_key !== cfg.api_key) clean.api_key_check = null;
   if (steamWriteBusy && ['steam_path', 'steam_user_id'].some(key => Object.hasOwn(clean, key) && clean[key] !== cfg[key])) {
     throw new Error('Steam changes are already being applied.');
   }
@@ -303,18 +305,20 @@ async function uninstallCleanup() {
 }
 
 // ------------------------------------------------------------ key/folders
-ipcMain.handle('key:validate', async (_e, key) => {
+ipcMain.handle('key:validate', async (_e, value) => {
+  const key = String(value || '').trim();
+  if (!key) return { ok: false };
+  let result = { ok: false };
   try {
-    const games = await new sgdbMod.SGDBClient(key).searchGame('Half-Life 2');
-    if (games.length) {
-      cfg.api_key = String(key).trim();
-      store.save(cfg);
-      return { ok: true, name: `${games[0].name} [${games[0].id}]` };
-    }
-    return { ok: false, error: 'Key accepted but search returned nothing.' };
-  } catch (err) {
-    return { ok: false, error: String((err && err.message) || err) };
+    const [game] = await new sgdbMod.SGDBClient(key).searchGame('Half-Life 2');
+    if (game) result = { ok: true, name: `${game.name} [${game.id}]` };
+  } catch { /* Keep the saved key available even if this check fails. */ }
+  if (key === cfg.api_key) {
+    const next = { ...cfg, api_key_check: result };
+    store.save(next);
+    Object.assign(cfg, next);
   }
+  return result;
 });
 
 ipcMain.handle('folders:browse', async () => {
