@@ -39,6 +39,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
       icons = async (_id, options) => { artworkQueries.push(options); return this.gridsVertical(); };
       downloadBytes = async (_url, maxBytes) => {
         assert.equal(maxBytes, 32 * 1024 * 1024);
+        if (_url.includes('steamstatic.com')) throw new Error('Download failed (404): ' + _url);
         calls.push('download'); return Buffer.from('new artwork');
       };
     } },
@@ -685,3 +686,8 @@ it('saves native Steam icons and lets Purge restore them', async (t) => {
   assert.equal(fs.readdirSync(env.grid).length, 0);
 });
 
+it('returns no stock preview when every URL is missing', async t => {
+  const env = main(t);
+  const result = await env.invoke('art:official', { row: native({}, 228980), kind: 'grid' });
+  assert.equal(result, null);
+});
