@@ -2689,6 +2689,7 @@ async function renderArtManage() {
   closeArtPreview();
   const grid = $('#art-grid');
   grid.replaceChildren();
+  grid.dataset.kind = 'manage';
   artStatus('Review artwork by type. Restore removes custom artwork when you apply.');
   await Promise.all(ART_TABS.map(async ([kind, label]) => {
     const cell = document.createElement('div');
@@ -2756,6 +2757,7 @@ function renderArtGrid(loading = false, start = 0) {
   else $('#art-more')?.remove();
   if (!m) return;
   const kind = m.tab;
+  grid.dataset.kind = kind;
   for (const id of start ? [] : ['art-stock', 'art-choice']) {
     const slot = document.createElement('div');
     slot.id = id;
@@ -2807,9 +2809,7 @@ function artThumb(im, label = '', selection = im) {
   const selectionLabel = label || (im.id ? `${kind} image ${im.id} by ${im.author || 'unknown author'}` : `${kind} image ${baseName(im.file) || im.url || ''}`);
   cell.innerHTML = `<button class="thumb-select" type="button" aria-label="Select ${esc(selectionLabel)}" aria-pressed="${String(isPicked(kind, selection))}">
       <span class="thumb-image"><img loading="lazy" decoding="async" width="${Number(im.width) || 600}" height="${Number(im.height) || 900}" src="${esc(im.thumb || im.url)}" alt=""></span>
-      <span class="meta">${label || (im.id ? `#${im.id} · ${esc(im.style)} · ${im.width}x${im.height}<br>
-      ${im.upvotes} votes · score ${im.score} · ${esc(im.author)}` : esc(im.file ? baseName(im.file) : im.url))}<span class="art-selected"> · Selected</span></span></button>
-      <button class="art-preview-button" type="button" title="Preview artwork" aria-label="Preview ${esc(selectionLabel)}"><svg class="icon" aria-hidden="true"><use href="#i-preview"/></svg></button>`;
+      ${label ? `<span class="meta">${esc(label)}</span>` : ''}</button>`;
   $('.thumb-select', cell).addEventListener('click', () => pickArt(kind, selection));
   const image = $('img', cell);
   image.addEventListener('error', () => {
@@ -2821,10 +2821,7 @@ function artThumb(im, label = '', selection = im) {
     if (['art-choice', 'art-stock'].includes(cell.parentElement?.id)) cell.parentElement.hidden = true;
     if (S.modal === modal && modal.tab === kind) artStatus('An image could not load and was hidden. Details are in the log.');
   });
-  $('.art-preview-button', cell).addEventListener('click', (e) => {
-    e.stopPropagation();
-    handleAction('Artwork preview', () => openArtPreview(im))();
-  });
+  $('.thumb-select', cell).addEventListener('dblclick', handleAction('Artwork preview', () => openArtPreview(im)));
   return cell;
 }
 
