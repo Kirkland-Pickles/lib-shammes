@@ -43,11 +43,12 @@ const cur = () => (S.detailKey ? rowByKey(S.detailKey) : null);
 // ------------------------------------------------------------------ log/ui
 function log(line, library = 'library') {
   const key = library === 'desktop' ? 'desktop' : library === 'settings' || library === 'onboarding' ? 'settings' : 'library';
-  (S.logs ||= { library: [], desktop: [], settings: [] })[key].push(String(line));
+  const entry = `[${new Date().toLocaleTimeString('en-GB', { hour12: false })}] ${String(line)}`;
+  (S.logs ||= { library: [], desktop: [], settings: [] })[key].push(entry);
   if (Nav.current() !== key) return;
   const box = $('#log');
   const div = document.createElement('div');
-  div.textContent = line;
+  div.textContent = entry;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
@@ -608,7 +609,7 @@ async function doPurge() {
     + `\n\nShortcuts are backed up before changes. Your games and Steam itself are untouched. Steam will close and reopen if it is running.`;
   if (!await confirmDlg('Purge everything', msg)) return;
   const res = await window.api.steamPurge({ dryRun: false });
-  (res.lines || []).forEach(log);
+  (res.lines || []).forEach(line => log(line));
   await refreshSteamState();
   await syncSteamLibrary();
   status('Purge complete.');
@@ -1482,7 +1483,7 @@ async function doAutoMatch(selected = checkedRows()) {
     if (u) { r.sgdbId = u.sgdbId; r.sgdbName = u.sgdbName; }
   }
   await syncCfg();
-  lines.forEach(log);
+  lines.forEach(line => log(line));
   log(`Auto-match done: ${ok}/${rows.length} matched.`);
   status(`Matched ${ok}/${rows.length}.`);
   renderRows();
@@ -1517,7 +1518,7 @@ async function writeArtwork(rows, kinds) {
     }
   }
   S.cardArtCache.clear();
-  result.lines.forEach(log);
+  result.lines.forEach(line => log(line));
   await saveSteamDrafts(S.rows.filter(r => byFolder.has(r.folder)));
   renderRows();
   if (S.detailKey) renderDetail();
@@ -1555,7 +1556,7 @@ async function doDownloadArt() {
       }
     }
     await saveSteamDrafts(rows);
-    result.lines.forEach(log);
+    result.lines.forEach(line => log(line));
     const message = `${result.prepared} artwork choices ready. Review them, then apply to Steam.`
       + (result.failed ? ` ${result.failed} failed. Check the log.` : '');
     status(message); toast(message);
@@ -1643,6 +1644,7 @@ async function applyToSteam(targetRows) {
   )])];
   status(`Adding ${eligible.length} games to Steam…`);
   log(`Adding ${eligible.length} games…`);
+  let writeCompleted = false;
   try {
     const draftKeys = eligible.map(steamDraftKey);
     const { rows: back, nativeRows = [], lines, added, updated, artworkSaved, artworkFailed = 0, warning } = await window.api.steamAdd({
@@ -1652,6 +1654,7 @@ async function applyToSteam(targetRows) {
       kinds,
       filters: { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor },
     });
+    writeCompleted = true;
     const byFolder = new Map(back.map((r) => [r.folder, r]));
     for (const r of S.rows) {
       const u = byFolder.get(r.folder);
@@ -1673,7 +1676,7 @@ async function applyToSteam(targetRows) {
     }
     await syncCfg();
     S.cardArtCache.clear();
-    lines.forEach(log);
+    lines.forEach(line => log(line));
     for (const row of nativeRows) {
       const original = S.rows.find(r => r.folder === row.folder);
       if (original) { original.art = row.art; original.pendingArt = !!row.failedKinds?.length; original.artApplied ||= !!row.appliedKinds?.length; }
@@ -1690,8 +1693,9 @@ async function applyToSteam(targetRows) {
     status(message);
     toast(warning ? `${message} ${warning}` : message);
   } catch (e) {
-    log(`FAILED: ${e.message || e}`);
-    toast(`Write failed: ${e.message || e}`);
+    const message = `${writeCompleted ? 'Steam write completed, but the library could not update' : 'Write failed'}: ${e.message || e}`;
+    log(message);
+    toast(message);
   }
 }
 
@@ -1742,7 +1746,7 @@ async function doKillSteam() {
   status('Killing Steam…');
   try {
     const { lines } = await window.api.steamKill();
-    lines.forEach(log);
+    lines.forEach(line => log(line));
     status(lines[lines.length - 1] || 'Done.');
   } catch (e) {
     toast(e.message || String(e));
@@ -1758,7 +1762,7 @@ async function doRestartSteam() {
   status('Restarting Steam…');
   try {
     const { restarted, lines } = await window.api.steamRestart();
-    lines.forEach(log);
+    lines.forEach(line => log(line));
     if (!restarted) { status(lines.at(-1) || 'Steam did not restart.'); return; }
     // Check that steam.exe is running before reporting success.
     let seen = false;
@@ -3237,7 +3241,7 @@ async function sgdbAutoOne() {
       steamAppid: r.steamAppid, sgdbId: null, source: r.source,
     }] });
     if (!isCurrentMatchRequest(token, key)) return;
-    result.lines.forEach(log);
+    result.lines.forEach(line => log(line));
     const match = result.rows[0];
     if (match && match.sgdbId) {
       r.sgdbId = match.sgdbId;
