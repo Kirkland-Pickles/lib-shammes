@@ -691,3 +691,16 @@ it('returns no stock preview when every URL is missing', async t => {
   const result = await env.invoke('art:official', { row: native({}, 228980), kind: 'grid' });
   assert.equal(result, null);
 });
+
+it('keeps failed keys and resets checks when the key changes', async t => {
+  const env = main(t);
+  await env.invoke('cfg:set', { api_key: 'saved-key' });
+  const result = await env.invoke('key:validate', 'saved-key');
+  assert.equal(result.ok, false);
+  assert.equal(env.cfg.api_key, 'saved-key');
+  assert.equal(env.cfg.api_key_check.ok, false);
+  await env.invoke('cfg:set', { api_key: 'replacement' });
+  await env.invoke('key:validate', 'saved-key');
+  assert.equal(env.cfg.api_key, 'replacement');
+  assert.equal(env.cfg.api_key_check, null);
+});

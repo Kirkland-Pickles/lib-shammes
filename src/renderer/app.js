@@ -338,36 +338,60 @@ function keyCard() {
   const d = document.createElement('div');
   d.className = 'card settings-block';
   d.innerHTML = `<h3>SteamGridDB API key</h3>
-    <div class="row"><input type="password" data-r="key" style="flex:1" placeholder="paste key…" autocomplete="off">
-    <button class="btn sm" data-r="show">Show</button></div>
-    <div class="row"><button class="btn sm" data-r="validate">Validate</button>
-    <button class="btn sm" data-r="get">Get key…</button></div>
-    <div class="status-line" data-r="status">Optional. Needed for online matches and artwork search.</div>
-    <div class="note">Go to steamgriddb.com, click profile, click preferences, click API. Stored in %APPDATA%\\Lib Shammes.</div>`;
-  const q = (s) => d.querySelector(`[data-r="${s}"]`);
-  q('key').value = S.cfg.api_key || '';
-  q('key').addEventListener('change', async () => { await savePatch({ api_key: q('key').value.trim() }); renderLibrarySetup(); });
+    <div class="key-field"><input type="password" data-r="key" aria-label="SteamGridDB API key" placeholder="paste key…" autocomplete="off">
+    <button class="btn sm key-eye" data-r="show" aria-label="Show API key" aria-pressed="false"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="m4 4 16 16"/></svg></button></div>
+    <div class="key-feedback"><div class="status-line" data-r="status" role="status"></div>
+    <button class="text-btn" data-r="get">Get key</button></div>`;
+  const q = name => d.querySelector(`[data-r="${name}"]`);
+  const input = q('key');
+  input.value = S.cfg.api_key || '';
+  const paint = result => {
+    q('status').className = 'status-line' + (result ? (result.ok ? ' ok' : ' bad') : '');
+    q('status').textContent = result?.ok ? 'Key valid'
+      : result ? 'Could not verify the key. It is saved.' : '';
+  };
+  paint(input.value ? S.cfg.api_key_check : null);
+  let timer;
+  const checking = new Map();
+  const validate = handleAction('Check artwork key', async () => {
+    const key = input.value.trim();
+    if (checking.has(key) && key === S.cfg.api_key) return;
+    if (key === S.cfg.api_key && (!key || S.cfg.api_key_check)) {
+      paint(key ? S.cfg.api_key_check : null);
+      return;
+    }
+    const request = {};
+    checking.set(key, request);
+    try {
+      if (key !== S.cfg.api_key) {
+        await savePatch({ api_key: key });
+        renderLibrarySetup();
+      }
+      if (!key || input.value.trim() !== key) return;
+      q('status').textContent = 'Checking key…';
+      const result = await window.api.keyValidate(key);
+      if (checking.get(key) !== request || input.value.trim() !== key || S.cfg.api_key !== key) return;
+      S.cfg.api_key_check = result;
+      paint(result);
+    } finally { if (checking.get(key) === request) checking.delete(key); }
+  });
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    paint(null);
+    timer = setTimeout(validate, 650);
+  });
+  input.addEventListener('change', () => {
+    clearTimeout(timer);
+    validate();
+  });
+  if (input.value && !S.cfg.api_key_check) timer = setTimeout(validate, 650);
   q('show').addEventListener('click', () => {
-    q('key').type = q('key').type === 'password' ? 'text' : 'password';
+    const visible = q('key').type === 'password';
+    q('key').type = visible ? 'text' : 'password';
+    q('show').setAttribute('aria-label', visible ? 'Hide API key' : 'Show API key');
+    q('show').setAttribute('aria-pressed', String(visible));
   });
   q('get').addEventListener('click', () => window.api.openUrl('https://www.steamgriddb.com/profile/preferences/api'));
-  q('validate').addEventListener('click', async () => {
-    const key = q('key').value.trim();
-    if (!key) { q('status').textContent = 'Paste a key first 😊'; return; }
-    q('status').textContent = 'Checking…';
-    q('status').className = 'status-line';
-    const r = await window.api.keyValidate(key);
-    await syncCfg();
-    if (r.ok) {
-      q('status').textContent = `Key works ✓ (found “${r.name}”).`;
-      q('status').className = 'status-line ok';
-      log('SGDB API key valid.', 'settings');
-    } else {
-      q('status').textContent = `Key rejected: ${r.error}`;
-      q('status').className = 'status-line bad';
-      log(`Key rejected: ${r.error}`, 'settings');
-    }
-  });
   return d;
 }
 

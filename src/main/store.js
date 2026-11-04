@@ -13,6 +13,7 @@ const DEFAULTS = {
   steam_path: '',
   steam_user_id: '',
   api_key: '',
+  api_key_check: null,
   scan_depth: 1,
   include_animated: false,
   include_nsfw: false,

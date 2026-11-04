@@ -19,6 +19,7 @@ const rows = [1, 2].map((i) => ({ id: `link:${i}`, shortcut: `C:\\Desktop\\Varia
   confidence: 1, candidates: [{ path: 'C:\\Games\\Game.exe' }] }));
 const icon = nativeImage.createFromBitmap(Buffer.alloc(16, 255), { width: 2, height: 2 }).toDataURL();
 const downloadedIcon = nativeImage.createFromBitmap(Buffer.from([0, 0, 255, 255]), { width: 1, height: 1 }).toDataURL();
+const keyChecks = [];
 let foundLaunchers = [];
 let installedGames = [];
 const handlers = {
@@ -29,6 +30,7 @@ const handlers = {
   },
   'app:is-development': () => false,
   'key:validate': key => {
+    keyChecks.push(key);
     const result = key === 'fixture' ? { ok: true, name: 'Half-Life 2 [220]' } : { ok: false };
     if (cfg.api_key === key) cfg.api_key_check = result;
     return result;
@@ -183,8 +185,19 @@ app.whenReady().then(async () => {
   await click('#art-cancel');
   await click('#preferences > summary');
   await capture('settings-cog');
+  await run(`{
+    const input = document.querySelector('#settings-cards [data-r=key]');
+    for (const value of ['un', 'unverified']) {
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }`);
+  await wait("document.querySelector('#settings-cards [data-r=status]').textContent.includes('Could not verify')");
+  assert.equal(cfg.api_key, 'unverified');
+  assert.deepEqual(keyChecks, ['unverified']);
   await change('#settings-cards [data-r=key]', 'fixture');
-  await wait(() => cfg.api_key === 'fixture');
+  await wait("document.querySelector('#settings-cards [data-r=status]').textContent.trim() === 'Key valid'");
+  assert.equal(cfg.api_key_check.ok, true);
   await selectDestination('desktop');
   await idle();
   cfg.artwork_filters.icon = {};
