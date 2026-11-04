@@ -401,7 +401,7 @@ ipcMain.handle('art:official', async (_e, req) => {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(file, image.toPNG());
       return { file, url: await previewFile(file) };
-    } catch (e) { lastError = e; }
+    } catch (e) { if (!/Download failed \(404\)/.test(e.message)) lastError = e; }
   }
   if (lastError) throw new Error(`Official artwork could not load: ${lastError.message}`);
   return null;
