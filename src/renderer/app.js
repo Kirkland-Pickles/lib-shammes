@@ -1857,18 +1857,16 @@ function desktopApplyRows(cards) {
     return desktopMembers(row).map(member => ({ ...member, ...shared }));
   });
 }
-function saveDesktopDraft(row) {
-  const edits = Object.fromEntries(desktopEditFields.map(key => [key, row[key]]));
-  const drafts = {};
-  for (const member of desktopMembers(row)) {
-    Object.assign(member, edits, { saved: false });
-    member.art = { ...(row.art || {}) };
-    member.draft = { ...edits, signature: member.signature };
-    drafts[member.id] = member.draft;
-  }
-  desktopSave = desktopSave.catch(() => {}).then(() => savePatch({ desktop_overrides: {
-    ...S.cfg.desktop_overrides, ...drafts,
-  } }));
+function saveDesktopDraft(row, update = row) {
+  const members = desktopMembers(row);
+  const edits = Object.fromEntries(desktopEditFields.map(key => [key, update[key]]));
+  const drafts = Object.fromEntries(members.map(member => [member.id, { ...edits, signature: member.signature }]));
+  desktopSave = desktopSave.catch(() => {}).then(async () => {
+    await savePatch({ desktop_overrides: { ...S.cfg.desktop_overrides, ...drafts } });
+    for (const member of members) {
+      Object.assign(member, edits, { saved: false, art: { ...(update.art || {}) }, draft: drafts[member.id] });
+    }
+  });
   return desktopSave;
 }
 
@@ -2448,6 +2446,16 @@ async function closeArtModal(save) {
       return;
     } finally { m.applying = false; $('#art-modal').inert = false; }
   }
+  if (save && m.row.source === 'desktop') {
+    m.applying = true;
+    $('#art-modal').inert = true;
+    const match = m.games.find(game => game.id === m.sgdbId);
+    const updated = { ...m.row, iconChoice: m.sel.icon || null, art: { ...m.sel }, sgdbId: m.sgdbId,
+      ...(match && m.sgdbId !== m.row.sgdbId ? { display: match.name, sgdbName: match.name } : {}) };
+    try { await saveDesktopDraft(m.row, updated); Object.assign(m.row, Object.fromEntries([...desktopEditFields, 'art'].map(key => [key, updated[key]])));  }
+    catch (error) { artStatus(`Choices could not be saved: ${error.message || error}`); return; }
+    finally { m.applying = false; $('#art-modal').inert = false; }
+  }
   m.moreObserver?.disconnect();
   if (m.previewLoader) m.previewLoader.src = '';
   $('#art-url-entry').hidden = true;
@@ -2455,12 +2463,6 @@ async function closeArtModal(save) {
   animateArtModal(false);
   if (save) {
     if (m.row.source === 'desktop') {
-      m.row.iconChoice = m.sel.icon || null;
-      m.row.art = { ...m.sel };
-      const match = m.games.find((game) => game.id === m.sgdbId);
-      if (match && m.sgdbId !== m.row.sgdbId) { m.row.display = m.row.sgdbName = match.name; }
-      m.row.sgdbId = m.sgdbId;
-      handleAction('Save Desktop changes', () => saveDesktopDraft(m.row))();
       renderDesktop();
       restoreArtFocus(m);
       return;

@@ -196,14 +196,14 @@ it('keeps the Desktop name when changing its matched icon', async () => {
   context.document.querySelector = () => ({ getAnimations: () => [], classList: { remove() {} } });
   vm.runInContext('renderDesktop = restoreArtFocus = () => {}; saveDesktopDraft = async () => {}; handleAction = (_label, fn) => fn;', context);
   const row = { source: 'desktop', display: 'My variant', sgdbId: 7 };
-  const select = (id, name) => {
+  const select = async (id, name) => {
     state.modal = { row, sel: { icon: { file: 'chosen.ico' } }, sgdbId: id, games: [{ id, name }] };
-    vm.runInContext('closeArtModal(true)', context);
+    await vm.runInContext('closeArtModal(true)', context);
   };
-  select(7, '(cached)');
+  await select(7, '(cached)');
   assert.equal(row.display, 'My variant');
   assert.equal(row.iconChoice.file, 'chosen.ico');
-  select(8, 'New matched game');
+  await select(8, 'New matched game');
   assert.equal(row.display, 'New matched game');
   assert.equal(row.sgdbId, 8);
 });
@@ -765,4 +765,18 @@ it('keeps native selections and artwork by AppID when games share a name', async
   assert.equal(state.rows[0].pendingArt, true);
   assert.equal(state.rows[1].checked, false);
   assert.equal(Object.keys(state.rows[1].art).length, 0);
+});
+
+it('keeps paired icon drafts unchanged when saving fails', async () => {
+  const { context, state } = renderer({ cfgSet: async () => { throw new Error('disk full'); } });
+  state.cfg = { desktop_overrides: {} };
+  const first = { id: 'one', display: 'Game', iconChoice: { file: 'old.ico' }, signature: 'one' };
+  const second = { ...first, id: 'two', signature: 'two' };
+  state.desktop.rows = [first, second]; state.desktop.groups = [[first, second]];
+  context.first = first;
+  await assert.rejects(vm.runInContext("saveDesktopDraft(first, { ...first, iconChoice: { file: 'new.ico' } })", context), /disk full/);
+  assert.equal(first.iconChoice.file, 'old.ico');
+  assert.equal(second.iconChoice.file, 'old.ico');
+  assert.equal(first.draft, undefined);
+  assert.equal(second.draft, undefined);
 });
