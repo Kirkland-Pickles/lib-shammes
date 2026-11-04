@@ -2274,12 +2274,12 @@ const ART_DIMENSIONS = {
 };
 const dimensionLabel = (kind, value) => kind === 'icon' ? `${value}x${value}` : value;
 
-function savedPickerFilters(kind) {
+function savedPickerFilters(kind, defaultsOnly = false) {
   return { static: true, animated: !!S.cfg.include_animated, untagged: true,
     nsfw: !!S.cfg.include_nsfw, humor: !!S.cfg.include_humor, epilepsy: true,
     ...(ART_DIMENSIONS[kind] ? { dimensions: ART_DIMENSIONS[kind].filter(value =>
       !['grid', 'wide'].includes(kind) || !['512x512', '1024x1024'].includes(value)) } : {}),
-    ...S.cfg.artwork_filters?.[kind] };
+    ...(defaultsOnly ? {} : S.cfg.artwork_filters?.[kind]) };
 }
 
 function pickerFilters(kind) {
@@ -2334,29 +2334,26 @@ function renderArtFilters() {
         ${m.row.source === 'desktop' && ['static', 'animated'].includes(value) ? 'disabled' : ''}>${label}</label>`;
     }).join('');
     if (field !== 'dimensions') return `<fieldset><legend>${title}</legend>${choices}</fieldset>`;
-    const summary = values.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || 'Any size';
-    return `<fieldset class="filter-dimensions"><legend>${title}</legend><details class="dimension-select">
-      <summary title="${esc(summary)}"><span>${esc(summary)}</span></summary><div class="dimension-options">${choices}</div>
-      </details></fieldset>`;
+    return `<fieldset class="filter-dimensions"><legend>Dimensions</legend><div class="dimension-options">${choices}</div></fieldset>`;
   }).join('');
   host.onchange = event => handleAction('Artwork filters', async () => {
     const inputs = [...event.target.closest('fieldset').querySelectorAll('input')];
     if (!inputs.some(input => input.checked) && ['static', 'animated'].includes(event.target.dataset.filter)) {
       inputs.find(input => input !== event.target).checked = true;
     }
-    const next = collectSavedPickerFilters(kind, host.querySelectorAll('input'));
-    const summary = host.querySelector('.dimension-select summary');
-    if (summary) {
-      const text = next.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || 'Any size';
-      summary.title = text;
-      summary.querySelector('span').textContent = text;
+    if (event.target.dataset.filter === 'nsfw' && event.target.checked &&
+      !await confirmDlg('Show adult artwork?', 'SteamGridDB results can include adult content.', { danger: true })) {
+      event.target.checked = false;
+      return;
     }
+    const next = collectSavedPickerFilters(kind, host.querySelectorAll('input'));
     await savePatch({ artwork_filters: { ...S.cfg.artwork_filters, [kind]: next } });
     if (S.modal !== m || m.tab !== kind) return;
     await loadArtTabs();
   })();
   $('#art-filter-reset').onclick = handleAction('Reset filters', async () => {
-    const filters = { ...S.cfg.artwork_filters, [kind]: { nsfw: pickerFilters(kind).nsfw } };
+    const filters = { ...S.cfg.artwork_filters };
+    delete filters[kind];
     await savePatch({ artwork_filters: filters });
     if (S.modal !== m || m.tab !== kind) return;
     renderArtFilters();
@@ -2779,7 +2776,23 @@ function renderArtGrid(loading = false, start = 0) {
   const page = m.cache[artworkCacheKey(m)];
   const items = page?.items || [];
   if (!items.length) {
-    grid.insertAdjacentHTML('beforeend', '<div class="muted">No SGDB images of this type.</div>');
+    const empty = document.createElement('div');
+    empty.className = 'art-load-error muted';
+    empty.textContent = 'No SGDB images of this type.';
+    const defaults = savedPickerFilters(kind, true);
+    if (m.row.source === 'desktop') Object.assign(defaults, { static: true, animated: false });
+    const changed = $$('#art-filter-fields input').some(input => {
+      const value = defaults[input.dataset.filter];
+      return input.checked !== (Array.isArray(value) ? value.includes(input.value) : value ?? true);
+    });
+    if (changed) {
+      const reset = document.createElement('button');
+      reset.className = 'btn sm';
+      reset.textContent = 'Reset filters';
+      reset.onclick = () => $('#art-filter-reset').click();
+      empty.appendChild(reset);
+    }
+    grid.appendChild(empty);
     return;
   }
   for (const im of items.slice(start)) grid.appendChild(artThumb(im));
@@ -2883,6 +2896,10 @@ async function artLoadId() {
 // ------------------------------------------------------------------ boot
 function wireToolbar() {
   wireDesktop();
+  document.addEventListener('click', event => {
+    const filters = $('#art-filters');
+    if (filters.open && !filters.contains(event.target)) filters.open = false;
+  });
   $('#onboarding-skip').addEventListener('click', () => { S.onboardingStep = 1; S.skippedSteam = true; renderOnboarding(); });
   $('#onboarding-continue').addEventListener('click', handleAction('Setup', async () => {
     const button = $('#onboarding-continue');
@@ -3099,7 +3116,8 @@ function wireToolbar() {
       else if (!e.shiftKey && at === focusable.length - 1) { e.preventDefault(); focusable[0]?.focus(); }
     }
     if (e.key === 'Escape' && S.modal) {
-      if (!$('#art-url-entry').hidden) $('#art-url-entry').hidden = true;
+      if ($('#art-filters').open) $('#art-filters').open = false;
+      else if (!$('#art-url-entry').hidden) $('#art-url-entry').hidden = true;
       else closeArtModal(false);
     }
     // History shortcuts. Ignored while the modal owns input.

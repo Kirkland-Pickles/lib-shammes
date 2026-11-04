@@ -200,19 +200,15 @@ app.whenReady().then(async () => {
   await wait("document.querySelector('#art-filter-fields input[data-filter=untagged]').checked");
   assert.equal(await run("document.querySelector('#art-filter-fields input[data-filter=nsfw]').checked"), false);
   assert.equal(await run("document.querySelector('#art-filter-fields input[data-filter=static]').checked"), true);
-  assert.equal(await run("document.querySelector('.dimension-select').open"), false);
-  await click('.dimension-select summary');
   await click('#art-filter-fields input[data-filter=dimensions][value="512"]');
   await wait(() => cfg.artwork_filters.icon.dimensions?.includes('256') && !cfg.artwork_filters.icon.dimensions.includes('512'));
   await wait(() => artRequests.at(-1).filters.dimensions?.includes('256') && !artRequests.at(-1).filters.dimensions.includes('512'));
-  assert.equal(await run("document.querySelector('.dimension-select summary').textContent.includes('512x512')"), false);
   await run(`{
     const inputs = [...document.querySelectorAll('#art-filter-fields input[data-filter=dimensions]')];
     inputs.forEach(input => { input.checked = false; });
     inputs[0].dispatchEvent(new Event('change', { bubbles: true }));
   }`);
   await wait(() => cfg.artwork_filters.icon.dimensions?.length === 0);
-  assert.equal(await run("document.querySelector('.dimension-select summary').textContent.trim()"), 'Any size');
   await run("document.querySelector('#art-filter-fields input[data-filter=humor]').checked = false");
   await click('#art-filter-fields input[data-filter=humor]');
   await wait(() => cfg.artwork_filters.icon.humor === true);
