@@ -490,6 +490,14 @@ app.whenReady().then(async () => {
   await click('#btn-refresh');
   await wait("!document.querySelector('#btn-refresh').disabled");
   assert.equal(await launchersShown(), 2);
+  await click('#add-folders');
+  await click('#found-launchers .folder-entry button');
+  await wait(async () => await launchersShown() === 1);
+  await click('#found-launchers .found-launchers-head button');
+  await wait(async () => await launchersShown() === 0);
+  assert.equal(cfg.steam_executables.length, 0);
+  assert.ok(await run("document.querySelector('#games').textContent.includes('Native game')"));
+  await click('#close-add');
   win.setSize(1280, 800);
   installedGames = Array.from({ length: 18 }, (_, i) => ({
     appid: 500 + i, name: `Fixture game ${i + 1} with a title on two lines`,
