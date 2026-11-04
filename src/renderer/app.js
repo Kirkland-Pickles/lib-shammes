@@ -1089,7 +1089,7 @@ function toRow(g, useLegacy = false) {
     query: title, steamAppid: g.steamAppid ?? null, idMethod: g.idMethod || 'folder',
     fromExecutableSearch: !!g.fromExecutableSearch,
     confidence: g.confidence || 0, source: 'folder',
-    checked: !!g.exePath, sgdbId: savedSgdb, sgdbName: savedSgdb ? '(cached)' : '',
+    checked: !!g.exePath && !g.fromExecutableSearch, sgdbId: savedSgdb, sgdbName: savedSgdb ? '(cached)' : '',
     inSteam: false, managed: false, shortcutIdx: null, appid: null, art: {},
     defaults: { folder: g.folder, folderName, display: g.displayName, query: g.displayName,
       exe: g.exePath, startDir: g.startDir, reason: g.reason || '' },
@@ -1177,7 +1177,7 @@ async function syncSteamLibrary(entries, installed) {
   }
   S.rows = S.rows.filter((row) => {
     if (row.source !== 'folder') return true;
-    const owner = nativeRows.find(native => insideGameFolder(row.folder, native.startDir))
+    const owner = (!row.fromExecutableSearch && nativeRows.find(native => insideGameFolder(row.folder, native.startDir)))
       || row.exe && shortcutByExe.get(folderKey(row.exe));
     if (!owner) return true;
     // Prefer pending edits over an applied preview; existing Steam edits win ties.
@@ -1307,21 +1307,10 @@ function doFindExecutables(context = null) {
       add.onclick = handleAction('Add executables', async () => {
         if (context) { dialog.close(); await context.add([...selected]); return; }
         await savePatch({ steam_executables: [...(S.cfg.steam_executables || []), ...selected] });
-        const known = new Set(S.rows.filter((r) => r.exe).map((r) => r.exe.toLowerCase()));
-        let added = 0;
-        for (const game of selected) {
-          if (known.has(game.exePath.toLowerCase())) continue;
-          const row = toRow(game);
-          row.checked = false;
-          S.rows.push(row);
-          known.add(game.exePath.toLowerCase());
-          added++;
-        }
         dialog.close();
-        renderRows();
-        log(`Showing ${added} executable(s) in Lib Shammes.`);
-        status(`Found ${added} executable(s).`);
-        await refreshSteamState();
+        await loadLibrary();
+        log(`Added ${selected.size} executable(s) to the library.`);
+        status(`Found ${selected.size} executable(s).`);
       });
     } catch (e) {
       summary.textContent = 'Search failed. You can try again.';
@@ -1366,7 +1355,7 @@ async function refreshSteamState(entries) {
 let libraryLoad = null;
 let loadedLibraryKey = null;
 function libraryKey() {
-  return JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.steam_path, S.cfg.steam_user_id]);
+  return JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.steam_path, S.cfg.steam_user_id, S.cfg.steam_executables]);
 }
 function loadLibrary(force = false) {
   if (S.applyingSteam || S.preparingArt) return Promise.resolve();
