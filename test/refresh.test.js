@@ -780,3 +780,24 @@ it('keeps paired icon drafts unchanged when saving fails', async () => {
   assert.equal(first.draft, undefined);
   assert.equal(second.draft, undefined);
 });
+
+it('reloads saved launchers and keeps them visible under native Steam install folders', async () => {
+  const { context, state, refresh } = renderer({
+    scanStart: async () => [
+      { folder: 'games/native', exePath: 'games/native/game.exe', displayName: 'Scanned native' },
+      ...state.cfg.steam_executables,
+    ],
+    steamRead: async () => [],
+    steamGames: async () => [{ appid: 30, name: 'Native game', installdir: 'games/native' }],
+    steamVerify: async () => true,
+  });
+  state.cfg = { games_roots: ['games'], steam_path: 'C:/Steam', steam_user_id: '1',
+    sgdb_map: {}, sgdb_cache: {}, steam_executables: [] };
+  await vm.runInContext('loadLibrary()', context);
+  state.cfg.steam_executables = [{ folder: 'games/native/extra.exe', exePath: 'games/native/extra.exe',
+    startDir: 'games/native', displayName: 'Extra launcher', fromExecutableSearch: true }];
+  await vm.runInContext('loadLibrary()', context);
+  assert.deepEqual(Array.from(state.rows, row => row.display).sort(), ['Extra launcher', 'Native game']);
+  await refresh();
+  assert.deepEqual(Array.from(state.rows, row => row.display).sort(), ['Extra launcher', 'Native game']);
+});
