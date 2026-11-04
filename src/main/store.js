@@ -35,7 +35,6 @@ const DEFAULTS = {
   desktop_destination: 'desktop',
   steam_executables: [],
   startup_library: 'steam',
-  onboarded: false,
 };
 
 function dataDir(name, fallback) {
