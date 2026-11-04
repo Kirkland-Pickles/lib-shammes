@@ -374,7 +374,42 @@ function keyCard() {
 function executableSetting() {
   return libraryView() === 'desktop' ? 'desktop_executables' : 'steam_executables';
 }
+function renderFoundLaunchers() {
+  const host = $('#found-launchers');
+  const setting = executableSetting();
+  const launchers = S.cfg[setting] || [];
+  host.replaceChildren();
+  host.hidden = !launchers.length;
+  if (!launchers.length) return;
+  const header = document.createElement('div');
+  header.className = 'found-launchers-head';
+  header.innerHTML = `<strong>Found launchers (${launchers.length})</strong><button class="btn sm">Remove all from library</button>`;
+  host.appendChild(header);
+  const remove = async path => {
+    if (host.inert) return;
+    host.inert = true;
+    try {
+      const remaining = path ? (S.cfg[setting] || []).filter(game => folderKey(game.exePath) !== folderKey(path)) : [];
+      await savePatch({ [setting]: remaining });
+      renderFoundLaunchers();
+      await showLibrary();
+    } finally { host.inert = false; }
+  };
+  $('button', header).onclick = handleAction('Remove found launchers', () => remove());
+  const list = document.createElement('div');
+  list.className = 'found-launchers-list';
+  for (const { exePath, displayName } of launchers) {
+    const row = document.createElement('div');
+    row.className = 'folder-entry';
+    row.innerHTML = `<span title="${esc(exePath)}">${esc(displayName || exePath)}<small>${esc(exePath)}</small></span><button class="btn sm">Remove</button>`;
+    $('button', row).onclick = handleAction('Remove launcher', () => remove(exePath));
+    list.appendChild(row);
+  }
+  host.appendChild(list);
+}
+
 function renderSources() {
+  renderFoundLaunchers();
   const host = $('#source-folders');
   host.replaceChildren();
   for (const folder of S.cfg.games_roots || []) {
