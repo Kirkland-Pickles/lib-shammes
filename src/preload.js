@@ -6,7 +6,6 @@ contextBridge.exposeInMainWorld('api', {
   isDevelopment: () => ipcRenderer.invoke('app:is-development'),
   desktopScan: () => ipcRenderer.invoke('desktop:scan'),
   desktopApply: (rows) => ipcRenderer.invoke('desktop:apply', rows),
-  desktopDownload: (rows) => ipcRenderer.invoke('desktop:download', rows),
   desktopIcon: (file, index) => ipcRenderer.invoke('desktop:icon', file, index),
   desktopPickIcon: () => ipcRenderer.invoke('desktop:pick-icon'),
   // config
@@ -43,7 +42,6 @@ contextBridge.exposeInMainWorld('api', {
   resolveName: (name) => ipcRenderer.invoke('resolve:name', name),
   artList: (req) => ipcRenderer.invoke('art:list', req),
   artThumbnail: (file) => ipcRenderer.invoke('art:thumbnail', file),
-  artPrepare: (req) => ipcRenderer.invoke('art:prepare', req),
   artPreviewFile: (file) => ipcRenderer.invoke('art:preview-file', file),
   artCurrent: (req) => ipcRenderer.invoke('art:current', req),
   artOfficial: (req) => ipcRenderer.invoke('art:official', req),

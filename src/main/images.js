@@ -66,11 +66,4 @@ function writePngIco(pngBytes, destIco) {
   return destIco;
 }
 
-function gridHasArt(gridFolder, stem, kindSuffix) {
-  for (const ext of ['.png', '.jpg', '.jpeg', '.webp']) {
-    if (fs.existsSync(path.join(gridFolder, `${stem}${kindSuffix}${ext}`))) return true;
-  }
-  return false;
-}
-
-module.exports = { extFromUrl, isWebp, isPng, saveGridBytes, writePngIco, gridHasArt };
+module.exports = { extFromUrl, isWebp, isPng, saveGridBytes, writePngIco };

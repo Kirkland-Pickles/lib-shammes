@@ -163,7 +163,7 @@ ipcMain.handle('steam:restart', () => withSteamControl(async () => {
 }));
 
 ipcMain.handle('steam:prune', async () => {
-  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
+  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Connect Steam and choose an account in Add games.');
   return steam.findStaleShortcuts(steam.loadEntries(cfg.steam_path, cfg.steam_user_id));
 });
 
@@ -221,7 +221,7 @@ ipcMain.handle('app:wipe-data', () => {
 function purgeSteam(opts) {
   // Cleanup defaults to a preview unless dryRun is explicitly false.
   const dryRun = !opts || opts.dryRun !== false;
-  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
+  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Connect Steam and choose an account in Add games.');
   const sp = cfg.steam_path;
   const uid = cfg.steam_user_id;
   const entries = steam.loadEntries(sp, uid);
@@ -537,27 +537,6 @@ ipcMain.handle('desktop:apply', async (_e, rows) => {
   } finally { desktopJob = false; progress(0, 0, ''); }
 });
 ipcMain.handle('desktop:icon', (_e, file, index) => desktop.preview(file, index));
-ipcMain.handle('desktop:download', async (_e, rows) => {
-  if (desktopJob) throw new Error('Desktop library is busy.');
-  desktopJob = true;
-  const results = [];
-  try {
-    for (const row of rows) {
-      try {
-        if (!row.sgdbId) { results.push({ id: row.id, skipped: 'Not matched.' }); continue; }
-        if (cfg.only_missing && (row.icon || row.iconChoice)) {
-          results.push({ id: row.id, skipped: 'Icon already present - skipping.' }); continue;
-        }
-        progress(results.length, rows.length, row.display);
-        const filters = { ...artworkFilters('icon'), static: true, animated: false };
-        const icon = sgdbMod.chooseArtwork(await listArtwork({ sgdbId: row.sgdbId, kind: 'icon', filters }), filters);
-        if (!icon) { results.push({ id: row.id, error: 'No icons found.' }); continue; }
-        results.push({ id: row.id, choice: { ...icon, file: await desktop.cacheIcon(icon), automatic: true } });
-      } catch (e) { results.push({ id: row.id, error: e.message }); }
-    }
-    return results;
-  } finally { desktopJob = false; progress(0, 0, ''); }
-});
 ipcMain.handle('desktop:pick-icon', async () => {
   const result = await dialog.showOpenDialog(win, { title: 'Choose shortcut icon', properties: ['openFile'],
     filters: [{ name: 'Icons, images and programs', extensions: ['ico', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'exe', 'dll'] }] });
@@ -623,33 +602,6 @@ async function listArtwork(req, c = client()) {
   return c.icons(sgdbId, o);
 }
 
-ipcMain.handle('art:prepare', async (_e, req) => {
-  const rows = req.rows || [];
-  const lines = [];
-  let prepared = 0;
-  let failed = 0;
-  for (const row of rows) {
-    row.art ||= {};
-    let metadata;
-    for (const kind of req.kinds || []) {
-      if (!Object.hasOwn(steam.ART_SUFFIXES, kind) || !row.sgdbId) continue;
-      try {
-        if (cfg.only_missing && (row.art[kind] || steam.currentArtwork(cfg.steam_path, cfg.steam_user_id, row, kind))) continue;
-        if (cfg.only_missing && row.source === 'steam') {
-          metadata ||= await client().steamMetadata(row.steamAppid).catch(() => ({}));
-          if (hasStockArtwork(metadata, kind)) continue;
-        }
-        const image = sgdbMod.chooseArtwork(await listArtwork({ sgdbId: row.sgdbId, kind }), artworkFilters(kind));
-        if (!image) { lines.push(`${row.display} [${kind}]: no matching artwork.`); continue; }
-        row.art[kind] = image;
-        prepared++;
-      } catch (e) { failed++; lines.push(`${row.display} [${kind}]: ${e.message || e}`); }
-    }
-  }
-  return { rows, lines, prepared, failed };
-});
-
-// ----------------------------------------------------------------- match
 ipcMain.handle('match:auto', async (_e, req) => {
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
   const force = !!(req && req.force);
@@ -712,48 +664,29 @@ ipcMain.handle('match:auto', async (_e, req) => {
 });
 
 // ------------------------------------------------------------------- art
-function hasStockArtwork(metadata, kind) {
-  const key = { wide: 'header_image', grid: 'library_capsule', hero: 'library_hero', logo: 'library_logo', icon: 'icon' }[kind];
-  const full = metadata[`${key}_full`];
-  return !!(metadata[key] || (kind === 'icon' && metadata.clienticon)
-    || [full?.image || full, full?.image2x].some(map => Object.values(map || {}).some(value => typeof value === 'string' && value)));
-}
-
-async function fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes = null, shortcut = null, native = null, beforeWrite = native?.beforeWrite) {
+async function fetchOneArt(c, gridFolder, stem, row, kind, changes = null, shortcut = null, native = null, beforeWrite = native?.beforeWrite) {
   const suffix = steam.ART_SUFFIXES[kind];
   const sel = row.art?.[kind]?.automatic ? null : row.art?.[kind] || null;
-  if (!sel && onlyMissing && images.gridHasArt(gridFolder, stem, suffix)) {
-    return { line: `${row.display} [${kind}]: already present, skip.`, saved: false };
-  }
+  if (!sel || sel.current) return { line: '', saved: false };
   let metadata;
-  if (native && ((!sel && onlyMissing) || kind === 'icon')) {
-    metadata = await native.metadata().catch(e => { if (kind === 'icon') throw e; return {}; });
-    const stock = hasStockArtwork(metadata, kind);
-    if (!sel && onlyMissing && stock) return { line: `${row.display} [${kind}]: stock Steam artwork present, skip.`, saved: false };
-    if (kind === 'icon' && !/^[a-f0-9]{40}$/i.test(metadata.icon || '')) throw new Error('Steam icon cache filename is unavailable.');
+  if (native && kind === 'icon') {
+    metadata = await native.metadata();
+    if (!/^[a-f0-9]{40}$/i.test(metadata.icon || '')) throw new Error('Steam icon cache filename is unavailable.');
   }
   let data = null;
   let src = '';
   let srcUrl = '';
-  if (sel && sel.file) {
+  if (sel.file) {
     data = kind === 'icon' && /\.(exe|dll|ico)$/i.test(sel.file)
       ? Buffer.from((await desktop.preview(sel.file, 0)).split(',')[1], 'base64') : fs.readFileSync(sel.file);
     src = `file ${sel.file}`;
     srcUrl = store.loadChanges().files.find((f) => f.before === sel.file)?.path || sel.file;
-  } else if (sel && sel.url) {
+  } else if (sel.url) {
     data = await c.downloadBytes(sel.url, 32 * 1024 * 1024);
     src = sel.custom ? 'custom URL' : `#${sel.id}`;
     srcUrl = sel.url;
   } else {
-    const items = await listArtwork({ sgdbId: row.sgdbId, kind, filters: artworkFilters(kind, filters) }, c);
-    if (!items.length) return { line: `${row.display} [${kind}]: no image on SGDB.`, saved: false };
-    const img = sgdbMod.chooseArtwork(items, artworkFilters(kind, filters));
-    row.art = row.art || {};
-    data = await c.downloadBytes(img.url, 32 * 1024 * 1024);
-    row.art[kind] = { id: img.id, url: img.url, author: img.author, width: img.width, height: img.height,
-      automatic: true };
-    src = `#${img.id} ${img.author}`;
-    srcUrl = img.url;
+    return { line: '', saved: false };
   }
   if (native && kind === 'icon') {
     const dest = path.join(cfg.steam_path, 'appcache', 'librarycache', stem, `${metadata.icon}.jpg`);
@@ -814,7 +747,7 @@ async function withSteamControl(action) {
 
 async function withSteamClosed(write) {
   if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
-  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
+  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Connect Steam and choose an account in Add games.');
   steamWriteBusy = true;
   const steamPath = cfg.steam_path;
   let reopen = false;
@@ -873,11 +806,9 @@ function artworkBackup(changes) {
   };
 }
 async function downloadArtwork(req) {
-  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
+  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Connect Steam and choose an account in Add games.');
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
   const kinds = (req && Array.isArray(req.kinds) ? req.kinds : []).filter((kind) => Object.hasOwn(steam.ART_SUFFIXES, kind));
-  const onlyMissing = !!(req && req.onlyMissing);
-  const filters = (req && req.filters) || {};
   const c = client();
   const gridFolder = steam.gridDir(cfg.steam_path, cfg.steam_user_id);
   fs.mkdirSync(gridFolder, { recursive: true });
@@ -948,7 +879,7 @@ async function downloadArtwork(req) {
           continue;
         }
         const beforeIcon = hit && hit.icon;
-        const result = await fetchOneArt(c, gridFolder, stem, row, kind, filters, onlyMissing, changes, hit, native, beforeWrite);
+        const result = await fetchOneArt(c, gridFolder, stem, row, kind, changes, hit, native, beforeWrite);
         lines.push(result.line);
         if (result.saved) { saved++; row.appliedKinds.push(kind); }
         if (hit && hit.icon !== beforeIcon) shortcutsChanged = true;
@@ -993,7 +924,7 @@ async function downloadArtwork(req) {
 ipcMain.handle('steam:add', (_e, req) => withSteamClosed(async () => {
   const result = await addSteam(req);
   if (req.nativeRows?.length) {
-    const native = await downloadArtwork({ rows: req.nativeRows, kinds: [], onlyMissing: true, filters: req.filters });
+    const native = await downloadArtwork({ rows: req.nativeRows, kinds: [] });
     result.nativeRows = native.rows;
     result.artworkSaved += native.saved;
     result.artworkFailed += native.failed;
@@ -1002,11 +933,9 @@ ipcMain.handle('steam:add', (_e, req) => withSteamClosed(async () => {
   return result;
 }));
 async function addSteam(req) {
-  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
+  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Connect Steam and choose an account in Add games.');
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
-  const autoArt = !!(req && req.autoArt);
   const kinds = (req && Array.isArray(req.kinds) ? req.kinds : []);
-  const filters = (req && req.filters) || {};
   if (!rows.length) return { rows: [], lines: ['No rows to add - nothing was sent.'], added: 0, updated: 0 };
   const sp = cfg.steam_path;
   const uid = cfg.steam_user_id;
@@ -1018,7 +947,7 @@ async function addSteam(req) {
     throw new Error(`Cannot read shortcuts.vdf: ${String((err && err.message) || err)}`);
   }
   const hasSelectedArt = rows.some((row) => row && row.art && Object.keys(row.art).length);
-  const c = autoArt || hasSelectedArt ? client() : null;
+  const c = hasSelectedArt ? client() : null;
   const gridFolder = steam.gridDir(sp, uid);
   if (c) fs.mkdirSync(gridFolder, { recursive: true });
   let added = 0;
@@ -1117,10 +1046,10 @@ async function addSteam(req) {
       const stem = steam.gridStemFromEntry(shortcut);
       for (const kind of kinds) {
         const picked = row.art?.[kind];
-        if ((!picked || picked.automatic || picked.current) && (!autoArt || !row.sgdbId)) continue;
+        if (!picked || picked.automatic || picked.current) continue;
         try {
           const beforeIcon = shortcut.icon;
-          const res = await fetchOneArt(c, gridFolder, stem, row, kind, filters, true, changes, shortcut, null, beforeWrite);
+          const res = await fetchOneArt(c, gridFolder, stem, row, kind, changes, shortcut, null, beforeWrite);
           if (shortcut.icon !== beforeIcon) shortcutsChanged = true;
           if (res.saved) { artworkSaved++; row.appliedKinds.push(kind); }
           lines.push(res.line);
@@ -1155,7 +1084,7 @@ async function addSteam(req) {
 }
 
 ipcMain.handle('steam:remove', (_e, req) => withSteamClosed(() => {
-  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Set Steam path + user first in Settings.');
+  if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Connect Steam and choose an account in Add games.');
   const rows = (req && Array.isArray(req.rows) ? req.rows : []);
   let entries = steam.loadEntries(cfg.steam_path, cfg.steam_user_id);
   const idxs = [];
