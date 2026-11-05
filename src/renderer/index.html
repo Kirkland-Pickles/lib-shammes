@@ -122,13 +122,18 @@
     <header class="modal-head"><div><h2 id="art-title">Choose artwork</h2></div><div class="muted small" id="art-status" role="status">Choose a game match, then select artwork.</div></header>
     <div id="art-key-notice" class="banner art-key-notice" hidden><span class="art-key-notice-copy"><strong>No SteamGridDB API key.</strong> <span id="art-key-notice-text"></span></span><button class="text-btn" id="art-key-settings" type="button">Add key in Settings</button></div>
     <div class="modal-search">
-      <input id="art-q" type="search" placeholder="Search SteamGridDB" aria-label="Search SteamGridDB" autocomplete="off">
-      <button class="btn sm" id="art-search">Search</button>
+      <div class="art-query">
+        <input id="art-q" type="search" placeholder="Search SteamGridDB" aria-label="Search SteamGridDB" autocomplete="off">
+        <button class="btn sm" id="art-search">Search</button>
+        <details id="art-matches" hidden>
+          <summary>Matches</summary>
+          <select size="3" id="art-games" aria-label="Matching games"></select>
+        </details>
+      </div>
 
       <div class="art-id-advanced"><label class="muted" for="art-id">Game ID</label><input id="art-id" type="text" aria-label="SteamGridDB game ID">
       <button class="btn sm" id="art-load">Load</button></div>
     </div>
-    <select size="3" id="art-games" hidden aria-label="Matching games"></select>
     <div class="art-toolbar"><div class="tabs" id="art-tabs" role="tablist" aria-label="Artwork types"></div>
     <details id="art-filters"><summary>Filters</summary><div class="filter-popover"><div id="art-filter-fields"></div><button id="art-filter-reset" class="btn sm" type="button">Reset filters</button></div></details></div>
     <div id="art-logo-position" class="row" hidden>
