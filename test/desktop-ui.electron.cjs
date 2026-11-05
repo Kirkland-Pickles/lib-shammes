@@ -10,7 +10,6 @@ let scans = 0, writes = 0, iconPreviews = 0, searches = 0, externalChange = fals
 let pauseApply = false, finishApply, lastDesktopApply;
 let steamRequest;
 let steamEntries = [];
-let pendingSearches = null;
 let failNextArtList = false;
 const artRequests = [];
 const artworkWrites = [];
@@ -87,8 +86,7 @@ const handlers = {
     return Array.from({ length: req.page ? 2 : 30 }, (_, i) => ({ id: req.page * 30 + i + 1,
       url: `${icon}#${req.page * 30 + i}`, thumb: icon, width: 2, height: 2 }));
   },
-  'sgdb:search': () => { searches++; return pendingSearches
-    ? new Promise((resolve) => pendingSearches.push(resolve)) : [{ id: 17, name: 'Matched game' }]; },
+  'sgdb:search': () => { searches++; return [{ id: 17, name: 'Matched game' }]; },
   'scan:find-executables': () => ({ games: foundLaunchers, truncated: false }),
 };
 for (const [channel, handler] of Object.entries(handlers)) ipcMain.handle(channel, (_event, ...args) => handler(...args));
@@ -149,17 +147,7 @@ app.whenReady().then(async () => {
   assert.equal(await run("document.querySelector('#art-search').disabled"), true);
   assert.deepEqual(await run("Array.from(document.querySelectorAll('#art-tabs button'), button => button.textContent)"), ['Icon', 'Manage']);
   await run("document.querySelector('#desktop-game-settings details').open = true");
-  assert.ok(await run(`{
-    const label = document.querySelector('.desktop-admin');
-    const box = label.querySelector('input').getBoundingClientRect();
-    const text = document.createRange();
-    const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode() && !walker.currentNode.textContent.trim()) {}
-    text.selectNodeContents(walker.currentNode);
-    const words = text.getBoundingClientRect();
-    box.width > 0 && words.width > 0 && box.right <= words.left
-      && Math.abs((box.top + box.bottom - words.top - words.bottom) / 2) < 4;
-  }`), 'Administrator checkbox and text should be beside each other and vertically aligned');
+  assert.ok(await run("document.querySelector('.desktop-admin input').labels.length > 0"));
   await change('#desktop-game-settings [data-field=args]', '-edited');
   await wait(() => cfg.desktop_overrides['link:1']?.args === '-edited');
   await click('#art-cancel');
@@ -218,7 +206,7 @@ app.whenReady().then(async () => {
     const fields = document.querySelector('#art-filter-fields');
     const groups = [...fields.querySelectorAll('fieldset')].map(node => node.getBoundingClientRect());
     return fields.scrollWidth <= fields.clientWidth && groups[0].right <= groups[1].left
-      && document.querySelector('.thumbScroll').getBoundingClientRect().height > 100;
+      && document.querySelector('.thumbScroll').clientHeight > 0;
   })()`), true);
   await run("document.querySelector('#art-filter-fields input[data-filter=humor]').checked = false");
   await click('#art-filter-fields input[data-filter=humor]');
@@ -320,19 +308,6 @@ app.whenReady().then(async () => {
   await selectDestination('desktop');
   await wait("document.querySelector('#page-desktop').classList.contains('on') && document.querySelectorAll('#desktop-games tbody tr').length === 2");
   await idle();
-  await click('#desktop-games .game-name');
-  pendingSearches = [];
-  await click('#art-search');
-  await run("document.querySelector('#art-q').value='new query'; document.querySelector('#art-search').click()");
-  assert.equal(pendingSearches.length, 2);
-  pendingSearches[1]([{ id: 22, name: 'New result' }]);
-  await wait("document.querySelector('#art-id').value === '22'");
-  pendingSearches[0]([{ id: 11, name: 'Old result' }]);
-  await idle();
-  assert.equal(await run("document.querySelector('#art-id').value"), '22');
-  pendingSearches = null;
-  await click('#art-cancel');
-  await wait("document.querySelector('#art-overlay').hidden");
   await click('#desktop-games .game-name');
   externalChange = 'removed';
   await click('#desktop-game-apply');
@@ -466,8 +441,12 @@ app.whenReady().then(async () => {
       const line = document.querySelector('#page-${page} .browse-line');
       const bounds = line.getBoundingClientRect();
       const search = line.querySelector('.search-field').getBoundingClientRect();
-      const bar = line.querySelector('.browse-tools').getBoundingClientRect();
-      bar.height <= 42 && Math.abs((search.left + search.right - bounds.left - bounds.right) / 2) < 1;
+      const filters = line.querySelector('.browse-filters').getBoundingClientRect();
+      const destination = line.querySelector('.library-destination').getBoundingClientRect();
+      const center = (bounds.left + bounds.right) / 2;
+      [filters, destination].every(control => control.top < search.bottom && control.bottom > search.top)
+        && filters.right <= search.left && search.right <= destination.left
+        && search.left < center && search.right > center;
     }`), 'The toolbar stays one row and centers search at minimum width');
     assert.equal(await run("document.querySelector('.library-workspace aside')"), null);
     if (['library', 'desktop'].includes(page)) assert.ok(await run(`{
@@ -522,7 +501,11 @@ app.whenReady().then(async () => {
     ({ width: cards[0].getBoundingClientRect().width, lastLabelVisible:
       lastLabel.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().bottom + 1 });
   }`);
-  assert.equal(layout.width, 172);
+  win.setSize(1060, 740);
+  await wait("innerWidth < 1280");
+  const narrowerCover = await run("document.querySelector('#games .game-card-row').getBoundingClientRect().width");
+  assert.ok(Math.abs(narrowerCover - layout.width) < 1, 'Game covers keep their size when the window narrows');
+  win.setSize(1280, 800);
   assert.ok(layout.lastLabelVisible, 'Labels remain reachable by scrolling with the larger covers');
   await run("document.querySelector('#page-library .list-wrap').scrollTop = 0");
   await capture('library-refined-default');

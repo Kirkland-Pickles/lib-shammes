@@ -334,12 +334,12 @@ it('updates managed Steam shortcuts without duplicates', async (t) => {
   assert.equal(writes, 1);
 });
 
-it('adds a shortcut with only the chosen artwork when automatic finding is off', async (t) => {
+it('adds a shortcut with only the chosen artwork', async (t) => {
   let entries = [];
   const env = main(t, {}, {}, { loadEntries: () => entries, saveEntries: (_sp, _uid, list) => { entries = list; return null; } });
   const row = { source: 'folder', folder: 'C:/Games/Game', display: 'Game', exe: 'C:/Games/game.exe',
     art: { grid: { url: 'https://test.invalid/chosen.jpg' } } };
-  const result = await env.invoke('steam:add', { rows: [row], kinds: ['grid', 'hero'], autoArt: false });
+  const result = await env.invoke('steam:add', { rows: [row], kinds: ['grid', 'hero'] });
   assert.equal(result.added, 1);
   assert.equal(result.artworkSaved, 1);
   assert.equal(result.artworkFailed, 0);
