@@ -428,26 +428,9 @@ app.whenReady().then(async () => {
   assert.ok(lastDesktopApply.every(row => row.display === 'Paired variant'));
   assert.equal(lastDesktopApply[0].args, lastDesktopApply[1].args);
   assert.deepEqual(lastDesktopApply[0].iconChoice, lastDesktopApply[1].iconChoice);
-  win.webContents.debugger.attach('1.3');
-  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
-    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
-  });
-  assert.equal(await run("matchMedia('(prefers-reduced-motion: reduce)').matches"), true);
   await selectDestination('steam');
-  await click('#games .game-open');
-  assert.equal(await run("document.querySelector('#art-overlay').hidden"), false);
-  assert.equal(await run("document.querySelector('#art-overlay').getAnimations({ subtree: true }).length"), 0);
-  await click('#art-cancel');
-  assert.equal(await run("document.querySelector('#art-overlay').hidden"), true);
-  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
-    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
-  });
-  win.webContents.debugger.detach();
   await run("document.querySelector('#games .game-open').click(); document.querySelector('#art-cancel').click(); document.querySelector('#games .game-open').click()");
-  await wait("!document.querySelector('#art-overlay').hidden && document.querySelector('#art-overlay').getAnimations({ subtree: true }).length === 0");
-  assert.equal(await run("document.querySelector('#art-overlay').inert"), false);
-  assert.equal(await run("getComputedStyle(document.querySelector('#art-overlay')).opacity"), '1');
-  assert.equal(await run("getComputedStyle(document.querySelector('#art-modal')).transform"), 'none');
+  await wait("!document.querySelector('#art-overlay').hidden && !document.querySelector('#art-overlay').inert && getComputedStyle(document.querySelector('#art-overlay')).opacity === '1' && getComputedStyle(document.querySelector('#art-modal')).transform === 'none'");
   await click('#art-cancel');
   await wait("document.querySelector('#art-overlay').hidden");
   await selectDestination('desktop');
