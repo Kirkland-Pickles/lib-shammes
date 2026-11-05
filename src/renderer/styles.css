@@ -24,16 +24,16 @@
 }
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f6f7f5;
-  --panel: #fff;
-  --panel-raised: #f0f3f1;
-  --field: #fff;
+  --bg: #eaeaea;
+  --panel: #f4f4f4;
+  --panel-raised: #e8e8e8;
+  --field: #f7f7f7;
   --border: #c6cfcc;
   --field-focus: #707472;
   --field-selection: #d9dcda;
   --line: #dce2df;
   --fg: #1d2524;
-  --muted: #596662;
+  --muted: #495552;
   --accent: #426c72;
   --accent-strong: #315960;
   --accent-ink: #f5f8f7;
@@ -106,6 +106,10 @@ button .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stro
 #games, #desktop-games { display: block; width: 100%; border-collapse: collapse; }
 .game-card-row { display: block; min-width: 0; border: 1px solid transparent; border-radius: var(--radius); cursor: pointer; outline: 0; }
 .game-card-row:hover { border-color: var(--border); }
+:root[data-theme="light"] body { font-weight: 500; }
+:root[data-theme="light"] .game-card-row { background: #f2f2f2; }
+:root[data-theme="light"] .game-name { font-weight: 650; }
+:root[data-theme="light"] .game-meta { font-size: 8.5pt; }
 .game-card-row td { display: block; }
 .game-tile { position: relative; display: flex; min-width: 0; flex-direction: column; gap: 6px; padding: 3px; }
 .game-open { display: flex; width: 100%; min-height: 0; flex-direction: column; gap: 7px; padding: 0; border: 0; border-radius: 0; background: transparent; text-align: left; }
