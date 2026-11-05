@@ -106,7 +106,6 @@ app.whenReady().then(async () => {
   };
   const capture = async name => {
     if (process.env.SHAMMES_UI_CAPTURE) {
-      await wait("!document.querySelector('.route-exit')");
       win.webContents.invalidate();
       await new Promise(resolve => setTimeout(resolve, 100));
       const fs = require('fs');

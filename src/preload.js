@@ -15,7 +15,6 @@ contextBridge.exposeInMainWorld('api', {
   steamDetect: (hint) => ipcRenderer.invoke('steam:detect', hint),
   steamVerify: (p) => ipcRenderer.invoke('steam:verify', p),
   steamBrowse: () => ipcRenderer.invoke('steam:browse'),
-  steamUsers: (steamPath) => ipcRenderer.invoke('steam:users', steamPath),
   steamPrune: () => ipcRenderer.invoke('steam:prune'),
   steamRead: () => ipcRenderer.invoke('steam:read'),
   steamGames: () => ipcRenderer.invoke('steam:games'),

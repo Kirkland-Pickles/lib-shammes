@@ -137,8 +137,6 @@ ipcMain.handle('steam:browse', async () => {
   return { path: steam.normalizeSteamPath(r.filePaths[0]) };
 });
 
-ipcMain.handle('steam:users', (_e, steamPath) => steam.getUserPersonas(steamPath));
-
 ipcMain.handle('steam:verify', (_e, steamPath) => steam.hasSteamExe(steam.normalizeSteamPath(steamPath)));
 
 ipcMain.handle('steam:prune', async () => {
