@@ -108,15 +108,15 @@ ipcMain.handle('steam:detect', async (_e, hint) => {
   const found = await steam.findSteamPath(hint || cfg.steam_path || null);
   if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
   if (found) {
-    cfg.steam_path = found;
     const users = steam.getUserPersonas(found);
     if (users.length && !users.some((u) => u.id === cfg.steam_user_id)) {
-      let best = users[0].id;
-      for (const u of users) {
-        if (fs.existsSync(steam.shortcutsPath(found, u.id))) { best = u.id; break; }
-      }
-      cfg.steam_user_id = best;
+      const active = await steam.getActiveUserId();
+      if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
+      const preferred = users.find((u) => u.id === active)
+        || users.find((u) => fs.existsSync(steam.shortcutsPath(found, u.id))) || users[0];
+      cfg.steam_user_id = preferred.id;
     }
+    cfg.steam_path = found;
     store.save(cfg);
     return { path: found, users };
   }

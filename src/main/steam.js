@@ -19,10 +19,16 @@ function regQuery(hive, subkey, value) {
   return new Promise((resolve) => {
     execFile('reg', ['query', `${hive}\\${subkey}`, '/v', value], { timeout: 10000 }, (err, stdout) => {
       if (err) return resolve(null);
-      const m = stdout.match(/REG_(?:SZ|EXPAND_SZ)\s+(.+?)\s*$/m);
+      const m = stdout.match(/REG_(?:SZ|EXPAND_SZ|DWORD)\s+(.+?)\s*$/m);
       resolve(m ? m[1].trim() : null);
     });
   });
+}
+
+async function getActiveUserId() {
+  if (process.platform !== 'win32') return null;
+  const id = Number(await regQuery('HKCU', 'Software\\Valve\\Steam\\ActiveProcess', 'ActiveUser'));
+  return id > 0 ? String(id) : null;
 }
 
 /** A directory only counts as a Steam install if it contains steam.exe.
@@ -544,7 +550,7 @@ function findStaleShortcuts(entries) {
 
 module.exports = {
   ART_SUFFIXES, GRID_IMAGE_EXTS, MANAGED_TAG,
-  hasSteamExe, normalizeSteamPath, getUserPersonas,
+  hasSteamExe, normalizeSteamPath, getUserPersonas, getActiveUserId,
   findSteamPath, shortcutsPath, gridDir,
   crc32, shortcutId, appidSigned, quoteExe,
   loadEntries, backupShortcuts, buildEntry, findByExe, isManagedEntry, upsertEntry, saveEntries,
