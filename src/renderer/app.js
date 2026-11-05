@@ -1884,7 +1884,7 @@ async function openArtModal(row, focusKind) {
   $('#art-matches').hidden = true;
   $('#art-matches').open = false;
   $('#art-games').innerHTML = '';
-  for (const id of ['art-q', 'art-search', 'art-games', 'art-id', 'art-load']) $('#' + id).disabled = keyless;
+  for (const id of ['art-q', 'art-search', 'art-games', 'art-id']) $('#' + id).disabled = keyless;
   $('#art-url-entry').hidden = true;
   closeArtPreview();
   $('#art-grid').replaceChildren();
@@ -2408,8 +2408,14 @@ async function artSearch(showMatches = false) {
 
 async function artLoadId() {
   const m = S.modal;
-  const gid = Number(($('#art-id').value || '').trim());
-  if (!Number.isFinite(gid) || gid <= 0) { artStatus('SGDB game ID must be a number.'); return; }
+  const value = $('#art-id').value.trim();
+  if (!m || !value) return;
+  const gid = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(gid) || gid <= 0) {
+    artStatus('Enter a valid SGDB game ID.');
+    return;
+  }
+  if (gid === m.sgdbId) return;
   $('#art-matches').open = false;
   m.search = (m.search || 0) + 1;
   m.sgdbId = gid;
@@ -2496,7 +2502,23 @@ function wireToolbar() {
     e.preventDefault();
     $('#art-search').click();
   });
-  $('#art-load').addEventListener('click', artLoadId);
+  const artId = $('#art-id');
+  let artIdTimer;
+  artId.addEventListener('input', () => {
+    clearTimeout(artIdTimer);
+    const modal = S.modal;
+    if (!modal) return;
+    const search = modal.search = (modal.search || 0) + 1;
+    artIdTimer = setTimeout(() => {
+      if (S.modal === modal && modal.search === search) artLoadId();
+    }, 450);
+  });
+  artId.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    clearTimeout(artIdTimer);
+    artLoadId();
+  });
   $('#art-preview-back').addEventListener('click', closeArtPreview);
   $('#art-preview-image').addEventListener('error', () => {
     const item = S.modal?.previewItem;
