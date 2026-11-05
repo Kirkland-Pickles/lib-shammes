@@ -299,10 +299,14 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 #preferences { margin-left: auto; }
 #preferences > summary, .key-eye { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; }
 #preferences .icon, .key-eye .icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
-#page-review, #page-add, #steam-setup { position: fixed; inset: 0; margin: auto; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--fg); width: min(620px, 90vw); max-height: 86vh; }
+#page-review, #page-add, #steam-setup, #library-intro { position: fixed; inset: 0; margin: auto; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--fg); width: min(620px, 90vw); max-height: 86vh; }
 #page-review { width: min(980px, 91vw); height: min(700px, 85vh); }
-#page-add[open], #steam-setup[open] { display: flex; flex-direction: column; gap: 14px; }
-#page-review::backdrop, #page-add::backdrop, #steam-setup::backdrop { background: #0009; }
+#page-add[open], #steam-setup[open], #library-intro[open] { display: flex; flex-direction: column; gap: 14px; }
+#page-review::backdrop, #page-add::backdrop, #steam-setup::backdrop, #library-intro::backdrop { background: #0009; }
+#library-intro p { line-height: 1.5; }
+#library-intro-title:focus { outline: none; }
+#intro-key .card { padding: 0; border: 0; background: transparent; }
+#intro-key h3 { margin-bottom: 8px; }
 .folder-entry { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); }
 .folder-entry span { overflow-wrap: anywhere; }
 #steam-connection select, #art-games, #art-logo-anchor { height: auto; }

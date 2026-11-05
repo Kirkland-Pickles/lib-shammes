@@ -41,6 +41,12 @@
     <div id="review-list" role="list"></div>
     <div class="review-footer"><span id="review-status" role="status"></span><button class="btn primary" id="review-apply">Apply changes</button></div>
   </dialog>
+  <dialog closedby="any" id="library-intro" aria-labelledby="library-intro-title" aria-describedby="library-intro-copy">
+    <header class="library-head"><h1 id="library-intro-title" tabindex="-1" autofocus>Welcome to Lib Shammes</h1></header>
+    <p id="library-intro-copy">Pick a game in your Steam library to change its artwork. Add a key to browse SteamGridDB, or use your own images.</p>
+    <div id="intro-key"></div>
+    <div class="modal-foot"><button class="text-btn" id="intro-add-folders" type="button">Add games folder</button><span class="spacer"></span><button class="btn" id="intro-continue" type="button">Open library</button></div>
+  </dialog>
   <dialog closedby="any" id="page-add" aria-labelledby="add-title">
     <header class="library-head"><h1 id="add-title">Add games folder</h1><button class="btn sm" id="close-add">Close</button></header>
     <div class="import-choices">

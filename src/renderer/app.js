@@ -466,13 +466,13 @@ function openSteamSetup() {
 }
 
 // --------------------------------------------------------------- settings
-function renderSettingsCards() {
+function renderSettingsCards(key = keyCard()) {
   const host = $('#settings-cards');
+  const theme = $('#theme-cycle');
   host.innerHTML = '';
-  const key = keyCard();
   const header = document.createElement('div');
   header.className = 'preferences-heading';
-  header.append($('h3', key), $('#theme-cycle'));
+  header.append($('h3', key), theme);
   key.prepend(header);
   host.appendChild(key);
   const danger = document.createElement('div');
@@ -2667,6 +2667,8 @@ async function saveSteamLauncher() {
 
 async function boot() {
   S.cfg = await window.api.cfgGet();
+  const showIntro = !S.cfg.library_intro_seen && !S.cfg.steam_path && !S.cfg.api_key
+    && !S.cfg.games_roots?.length && libraryView() === 'library';
   applyTheme();
   try { await detectSteam(); }
   catch (error) { log(`Steam detection failed: ${error.message}`); }
@@ -2677,6 +2679,10 @@ async function boot() {
     if (p.label) status(p.label);
   });
   await showLibrary();
+  if (showIntro) {
+    $('#intro-key').append(keyCard());
+    $('#library-intro').showModal();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2687,6 +2693,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function wireWorkspace() {
   wireReview();
+  const intro = $('#library-intro');
+  intro.addEventListener('close', handleAction('Save setup preference', async () => {
+    renderSettingsCards($('#intro-key').firstElementChild);
+    await savePatch({ library_intro_seen: true });
+  }));
+  $('#intro-continue').onclick = () => intro.close();
+  $('#intro-add-folders').onclick = () => { intro.close(); openFolders(); };
   $('#add-folders').onclick = openFolders;
   $('#close-add').onclick = () => $('#page-add').close();
   $('#close-steam-setup').onclick = () => { $('#steam-setup').close(); handleAction('Refresh Steam', doRefresh)(); };
@@ -2787,7 +2800,7 @@ function closeReview(remember = true) {
   $('#page-review').close();
 }
 function moveReview(direction) {
-  if (S.modal || S.exePicker || $('#page-add').open || $('#steam-setup').open || $('#page-review').inert) return;
+  if (S.modal || S.exePicker || $('#library-intro').open || $('#page-add').open || $('#steam-setup').open || $('#page-review').inert) return;
   if (direction === 'back' && S.review) closeReview();
   if (direction === 'fwd' && S.reviewReturn === libraryView() && !S.review) openReview(S.reviewReturn);
 }
