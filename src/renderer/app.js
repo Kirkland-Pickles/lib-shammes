@@ -1220,14 +1220,6 @@ async function doClear() {
   status('Unapplied changes cleared.');
 }
 
-function needKey() {
-  if (!S.cfg.api_key) {
-    toast('Add your SteamGridDB API key first in Settings.');
-    return true;
-  }
-  return false;
-}
-
 function rowPayload(r) {
   return {
     folder: r.folder, display: r.display, exe: r.exe, startDir: r.startDir,
@@ -1620,8 +1612,8 @@ function renderDesktopGameSettings(row) {
   const host = $('#desktop-game-settings');
   const members = desktopMembers(row);
   const exes = [...new Set([row.exe, ...(row.candidates || []).map(item => item.path)])];
-  host.innerHTML = `<button class="btn sm" id="desktop-game-apply" type="button">${S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu' : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop'}</button>
-    <details class="launcher-editor"><summary>Edit name and launcher</summary><label class="fld"><span>Shortcut name</span><input type="text" data-field="display" value="${esc(row.display)}"></label>
+  host.innerHTML = `<div class="manage-actions"><button class="btn sm" id="desktop-game-apply" type="button">${S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu' : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop'}</button></div>
+    <details class="launcher-editor"><summary>Name and launcher</summary><label class="fld"><span>Shortcut name</span><input type="text" data-field="display" value="${esc(row.display)}"></label>
     <label class="field-label" for="desktop-exe">Launcher</label><div class="control-combo"><select id="desktop-exe" size="2" data-field="exe" title="${esc(row.exe)}">${exes.map(exe => `<option value="${esc(exe)}" ${exe === row.exe ? 'selected' : ''}>${esc(baseName(exe))}</option>`).join('')}</select>
     <button class="btn sm" data-desktop="browse" type="button">Browse</button></div>
     <label class="fld"><span>Launch arguments</span><input type="text" data-field="args" value="${esc(row.args)}"></label>
@@ -1633,6 +1625,7 @@ function renderDesktopGameSettings(row) {
     if (!S.modal) await applyDesktopShortcuts([row]);
   });
   for (const input of $$('[data-field]', host)) input.onchange = handleAction('Save Desktop changes', async () => {
+    if (input.dataset.field === 'display' && S.modal?.row === row) S.modal.renamedShortcut = true;
     row[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
     await saveDesktopDraft(row);
     renderDesktop();
@@ -1864,7 +1857,8 @@ async function openArtModal(row, focusKind) {
   const desktop = row.source === 'desktop';
   $('#steam-game-settings').hidden = desktop;
   $('#desktop-game-settings').hidden = !desktop;
-  $('#art-auto-match').hidden = !S.cfg.api_key;
+  $('#game-settings-title').textContent = row.source === 'steam' ? 'Game actions' : 'Shortcut settings';
+  $('#game-settings').classList.toggle('native-game', row.source === 'steam');
   if (desktop) renderDesktopGameSettings(row);
   else renderSteamGameSettings(row);
   const keyless = !S.cfg.api_key;
@@ -1901,13 +1895,12 @@ async function openArtModal(row, focusKind) {
   }
   const focusTarget = S.modal.tab === 'manage' ? $('#game-settings-title') : keyless ? $('#art-file') : $('#art-q');
   focusTarget.focus({ preventScroll: true });
-  if (S.modal.tab === 'manage' || keyless || row.sgdbId) await loadArtTabs();
-  else await findInitialArtworkMatch(S.modal);
+  if (keyless || row.sgdbId) await loadArtTabs();
+  else await Promise.all([loadArtTabs(), findInitialArtworkMatch(S.modal)]);
 }
 
 async function findInitialArtworkMatch(m) {
   const row = m.row;
-  renderArtGrid();
   if (row.source === 'steam') {
     const search = m.search;
     artStatus('Matching Steam AppID…');
@@ -1947,7 +1940,8 @@ async function closeArtModal(save) {
     $('#art-modal').inert = true;
     const match = m.games.find(game => game.id === m.sgdbId);
     const updated = { ...m.row, iconChoice: m.sel.icon || null, art: { ...m.sel }, sgdbId: m.sgdbId,
-      ...(match && m.sgdbId !== m.row.sgdbId ? { display: match.name, sgdbName: match.name } : {}) };
+      ...(match && m.sgdbId !== m.row.sgdbId
+        ? { display: m.renamedShortcut ? m.row.display : match.name, sgdbName: match.name } : {}) };
     try { await saveDesktopDraft(m.row, updated); Object.assign(m.row, Object.fromEntries([...desktopEditFields, 'art'].map(key => [key, updated[key]])));  }
     catch (error) { artStatus(`Choices could not be saved: ${error.message || error}`); return; }
     finally { m.applying = false; $('#art-modal').inert = false; }
@@ -2075,8 +2069,7 @@ function renderArtTabs() {
       m.tab = kind;
       renderArtTabs();
       renderArtFilters();
-      if (kind !== 'manage' && !m.sgdbId && S.cfg.api_key && !m.search) findInitialArtworkMatch(m);
-      else loadArtTabs();
+      loadArtTabs();
     });
     host.appendChild(b);
   }
@@ -2207,8 +2200,8 @@ async function renderArtManage() {
   await Promise.all(modalTabs().filter(([kind]) => kind !== 'manage').map(async ([kind, label]) => {
     const cell = document.createElement('div');
     cell.className = 'manage-artwork';
-    cell.innerHTML = `<strong>${label}</strong><img alt="${esc(label)}" hidden><span class="muted small">Loading…</span>
-      <div class="row"><button class="btn sm" data-manage="change">Change</button><button class="btn sm" data-manage="restore">${m.row.source === 'steam' || m.row.inSteam ? 'Restore default' : 'Clear selection'}</button></div>`;
+    cell.innerHTML = `<strong>${label}</strong><div class="manage-preview"><img alt="${esc(label)}" hidden></div><span class="muted small">Loading…</span>
+      <div class="row"><button class="btn sm" data-manage="change">Change</button><button class="text-btn" data-manage="restore">${m.row.source === 'steam' || m.row.inSteam ? 'Restore default' : 'Clear selection'}</button></div>`;
     grid.appendChild(cell);
     $('[data-manage="change"]', cell).onclick = () => { m.tab = kind; renderArtTabs(); renderArtFilters(); loadArtTabs(); };
     $('[data-manage="restore"]', cell).hidden = m.row.source === 'desktop';
@@ -2492,7 +2485,6 @@ function wireToolbar() {
   });
   // modal
   $('#art-search').addEventListener('click', () => artSearch(true));
-  $('#art-auto-match').onclick = handleAction('Match game', matchArtworkGame);
   $('#art-q').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
     e.preventDefault();
@@ -2665,25 +2657,6 @@ async function saveSteamLauncher() {
   await refreshSteamState();
   log(`Updated '${r.display}'.`);
   return true;
-}
-
-async function matchArtworkGame() {
-  const modal = S.modal;
-  if (!modal || needKey()) return;
-  const token = modal.search = (modal.search || 0) + 1;
-  artStatus('Matching automatically…');
-  const result = await window.api.matchAuto({ force: true, persist: false, rows: [{ ...modal.row, sgdbId: null }] });
-  if (S.modal !== modal || modal.search !== token) return;
-  const match = result.rows[0];
-  result.lines.forEach(line => log(line, modal.row.source === 'desktop' ? 'desktop' : 'library'));
-  if (!match?.sgdbId) { artStatus('No close match found.'); return; }
-  modal.sgdbId = match.sgdbId;
-  modal.games = [{ id: match.sgdbId, name: match.sgdbName }];
-  $('#art-matches').hidden = true;
-  $('#art-matches').open = false;
-  $('#art-id').value = match.sgdbId;
-  await loadArtTabs();
-  if (S.modal === modal && modal.search === token) artStatus(`Matched ${match.sgdbName || match.sgdbId}.`);
 }
 
 async function boot() {
