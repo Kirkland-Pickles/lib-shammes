@@ -66,7 +66,6 @@ function createWindow() {
 }
 
 // ---------------------------------------------------------------- config
-ipcMain.handle('app:is-development', () => !app.isPackaged);
 ipcMain.handle('cfg:get', () => cfg);
 ipcMain.handle('steam:drafts-save', (_e, { scope, updates }) => {
   const currentScope = JSON.stringify([store.folderKey(cfg.steam_path), String(cfg.steam_user_id || '')]);
@@ -141,26 +140,6 @@ ipcMain.handle('steam:browse', async () => {
 ipcMain.handle('steam:users', (_e, steamPath) => steam.getUserPersonas(steamPath));
 
 ipcMain.handle('steam:verify', (_e, steamPath) => steam.hasSteamExe(steam.normalizeSteamPath(steamPath)));
-
-ipcMain.handle('steam:running', () => steam.isSteamRunning());
-
-ipcMain.handle('steam:kill', () => withSteamControl(() => steam.killSteam()));
-
-ipcMain.handle('steam:launch', () => withSteamControl(async () => {
-  if (!cfg.steam_path) throw new Error('Set Steam path first in Settings.');
-  if (!(await steam.hasSteamExe(cfg.steam_path))) {
-    throw new Error(`No steam.exe in ${cfg.steam_path} - check Settings.`);
-  }
-  return steam.launchSteam(cfg.steam_path);
-}));
-
-ipcMain.handle('steam:restart', () => withSteamControl(async () => {
-  if (!cfg.steam_path) throw new Error('Set Steam path first in Settings.');
-  if (!(await steam.hasSteamExe(cfg.steam_path))) {
-    throw new Error(`No steam.exe in ${cfg.steam_path} - check Settings.`);
-  }
-  return steam.restartSteam(cfg.steam_path);
-}));
 
 ipcMain.handle('steam:prune', async () => {
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Connect Steam and choose an account in Add games.');
@@ -337,15 +316,6 @@ ipcMain.handle('files:pick-exe', async (_e, dir) => {
     defaultPath: dir || undefined,
     filters: [{ name: 'Executables', extensions: ['exe'] }, { name: 'All', extensions: ['*'] }],
     properties: ['openFile'],
-  });
-  return r.canceled ? null : r.filePaths[0];
-});
-
-ipcMain.handle('files:pick-dir', async (_e, dir) => {
-  const r = await dialog.showOpenDialog(win, {
-    title: 'Pick start folder',
-    defaultPath: dir || undefined,
-    properties: ['openDirectory'],
   });
   return r.canceled ? null : r.filePaths[0];
 });
@@ -738,13 +708,6 @@ async function fetchOneArt(c, gridFolder, stem, row, kind, changes = null, short
 }
 
 let steamWriteBusy = false;
-async function withSteamControl(action) {
-  if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
-  steamWriteBusy = true;
-  try { return await action(); }
-  finally { steamWriteBusy = false; }
-}
-
 async function withSteamClosed(write) {
   if (steamWriteBusy) throw new Error('Steam changes are already being applied.');
   if (!cfg.steam_path || !cfg.steam_user_id) throw new Error('Connect Steam and choose an account in Add games.');

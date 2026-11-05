@@ -405,17 +405,6 @@ async function waitSteamGone(timeoutMs = 15000) {
   }
 }
 
-/** Force-close Steam (process tree). Games running through Steam go down too -
- *  callers must confirm first. Returns log lines. */
-async function killSteam() {
-  if (!(await isSteamRunning())) return { killed: false, lines: ['Steam is not running.'] };
-  await execFileAsync('taskkill', ['/F', '/T', '/IM', 'steam.exe']);
-  const gone = await waitSteamGone();
-  return gone
-    ? { killed: true, lines: ['Steam killed.'] }
-    : { killed: false, lines: ['Steam did not exit - kill it manually (Task Manager) and retry.'] };
-}
-
 /** Launch Steam detached. If a client is already running it just opens it. */
 async function launchSteam(steamPath) {
   const exe = path.join(steamPath, 'steam.exe');
@@ -430,29 +419,6 @@ async function closeSteam(steamPath) {
   if (!hasSteamExe(steamPath)) throw new Error('Choose a valid Steam installation before applying changes.');
   await execFileAsync(path.join(steamPath, 'steam.exe'), ['-shutdown'], { timeout: 10000 });
   if (!await waitSteamGone()) throw new Error('Steam did not exit. Close it before applying changes. Nothing was written.');
-}
-
-/** Restart Steam. Stop a running client, wait for exit, then launch. */
-async function restartSteam(steamPath) {
-  const lines = [];
-  if (await isSteamRunning()) {
-    // Graceful first: -shutdown only targets a running client, never starts one.
-    try {
-      await execFileAsync(path.join(steamPath, 'steam.exe'), ['-shutdown'], { timeout: 10000 });
-    } catch { /* fall through to polling/force */ }
-    if (!(await waitSteamGone(8000))) {
-      const k = await killSteam();
-      lines.push(...k.lines);
-      if (!k.killed && (await isSteamRunning())) return { restarted: false, lines };
-    } else {
-      lines.push('Steam exited cleanly.');
-    }
-  } else {
-    lines.push('Steam was not running.');
-  }
-  const l = await launchSteam(steamPath);
-  lines.push(...l.lines);
-  return { restarted: true, lines };
 }
 
 /** First-party Steam games installed across all libraries (appmanifests).
@@ -583,6 +549,6 @@ module.exports = {
   crc32, shortcutId, appidSigned, quoteExe,
   loadEntries, backupShortcuts, buildEntry, findByExe, isManagedEntry, upsertEntry, saveEntries,
   gridStemFor, gridStemFromEntry, artDest, logoPosition, currentArtwork, clearConflictingExts, isSteamRunning,
-  killSteam, closeSteam, launchSteam, restartSteam, findStaleShortcuts,
+  closeSteam, launchSteam, findStaleShortcuts,
   listInstalledGames, planPurge,
 };
