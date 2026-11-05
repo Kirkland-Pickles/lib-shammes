@@ -1871,7 +1871,7 @@ async function openArtModal(row, focusKind) {
   const writesSteam = row.source !== 'desktop' && (row.source === 'steam' || row.inSteam);
   $('#art-apply').hidden = !writesSteam;
   $('#art-apply-note').textContent = writesSteam
-    ? 'Save your choices without applying them, or apply them to Steam now.'
+    ? 'save for batch apply, or apply one at a time'
     : 'Select images, then save your choices.';
   $('#art-key-notice').hidden = !keyless;
   if (keyless) $('#art-key-notice-text').textContent = row.source === 'desktop'
