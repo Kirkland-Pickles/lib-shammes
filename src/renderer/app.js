@@ -674,7 +674,6 @@ function renderRows() {
   body.innerHTML = '';
   S.coverObserver?.disconnect();
   const visible = visibleSteamRows();
-  S.visibleRows = visible;
   const observerRoot = $('#page-library');
   S.coverObserver = typeof IntersectionObserver === 'function'
     ? new IntersectionObserver((entries) => {
@@ -861,7 +860,7 @@ function toRow(g, useLegacy = false) {
     query: title, steamAppid: g.steamAppid ?? null, idMethod: g.idMethod || 'folder',
     fromExecutableSearch: !!g.fromExecutableSearch,
     confidence: g.confidence || 0, source: 'folder',
-    checked: !!g.exePath, sgdbId: savedSgdb, sgdbName: savedSgdb ? '(cached)' : '',
+    sgdbId: savedSgdb, sgdbName: savedSgdb ? '(cached)' : '',
     inSteam: false, managed: false, shortcutIdx: null, appid: null, art: {},
     defaults: { folder: g.folder, folderName, display: g.displayName, query: g.displayName,
       exe: g.exePath, startDir: g.startDir, reason: g.reason || '' },
@@ -914,7 +913,7 @@ async function syncSteamLibrary(entries, installed) {
       candidates: exe ? [{ path: exe, size: 0, depth: 0, score: 0, reason: 'existing shortcut' }] : [],
       score: 0, reason: 'already in Steam as a non-Steam shortcut', query,
       steamAppid, idMethod: 'shortcut', confidence: 0.5, source: 'shortcut',
-      checked: old ? old.checked : false, sgdbId,
+      sgdbId,
       sgdbName: old?.sgdbName || (sgdbId ? '(cached)' : ''), inSteam: true, managed: !!e.managed,
       shortcutIdx: e.index, appid: e.appid, art: old ? old.art || {} : {},
       pendingArt: !!old?.pendingArt, pendingDetails: !!old?.pendingDetails, artApplied: !!old?.artApplied,
@@ -929,7 +928,6 @@ async function syncSteamLibrary(entries, installed) {
       exe: null, startDir: g.installdir || '', launchOptions: '', candidates: [],
       score: 0, reason: 'installed Steam store game (managed by Steam)', query: g.name,
       steamAppid: g.appid, idMethod: 'steam', confidence: 1, source: 'steam',
-      checked: old ? old.checked : false,
       sgdbId: old ? old.sgdbId : (S.cfg.sgdb_map?.[`steam:${g.appid}`] || S.cfg.sgdb_cache?.[`steam:${g.appid}`] || null),
       sgdbName: old ? old.sgdbName : '', inSteam: true, managed: false,
       shortcutIdx: null, appid: null, art: old ? old.art || {} : {},
@@ -961,7 +959,6 @@ async function syncSteamLibrary(entries, installed) {
       owner.sgdbId = row.sgdbId;
       owner.sgdbName = row.sgdbName;
     }
-    if (owner.source === 'shortcut') owner.checked ||= row.checked;
     return false;
   });
   renderRows();
@@ -979,7 +976,6 @@ function scannedRows(games) {
     const old = prev.get(g.folder);
     const row = toRow(g, folderCounts.get(baseName(g.folder).toLowerCase()) === 1);
     if (old && (old.artDraftScope === undefined || old.artDraftScope === steamDraftScope())) {
-      row.checked = old.checked;
       row.sgdbId = old.sgdbId;
       row.sgdbName = old.sgdbName;
       row.art = old.art || {};
@@ -1215,7 +1211,6 @@ async function doClear() {
     const key = row.exe && folderExes.has(folderKey(row.exe)) ? `exe:${folderKey(row.exe)}` : rowKey(row);
     const existing = unique.get(key);
     if (!existing) { unique.set(key, row); return true; }
-    existing.checked ||= row.checked;
     return false;
   });
   await refreshSteamState(entries);
@@ -1507,7 +1502,7 @@ async function refreshDesktop(force = true) {
       const pending = draft && Object.hasOwn(draft, 'args');
       const sameGame = folderKey(draft?.exe || previous?.exe) === folderKey(row.exe);
       const match = stale && sameGame ? { sgdbId: draft.sgdbId, sgdbName: draft.sgdbName } : {};
-      return { ...row, ...match, ...(stale ? {} : draft), source: 'desktop', checked: previous?.checked || false,
+      return { ...row, ...match, ...(stale ? {} : draft), source: 'desktop',
         draft: stale || !pending ? null : draft, art: draft?.iconChoice && !stale ? { icon: draft.iconChoice } : {},
         saved: !stale && previous?.saved, error: '' };
     });
@@ -1705,7 +1700,7 @@ async function applyDesktopShortcuts(rowsOverride, options = {}) {
     for (const result of results) {
       const row = d.rows.find((item) => item.id === result.id);
       if (result.ok || result.refreshed) {
-        if (result.row) Object.assign(row, result.row, { draft: null, art: {}, error: '', saved: result.ok, checked: row.checked });
+        if (result.row) Object.assign(row, result.row, { draft: null, art: {}, error: '', saved: result.ok });
         else d.rows = d.rows.filter(item => item !== row);
       } else row.error = result.error;
       log(`${row.display}: ${result.ok ? 'Shortcut saved.' : result.error}`, 'desktop');
