@@ -1009,7 +1009,7 @@ function doFindExecutables() {
     <div class="modal-foot"><button class="btn sm" id="exe-select-all" hidden>Select all</button>
       <button class="btn sm" id="exe-select-none" hidden>Select none</button><span class="spacer"></span>
       <button class="btn sm" id="exe-cancel">Cancel</button>
-      <button class="btn sm primary" id="exe-search">Search</button>
+      <button class="btn sm primary" id="exe-search" hidden>Retry</button>
       <button class="btn sm primary" id="exe-add" hidden disabled>Show selected in Lib Shammes</button></div>`;
   document.body.appendChild(dialog);
   S.exePicker = dialog;
@@ -1019,8 +1019,7 @@ function doFindExecutables() {
     dialog.remove();
   }, { once: true });
   q('#exe-cancel').onclick = () => dialog.close();
-  dialog.showModal();
-  q('#exe-search').onclick = handleAction('Executable search', async () => {
+  const scan = handleAction('Executable search', async () => {
     const search = q('#exe-search');
     const summary = q('#exe-summary');
     const results = q('#exe-results');
@@ -1079,12 +1078,17 @@ function doFindExecutables() {
         log(`Added ${selected.size} launcher(s).`, libraryView());
       });
     } catch (e) {
+      if (!dialog.open) return;
       summary.textContent = 'Search failed. You can try again.';
+      search.hidden = false;
       throw e;
     } finally {
       search.disabled = false;
     }
   });
+  q('#exe-search').onclick = scan;
+  dialog.showModal();
+  scan();
 }
 
 async function refreshSteamState(entries) {
