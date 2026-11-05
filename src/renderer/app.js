@@ -257,14 +257,14 @@ function renderLibrarySetup() {
     <div class="setup-actions">${needsSteam && !S.steamFound ? '<button class="btn sm" id="connect-steam">Connect Steam</button>' : ''}
     ${needsSteam && S.steamFound ? '<button class="btn sm" data-setup="refresh">Check again</button>' : ''}
     ${!S.cfg.api_key ? '<button class="btn sm" data-setup="key">Add artwork key</button>' : ''}
-    <button class="btn sm" data-setup="folder">Add game folder</button></div>`;
+    ${steamView ? '' : '<button class="btn sm" data-setup="folder">Add game folder</button>'}</div>`;
   const connect = $('#connect-steam', panel);
   if (connect) connect.onclick = openSteamSetup;
   const key = $('[data-setup="key"]', panel);
   if (key) key.onclick = () => { $('#preferences').open = true; $('[data-r="key"]').focus(); };
   const refresh = $('[data-setup="refresh"]', panel);
   if (refresh) refresh.onclick = handleAction('Check Steam', async () => { await detectSteam(); await showLibrary(); });
-  $('[data-setup="folder"]', panel).onclick = openFolders;
+  $('[data-setup="folder"]', panel)?.addEventListener('click', openFolders);
 }
 let lastDetectedSteamPath = '';
 function steamCard() {
