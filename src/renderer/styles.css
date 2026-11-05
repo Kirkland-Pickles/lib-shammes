@@ -233,9 +233,11 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .thumb img { display: block; width: 100%; max-height: 250px; object-fit: contain; background: var(--panel-raised); }
 .thumb .meta { display: block; margin-top: 6px; color: var(--muted); font-size: 8pt; line-height: 1.4; }
 #art-more { grid-column: 1 / -1; justify-self: center; }
-.manage-artwork { display: flex; min-width: 0; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); background: var(--panel-raised); }
-.manage-artwork img { width: 100%; height: 160px; object-fit: contain; }
-.manage-artwork .row { flex-wrap: wrap; margin-top: auto; }
+.manage-artwork { display: flex; min-width: 0; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); }
+.manage-preview { display: grid; place-items: center; height: 112px; background: var(--field); border-radius: var(--radius); }
+.manage-preview img { width: 100%; height: 112px; object-fit: contain; }
+.manage-artwork .row { flex-wrap: wrap; gap: 4px; margin-top: auto; }
+.manage-artwork [data-manage="restore"] { padding-inline: 4px; }
 #art-preview { position: relative; display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; }
 #art-preview-back { position: absolute; top: 0; left: 0; }
 #art-preview-image { max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -332,7 +334,8 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 #art-modal { min-height: 0; max-height: calc(100dvh - 32px); }
 #art-overlay { padding: 16px; }
 #art-grid { align-items: start; column-gap: 16px; row-gap: 18px; }
-#art-grid[data-kind="manage"] { --art-tile: 184px; }
+#art-grid[data-kind="manage"] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr)); align-items: stretch; gap: 10px; }
+#art-grid[data-kind="manage"]:has(> :only-child) { grid-template-columns: minmax(0, 190px); justify-content: start; }
 #art-grid .thumb img { max-height: min(320px, 48vh); }
 #art-grid[data-kind="logo"] .thumb-select { min-height: 54px; display: grid; align-items: center; }
 #art-grid[data-kind="logo"] .thumb-image { padding: 8px 4px; }
@@ -438,9 +441,13 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 
 
 
-#game-settings { max-width: 640px; margin: 16px auto 0; padding: 16px 0; border-top: 1px solid var(--line); }
-#game-settings h3 { margin-bottom: 12px; }
-#game-settings .launcher-editor { margin-top: 12px; padding-bottom: 0; }
-#art-auto-match { margin-top: 12px; }
+#game-settings { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, auto); align-items: start; gap: 10px 24px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+#steam-game-settings, #desktop-game-settings { display: contents; }
+#game-settings h3 { grid-column: 1 / -1; }
+#game-settings .launcher-editor { grid-column: 1; grid-row: 2; border: 0; padding: 6px 0; }
+.manage-actions { grid-column: 2; grid-row: 2; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+#game-settings.native-game { align-items: center; }
+#game-settings.native-game h3 { grid-column: 1; }
+#game-settings.native-game .manage-actions { grid-row: 1; }
 
 #game-settings select[size] { background-image: none; }

@@ -147,12 +147,12 @@
       <section id="game-settings" hidden aria-labelledby="game-settings-title">
         <h3 id="game-settings-title" tabindex="-1">Game settings</h3>
         <div id="steam-game-settings">
-          <div class="row">
+          <div class="manage-actions">
             <button class="btn sm" id="d-primary-action" type="button">Add to Steam</button>
             <button class="btn sm" id="d-open" type="button">Open folder</button>
             <button class="text-btn" id="btn-remove" type="button" hidden>Remove Steam shortcut</button>
           </div>
-          <details class="launcher-editor"><summary>Edit name and launcher</summary>
+          <details class="launcher-editor"><summary>Name and launcher</summary>
             <label class="fld"><span>Name in Steam</span><input id="d-name" type="text"></label>
             <label class="field-label" for="d-exe-pick">Executable</label>
             <div class="control-combo"><select id="d-exe-pick" size="2"></select><button class="btn sm" id="d-browse" type="button">Browse</button></div>
@@ -164,7 +164,6 @@
           </details>
         </div>
         <div id="desktop-game-settings"></div>
-        <button class="text-btn" id="art-auto-match" type="button">Match automatically</button>
       </section>
       <div id="art-preview" hidden><button class="btn sm" id="art-preview-back">Back to artwork</button><img id="art-preview-image" alt="Artwork preview" decoding="async"></div>
     </div>
