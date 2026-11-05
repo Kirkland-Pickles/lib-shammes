@@ -259,7 +259,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
   #art-modal { height: 94vh; padding-top: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
 
 @media (max-width: 1160px) {
