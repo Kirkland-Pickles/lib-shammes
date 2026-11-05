@@ -43,8 +43,12 @@
   </dialog>
   <dialog closedby="any" id="page-add" aria-labelledby="add-title">
     <header class="library-head"><h1 id="add-title">Add games folder</h1><button class="btn sm" id="close-add">Close</button></header>
-    <p class="note">Choose one game's folder or a collection containing several game folders.</p>
-    <div class="import-choices"><button class="btn" id="add-single">Choose a game folder</button><button class="btn" id="add-collection">Choose a collection folder</button></div>
+    <div class="import-choices">
+      <div><button class="btn" id="add-single" aria-describedby="add-single-help">Choose a game folder</button>
+        <p class="note" id="add-single-help">The folder for one game, like Games\Cyberpunk 2077.</p></div>
+      <div><button class="btn" id="add-collection" aria-describedby="add-collection-help">Choose a collection folder</button>
+        <p class="note" id="add-collection-help">A folder with your games inside it, like Games.</p></div>
+    </div>
     <div id="source-folders"></div><div id="found-launchers"></div>
     <button class="btn sm" id="find-overlooked">Find more launchers</button>
   </dialog>
