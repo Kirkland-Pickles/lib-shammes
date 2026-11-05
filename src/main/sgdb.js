@@ -74,7 +74,7 @@ class SGDBClient {
           headers: {
             Authorization: `Bearer ${this.apiKey}`,
             Accept: 'application/json',
-            'User-Agent': 'LibShammes/1.0.1',
+            'User-Agent': 'LibShammes/1.1.0',
           },
           signal: ctrl.signal,
         });
@@ -165,7 +165,7 @@ class SGDBClient {
     const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
     try {
       const res = await fetch(url, {
-        headers: { 'User-Agent': 'LibShammes/1.0.1' },
+        headers: { 'User-Agent': 'LibShammes/1.1.0' },
         signal: ctrl.signal,
       });
       if (!res.ok) throw new SGDBError(`Download failed (${res.status}): ${url}`);

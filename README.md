@@ -1,13 +1,14 @@
 # Lib Shammes
 
-Lib Shammes is an app made to customize and modify your steam game artwork using SteamGridDB.
+Lib Shammes is an app made to customize and modify your Steam game artwork using SteamGridDB.
 
-It is also for portable games and games installed from sources other than steam. It scans your game folders and finds installed games based on name matching and folder structure, then adds them as non-Steam shortcuts with filled in artwork via SteamGridDB, so you don't have to add everything one at a time.
+It can also scan your game folders, find installed games, and add them as non-Steam shortcuts. You can choose their artwork before adding them.
 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/steam-library.png" width="48%" alt="Steam library" />&nbsp;&nbsp;&nbsp;<img src="docs/screenshots/artwork-picker.png" width="48%" alt="Artwork picker" />
+  <a href="docs/screenshots/steam-library.png"><img src="docs/screenshots/steam-library.png" width="49%" alt="Steam library with game covers" /></a>
+  <a href="docs/screenshots/artwork-picker.png"><img src="docs/screenshots/artwork-picker.png" width="49%" alt="Artwork picker showing God of War covers" /></a>
 </p>
 
 ## Install
@@ -17,27 +18,21 @@ Windows only.
 
 ## How to use
 
-Get a
-[SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api) for
-online matching and artwork. You can skip the key and use your own images if you want.
+Your Steam library appears automatically. Open a game to change its artwork.
 
-Add your game folders and scan them.
-Check the results before adding them to Steam, especially if a folder has more
-than one launcher. You can change the name, pick another executable or correct
-the game match if it got something wrong.
+Add [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api) to browse artwork. Or use your own images without a key.
 
-For artwork, you can let it pick the images or choose them yourself in the
-artwork picker. Then use **Apply all to Steam**, or **Select multiple** first if
-you only want certain games. Apply all uses the games shown by your current
-filters. Steam will close to apply the changes and reopen if it was running.
+Choose artwork for each game, then save your choices and use **Review changes** to apply them together. Steam will close while changes are applied and reopen afterwards.
 
-Desktop and Start-menu shortcuts are supported too, and don't need Steam.
+For games outside Steam, use <img src="docs/icons/add-games-folder.svg" width="16" height="16" alt="Add games folder" />, choose a game’s folder or a folder containing multiple games. Review the name, launcher and game match before adding them to Steam.
+
+To manage Desktop or Start-menu shortcuts, change **Destination**. These don’t require Steam.
 
 ## Undoing changes
 
 Use **Purge** to undo the changes made by Lib Shammes. It uses a saved
 record of those changes for this purpose. Steam's shortcut
-file is also backed up before it's changed.
+file is backed up before anything is changed.
 
 Do this before using **Delete app data** if you want the changes undone. Deleting
 the app data removes that saved record too.
