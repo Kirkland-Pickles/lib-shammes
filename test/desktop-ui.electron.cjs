@@ -510,6 +510,15 @@ app.whenReady().then(async () => {
   await capture('library-refined-default');
   await click('#hide-owned');
   assert.ok(await run("document.querySelector('#page-library .library-head #library-grid-count').textContent.endsWith('shown')"));
+  await click('#add-folders');
+  await click('#source-folders button');
+  await wait(() => cfg.games_roots.length === 0);
+  await click('#find-overlooked');
+  assert.ok(await run(`{
+    const popup = document.querySelector('#page-add');
+    const toast = popup.querySelector('#toast.show');
+    popup.open && toast?.textContent.includes('Add a game folder') && !toast._fly;
+  }`), 'The no-folder warning stays visible in the folder popup without flying to the log');
   console.log('Desktop fixture checks passed');
   win.destroy();
   app.exit(0);

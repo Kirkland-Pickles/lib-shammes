@@ -2714,6 +2714,10 @@ function wireWorkspace() {
     });
   }
   $('#find-overlooked').onclick = handleAction('Find missing games', async () => {
+    if (!S.cfg.games_roots?.some(Boolean)) {
+      toast('Add a game folder before searching for launchers.');
+      return;
+    }
     const desktop = libraryView() === 'desktop';
     $('#page-add').close();
     if (desktop) await refreshDesktop(false); else await loadLibrary();
