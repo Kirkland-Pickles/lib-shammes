@@ -259,20 +259,21 @@ it('keeps failed picker choices available and retries only types that were not a
 it('keeps newer artwork search results when an older request finishes last', async () => {
   const pending = [];
   const { context, state } = renderer({ sgdbSearch: () => new Promise(resolve => pending.push(resolve)) });
-  const fields = { '#art-q': { value: 'old' }, '#art-games': { appendChild() {} }, '#art-id': {}, '#art-status': {} };
+  const fields = { '#art-q': { value: 'old' }, '#art-matches': {}, '#art-games': { appendChild() {} }, '#art-id': {}, '#art-status': {} };
   context.document.querySelector = selector => fields[selector];
   context.document.createElement = () => ({});
   vm.runInContext('loadArtTabs = async () => {};', context);
   state.modal = {};
   const older = vm.runInContext('artSearch()', context);
   fields['#art-q'].value = 'new';
-  const newer = vm.runInContext('artSearch()', context);
-  pending[1]([{ id: 22, name: 'New match' }]);
+  const newer = vm.runInContext('artSearch(true)', context);
+  pending[1]([{ id: 22, name: 'New match' }, { id: 23, name: 'Another match' }]);
   await newer;
   pending[0]([{ id: 11, name: 'Old match' }]);
   await older;
   assert.equal(fields['#art-id'].value, '22');
   assert.equal(fields['#art-games'].value, '22');
+  assert.equal(fields['#art-matches'].open, true);
   const lastSearch = vm.runInContext('artSearch()', context);
   fields['#art-id'].value = '88';
   await vm.runInContext('artLoadId()', context);
@@ -280,6 +281,7 @@ it('keeps newer artwork search results when an older request finishes last', asy
   await lastSearch;
   assert.equal(state.modal.sgdbId, 88);
   assert.equal(fields['#art-id'].value, '88');
+  assert.equal(fields['#art-matches'].open, false);
 });
 
 it('allows existing app-managed shortcut rows through the Add/update action', () => {
