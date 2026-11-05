@@ -1832,11 +1832,6 @@ function renderArtFilters() {
     if (!inputs.some(input => input.checked) && ['static', 'animated'].includes(event.target.dataset.filter)) {
       inputs.find(input => input !== event.target).checked = true;
     }
-    if (event.target.dataset.filter === 'nsfw' && event.target.checked &&
-      !await confirmDlg('Show adult artwork?', 'SteamGridDB results can include adult content.', { danger: true })) {
-      event.target.checked = false;
-      return;
-    }
     const next = collectSavedPickerFilters(kind, host.querySelectorAll('input'));
     await savePatch({ artwork_filters: { ...S.cfg.artwork_filters, [kind]: next } });
     if (S.modal !== m || m.tab !== kind) return;
