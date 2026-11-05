@@ -470,7 +470,6 @@ app.whenReady().then(async () => {
   await click('#add-folders');
   await click('#find-overlooked');
   await wait("document.querySelector('#exe-picker')?.open");
-  await click('#exe-search');
   await wait("document.querySelectorAll('#exe-results input').length === 2");
   await click('#exe-select-all');
   await click('#exe-add');
