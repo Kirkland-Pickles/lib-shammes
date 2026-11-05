@@ -72,7 +72,6 @@ button .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stro
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .muted, .sub, .note { color: var(--muted); }
 .small { font-size: 8.5pt; }
-.page-kicker { color: var(--muted); font-size: 8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 
 #app-header { --window-controls: max(0px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); flex-shrink: 0; background: var(--bg); -webkit-app-region: drag; }
 #app-header button, #app-header select { -webkit-app-region: no-drag; }
@@ -284,7 +283,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .review-cover { width: 56px; height: 78px; object-fit: contain; }
 .review-row:has(.review-cover[hidden]) { grid-template-columns: 24px minmax(160px, 1fr) minmax(180px, 1fr); }
 #page-review[open] { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 14px; }
-#preferences, .maintenance { position: relative; }
+#preferences { position: relative; }
 #preferences { -webkit-app-region: no-drag; }
 #preferences > summary { list-style: none; cursor: pointer; padding: 7px 10px; border-radius: var(--radius); }
 #preferences > summary { font-size: 16px; }

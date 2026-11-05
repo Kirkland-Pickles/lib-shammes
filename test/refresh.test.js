@@ -510,8 +510,8 @@ it('keeps pending artwork when rebuilding the game list', async () => {
   state.cfg = { games_roots: ['games'], sgdb_map: {}, sgdb_cache: {},
     steam_path: 'C:/Steam', steam_user_id: '1',
     steam_art_drafts: { [scope]: { 'exe:game.exe': { art: { hero: 'saved draft' } } } } };
-  const folder = { source: 'folder', folder: 'games/one', exe: 'old.exe', checked: true, art: { grid: 'chosen' } };
-  const shortcut = { source: 'shortcut', exe: 'other.exe', checked: true, sgdbId: 5, art: { hero: 'chosen' } };
+  const folder = { source: 'folder', folder: 'games/one', exe: 'old.exe', art: { grid: 'chosen' } };
+  const shortcut = { source: 'shortcut', exe: 'other.exe', sgdbId: 5, art: { hero: 'chosen' } };
   state.rows = [folder, shortcut, { source: 'steam', display: 'Removed game' },
     { source: 'folder', folder: 'removed/game', exe: 'removed.exe' }];
   await refresh();
@@ -519,7 +519,6 @@ it('keeps pending artwork when rebuilding the game list', async () => {
   assert.equal(state.rows[0].display, 'New game');
   const existing = state.rows.find(row => row.source === 'shortcut' && row.exe === 'game.exe');
   assert.equal(existing.inSteam, true);
-  assert.equal(existing.checked, true);
   assert.equal(existing.art.hero, 'saved draft');
   assert.equal(state.rows[2].display, 'New name');
   assert.equal(state.rows[2].sgdbId, 5);
@@ -540,7 +539,7 @@ it('dedupes exact exes and keeps nearby games and saved choices', async () => {
     } } } };
   const before = JSON.stringify(state.cfg);
   state.rows = [
-    { source: 'folder', folder: 'D:/Games/One', exe: 'D:/Games/One/game.exe', art: {}, checked: true },
+    { source: 'folder', folder: 'D:/Games/One', exe: 'D:/Games/One/game.exe', art: {} },
     { source: 'folder', folder: 'D:/Games', exe: 'D:/Games/other.exe', art: {} },
     { source: 'folder', folder: 'D:/Games/One', exe: 'D:/Games/One/other.exe', art: {} },
   ];
@@ -552,7 +551,6 @@ it('dedupes exact exes and keeps nearby games and saved choices', async () => {
   assert.equal(owner.pendingArt, true);
   assert.equal(owner.art.grid.url, 'saved-grid');
   assert.equal(owner.sgdbId, 7);
-  assert.equal(owner.checked, true);
   assert.equal(JSON.stringify(state.cfg), before);
   // A later launch without scan roots still finds the original executable-keyed draft.
   state.rows = [];
@@ -596,7 +594,6 @@ it('dedupes native folders and restores drafts without roots', async () => {
   await vm.runInContext('syncSteamLibrary([], installed)', context);
   assert.equal(state.rows[0].art.grid.url, 'saved-grid');
   assert.equal(state.rows[0].pendingArt, true);
-  assert.equal(state.rows[0].checked, false);
   // Saving/clearing native choices consumes the alias so stale choices cannot return later.
   await vm.runInContext('saveSteamDrafts(S.rows)', context);
   assert.equal(disk.steam_art_drafts[scope][originalKey], undefined);
@@ -649,19 +646,17 @@ it('reuses library loads until settings change or Refresh', async () => {
   assert.equal(scans, 4);
 });
 
-it('keeps native selections and artwork by AppID when games share a name', async () => {
+it('keeps native artwork by AppID when games share a name', async () => {
   const { state, refresh } = renderer({
     steamRead: async () => [], steamGames: async () => [{ appid: 1, name: 'Renamed game' }, { appid: 2, name: 'Game' }],
   });
   state.cfg = { games_roots: [], sgdb_map: {}, sgdb_cache: {} };
-  state.rows = [{ source: 'steam', steamAppid: 1, display: 'Game', checked: true, sgdbId: 7, pendingArt: true, art: { grid: 'chosen' } },
-    { source: 'steam', steamAppid: 2, display: 'Game', checked: false, art: {} }];
+  state.rows = [{ source: 'steam', steamAppid: 1, display: 'Game', sgdbId: 7, pendingArt: true, art: { grid: 'chosen' } },
+    { source: 'steam', steamAppid: 2, display: 'Game', art: {} }];
   await refresh();
-  assert.equal(state.rows[0].checked, true);
   assert.equal(state.rows[0].sgdbId, 7);
   assert.equal(state.rows[0].art.grid, 'chosen');
   assert.equal(state.rows[0].pendingArt, true);
-  assert.equal(state.rows[1].checked, false);
   assert.equal(Object.keys(state.rows[1].art).length, 0);
 });
 
