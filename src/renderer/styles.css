@@ -80,11 +80,6 @@ button .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stro
 .brand img { width: 20px; height: 20px; object-fit: contain; }
 :root[data-theme="light"] .brand img { filter: invert(1); }
 .app-version { color: var(--muted); font-size: 8pt; white-space: nowrap; }
-.nav { position: relative; display: block; min-height: 32px; width: auto; text-align: center; background: transparent; border: 0; color: var(--muted); font: 600 9pt var(--ui-font); padding: 7px 12px; white-space: nowrap; transition: color .18s, background .18s; }
-.nav:hover:not(:disabled) { color: var(--fg); background: transparent; }
-.nav.on { color: var(--fg); }
-.nav::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 1px; background: currentColor; transform: scaleX(0); transition: transform .2s var(--ease); }
-.nav.on::after { transform: scaleX(1); }
 #center { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
 #pages { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
 .page { display: none; position: relative; flex: 1; min-width: 0; min-height: 0; flex-direction: column; gap: 14px; overflow: auto; padding: 25px 28px 18px; }
@@ -97,9 +92,6 @@ button .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stro
 .pending-count { color: var(--accent); }
 .library-apply { min-width: 132px; }
 .desktop-apply-group { display: flex; align-items: center; gap: 12px; }
-.action-group { display: flex; align-items: center; gap: 6px; }
-.action-group .btn { background: transparent; border-color: transparent; color: var(--muted); }
-.action-group .btn:hover:not(:disabled) { background: var(--panel-raised); color: var(--fg); }
 .browse-tools { display: flex; align-items: center; gap: 10px; min-height: 38px; flex: 0 0 auto; }
 .search-wrap { display: flex; flex: 1; min-width: 190px; max-width: 430px; }
 .search-field { width: 100%; }
@@ -108,7 +100,6 @@ button .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stro
 .tool-select select { height: 32px; }
 .browse-tools .check { white-space: nowrap; }
 .check { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 9pt; cursor: pointer; }
-.clear-action { margin-left: auto; }
 .library-workspace { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-width: 0; min-height: 0; }
 .list-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; }
 .list-wrap { flex: 1; min-width: 0; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
