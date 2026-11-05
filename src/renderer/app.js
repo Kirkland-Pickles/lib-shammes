@@ -338,15 +338,15 @@ function keyCard() {
   const d = document.createElement('div');
   d.className = 'card settings-block';
   d.innerHTML = `<h3>SteamGridDB API key</h3>
-    <div class="key-field"><input type="password" data-r="key" aria-label="SteamGridDB API key" placeholder="paste key…" autocomplete="off">
+    <div class="key-entry"><div class="key-field"><input type="password" data-r="key" aria-label="SteamGridDB API key" placeholder="paste key…" autocomplete="off">
     <button class="btn sm key-eye" data-r="show" aria-label="Show API key" aria-pressed="false"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="m4 4 16 16"/></svg></button></div>
-    <div class="key-feedback"><div class="status-line" data-r="status" role="status"></div>
-    <button class="text-btn" data-r="get">Get key</button></div>`;
+    <button class="btn sm" data-r="get">Get key</button></div>
+    <div class="status-line key-feedback" data-r="status" role="status"></div>`;
   const q = name => d.querySelector(`[data-r="${name}"]`);
   const input = q('key');
   input.value = S.cfg.api_key || '';
   const paint = result => {
-    q('status').className = 'status-line' + (result ? (result.ok ? ' ok' : ' bad') : '');
+    q('status').className = 'status-line key-feedback' + (result ? (result.ok ? ' ok' : ' bad') : '');
     q('status').textContent = result?.ok ? 'Key valid'
       : result ? 'Could not verify the key. It is saved.' : '';
   };
