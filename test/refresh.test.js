@@ -71,7 +71,7 @@ it('blocks Clear while the library is busy', async () => {
   let reads = 0;
   const { context, state } = renderer({ steamRead: async () => { reads++; return []; } });
   context.confirmDlg = () => { confirms++; return Promise.resolve(true); };
-  for (const busy of ['applyingSteam', 'preparingArt', 'loadingLibrary']) {
+  for (const busy of ['applyingSteam', 'loadingLibrary']) {
     state[busy] = true;
     await vm.runInContext('doClear()', context);
     state[busy] = false;
@@ -196,14 +196,14 @@ it('keeps the Desktop name when changing its matched icon', async () => {
   context.document.querySelector = () => ({ getAnimations: () => [], classList: { remove() {} } });
   vm.runInContext('renderDesktop = restoreArtFocus = () => {}; saveDesktopDraft = async () => {}; handleAction = (_label, fn) => fn;', context);
   const row = { source: 'desktop', display: 'My variant', sgdbId: 7 };
-  const select = (id, name) => {
+  const select = async (id, name) => {
     state.modal = { row, sel: { icon: { file: 'chosen.ico' } }, sgdbId: id, games: [{ id, name }] };
-    vm.runInContext('closeArtModal(true)', context);
+    await vm.runInContext('closeArtModal(true)', context);
   };
-  select(7, '(cached)');
+  await select(7, '(cached)');
   assert.equal(row.display, 'My variant');
   assert.equal(row.iconChoice.file, 'chosen.ico');
-  select(8, 'New matched game');
+  await select(8, 'New matched game');
   assert.equal(row.display, 'New matched game');
   assert.equal(row.sgdbId, 8);
 });
@@ -259,20 +259,21 @@ it('keeps failed picker choices for retry', async () => {
 it('ignores artwork searches that finish out of order', async () => {
   const pending = [];
   const { context, state } = renderer({ sgdbSearch: () => new Promise(resolve => pending.push(resolve)) });
-  const fields = { '#art-q': { value: 'old' }, '#art-games': { appendChild() {} }, '#art-id': {}, '#art-status': {} };
+  const fields = { '#art-q': { value: 'old' }, '#art-matches': {}, '#art-games': { appendChild() {} }, '#art-id': {}, '#art-status': {} };
   context.document.querySelector = selector => fields[selector];
   context.document.createElement = () => ({});
   vm.runInContext('loadArtTabs = async () => {};', context);
   state.modal = {};
   const older = vm.runInContext('artSearch()', context);
   fields['#art-q'].value = 'new';
-  const newer = vm.runInContext('artSearch()', context);
-  pending[1]([{ id: 22, name: 'New match' }]);
+  const newer = vm.runInContext('artSearch(true)', context);
+  pending[1]([{ id: 22, name: 'New match' }, { id: 23, name: 'Another match' }]);
   await newer;
   pending[0]([{ id: 11, name: 'Old match' }]);
   await older;
   assert.equal(fields['#art-id'].value, '22');
   assert.equal(fields['#art-games'].value, '22');
+  assert.equal(fields['#art-matches'].open, true);
   const lastSearch = vm.runInContext('artSearch()', context);
   fields['#art-id'].value = '88';
   await vm.runInContext('artLoadId()', context);
@@ -280,6 +281,7 @@ it('ignores artwork searches that finish out of order', async () => {
   await lastSearch;
   assert.equal(state.modal.sgdbId, 88);
   assert.equal(fields['#art-id'].value, '88');
+  assert.equal(fields['#art-matches'].open, false);
 });
 
 it('allows updates to existing managed shortcuts', () => {
@@ -287,56 +289,6 @@ it('allows updates to existing managed shortcuts', () => {
   assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:'game.exe', managed:true})", context), true);
   assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:'game.exe', managed:false})", context), false);
   assert.equal(vm.runInContext("canWriteShortcut({source:'shortcut', exe:null, managed:true})", context), false);
-});
-
-it('targets the open game unless multiple selection is explicitly enabled', () => {
-  const { context, state } = renderer({});
-  state.rows = [{ source: 'folder', folder: 'one', checked: true }, { source: 'folder', folder: 'two', checked: true }];
-  state.detailKey = 'folder:two';
-  assert.deepEqual(Array.from(vm.runInContext('checkedRows()', context)), [state.rows[1]]);
-  state.bulk = true;
-  assert.equal(vm.runInContext('checkedRows().length', context), 2);
-  state.bulk = false;
-  state.detailKey = null;
-  assert.equal(vm.runInContext('checkedRows().length', context), 0);
-});
-
-it('applies all eligible Steam rows by default and only narrows to explicit selections', () => {
-  const { context, state } = renderer({});
-  const first = { source: 'folder', folder: 'one', display: 'One', exe: 'one.exe', checked: false };
-  const second = { source: 'folder', folder: 'two', display: 'Two', exe: 'two.exe', checked: false };
-  const changedNative = { source: 'steam', display: 'Z Native', steamAppid: 1, pendingArt: true, art: { grid: { url: 'chosen' } } };
-  state.rows = [first, second, changedNative, { source: 'steam', display: 'Stock', steamAppid: 2, art: {} },
-    { source: 'shortcut', display: 'External', exe: 'external.exe', managed: false }, { source: 'folder', display: 'Missing', exe: null }];
-  const targets = () => Array.from(vm.runInContext('steamApplyRows()', context));
-  assert.deepEqual(targets(), [first, second, changedNative]);
-  state.detailKey = 'folder:two';
-  assert.deepEqual(targets(), [first, second, changedNative]);
-  state.bulk = true;
-  second.checked = true;
-  assert.deepEqual(targets(), [second]);
-  second.checked = false;
-  assert.deepEqual(targets(), [first, second, changedNative]);
-  state.filter = 'one';
-  assert.deepEqual(targets(), [first]);
-});
-
-it('keeps Desktop bulk selections across filters and applies all visible games when none are checked', () => {
-  const { context, state } = renderer({});
-  const fields = { '#desktop-filter': { value: '' }, '#desktop-sort': { value: 'az' }, '#desktop-hide': { checked: false } };
-  context.document.querySelector = selector => fields[selector];
-  state.desktop.rows = ['One', 'Two', 'Three', 'Four'].map((display, id) => ({ id, display, exe: 'game.exe', checked: false }));
-  state.desktop.detail = 2;
-  const targets = () => Array.from(vm.runInContext('desktopSelected()', context));
-  assert.equal(targets().length, 4);
-  state.desktop.bulk = true;
-  assert.equal(targets().length, 4);
-  state.desktop.rows[0].checked = true;
-  assert.deepEqual(targets(), [state.desktop.rows[0]]);
-  fields['#desktop-filter'].value = 'two';
-  assert.deepEqual(targets(), [state.desktop.rows[0]]);
-  state.desktop.rows[0].checked = false;
-  assert.deepEqual(targets(), [state.desktop.rows[1]]);
 });
 
 it('keeps Desktop matches without marking them as pending', async () => {
@@ -440,58 +392,6 @@ it('recovers shortcut names previously saved as cached', async () => {
   assert.equal(recovered.sgdbId, 7);
 });
 
-it('finds artwork for visible games without selection, matching first and staging only changed choices', async () => {
-  const calls = [];
-  const { context, state } = renderer({
-    matchAuto: async req => { calls.push('match'); return { rows: req.rows.map(row => ({ ...row, sgdbId: 7 })), lines: [], ok: 1 }; },
-    cfgGet: async () => state.cfg,
-    artPrepare: async req => {
-      calls.push('prepare');
-      assert.equal(req.rows[0].sgdbId, 7);
-      return { rows: req.rows.map(row => ({ ...row, art: { grid: { url: 'chosen' } } })), prepared: 1, failed: 0, lines: [] };
-    },
-  });
-  vm.runInContext('status = log = toast = () => {};', context);
-  state.cfg = { api_key: 'fixture', want_grid: true };
-  state.rows = [{ source: 'folder', folder: 'one', display: 'One', exe: 'one.exe', art: {} }];
-  await vm.runInContext('doDownloadArt()', context);
-  assert.deepEqual(calls, ['match', 'prepare']);
-  assert.equal(state.rows[0].pendingArt, true);
-  assert.equal(state.rows[0].art.grid.url, 'chosen');
-  state.rows[0].pendingArt = false;
-  await vm.runInContext('doDownloadArt()', context);
-  assert.deepEqual(calls, ['match', 'prepare', 'prepare']);
-  assert.equal(state.rows[0].pendingArt, false);
-});
-
-it('matches during Apply only after accepting automatic artwork and blocks overlapping Apply calls', async () => {
-  const calls = [];
-  let offerArtwork = true;
-  const { context, state } = renderer({
-    artCurrent: async () => null,
-    cfgGet: async () => state.cfg,
-    matchAuto: async req => { calls.push('match'); return { rows: req.rows.map(row => ({ ...row, sgdbId: 7 })), lines: [], ok: 1 }; },
-    steamAdd: async req => {
-      calls.push('apply');
-      assert.equal(req.autoArt, offerArtwork);
-      assert.equal(req.rows[0].sgdbId, offerArtwork ? 7 : undefined);
-      assert.equal(req.rows[0].art.grid.url, 'https://test.invalid/chosen-grid.jpg');
-      return { rows: req.rows, lines: [], added: 1, updated: 0, artworkSaved: 0 };
-    },
-  });
-  context.offer = () => offerArtwork;
-  vm.runInContext('updateLibrarySelection = status = log = toast = () => {}; confirmDlg = async title => title !== "Artwork" || offer();', context);
-  state.cfg = { api_key: 'fixture', want_grid: true, want_hero: true };
-  state.rows = [{ source: 'folder', folder: 'one', display: 'One', exe: 'one.exe',
-    art: { grid: { url: 'https://test.invalid/chosen-grid.jpg' } } }];
-  await vm.runInContext('Promise.all([doAddToSteam(), doAddToSteam()])', context);
-  assert.deepEqual(calls, ['match', 'apply']);
-  offerArtwork = false;
-  delete state.rows[0].sgdbId;
-  await vm.runInContext('doAddToSteam()', context);
-  assert.deepEqual(calls, ['match', 'apply', 'apply']);
-});
-
 it('does not add games when the saved Steam path is gone', async () => {
   let adds = 0;
   const { context, state } = renderer({
@@ -539,7 +439,7 @@ it('applies artwork to several native Steam games at once', async () => {
     { source: 'steam', folder: 'steam:1', steamAppid: 1, display: 'One', pendingArt: true, art: { grid: { url: 'one' } } },
     { source: 'steam', folder: 'steam:2', steamAppid: 2, display: 'Two', pendingArt: true, art: { grid: { url: 'two' } } },
   ];
-  await vm.runInContext('doAddToSteam()', context);
+  await vm.runInContext('doAddToSteam(S.rows, { reviewed: true })', context);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].rows.map((row) => row.display), ['One', 'Two']);
   assert.equal(calls[0].kinds.length, 0);
@@ -612,8 +512,8 @@ it('keeps pending artwork when rebuilding the game list', async () => {
   state.cfg = { games_roots: ['games'], sgdb_map: {}, sgdb_cache: {},
     steam_path: 'C:/Steam', steam_user_id: '1',
     steam_art_drafts: { [scope]: { 'exe:game.exe': { art: { hero: 'saved draft' } } } } };
-  const folder = { source: 'folder', folder: 'games/one', exe: 'old.exe', checked: true, art: { grid: 'chosen' } };
-  const shortcut = { source: 'shortcut', exe: 'other.exe', checked: true, sgdbId: 5, art: { hero: 'chosen' } };
+  const folder = { source: 'folder', folder: 'games/one', exe: 'old.exe', art: { grid: 'chosen' } };
+  const shortcut = { source: 'shortcut', exe: 'other.exe', sgdbId: 5, art: { hero: 'chosen' } };
   state.rows = [folder, shortcut, { source: 'steam', display: 'Removed game' },
     { source: 'folder', folder: 'removed/game', exe: 'removed.exe' }];
   await refresh();
@@ -621,7 +521,6 @@ it('keeps pending artwork when rebuilding the game list', async () => {
   assert.equal(state.rows[0].display, 'New game');
   const existing = state.rows.find(row => row.source === 'shortcut' && row.exe === 'game.exe');
   assert.equal(existing.inSteam, true);
-  assert.equal(existing.checked, true);
   assert.equal(existing.art.hero, 'saved draft');
   assert.equal(state.rows[2].display, 'New name');
   assert.equal(state.rows[2].sgdbId, 5);
@@ -642,7 +541,7 @@ it('dedupes exact exes and keeps nearby games and saved choices', async () => {
     } } } };
   const before = JSON.stringify(state.cfg);
   state.rows = [
-    { source: 'folder', folder: 'D:/Games/One', exe: 'D:/Games/One/game.exe', art: {}, checked: true },
+    { source: 'folder', folder: 'D:/Games/One', exe: 'D:/Games/One/game.exe', art: {} },
     { source: 'folder', folder: 'D:/Games', exe: 'D:/Games/other.exe', art: {} },
     { source: 'folder', folder: 'D:/Games/One', exe: 'D:/Games/One/other.exe', art: {} },
   ];
@@ -654,7 +553,6 @@ it('dedupes exact exes and keeps nearby games and saved choices', async () => {
   assert.equal(owner.pendingArt, true);
   assert.equal(owner.art.grid.url, 'saved-grid');
   assert.equal(owner.sgdbId, 7);
-  assert.equal(owner.checked, true);
   assert.equal(JSON.stringify(state.cfg), before);
   // A later launch without scan roots still finds the original executable-keyed draft.
   state.rows = [];
@@ -698,7 +596,6 @@ it('dedupes native folders and restores drafts without roots', async () => {
   await vm.runInContext('syncSteamLibrary([], installed)', context);
   assert.equal(state.rows[0].art.grid.url, 'saved-grid');
   assert.equal(state.rows[0].pendingArt, true);
-  assert.equal(state.rows[0].checked, false);
   // Saving/clearing native choices consumes the alias so stale choices cannot return later.
   await vm.runInContext('saveSteamDrafts(S.rows)', context);
   assert.equal(disk.steam_art_drafts[scope][originalKey], undefined);
@@ -751,18 +648,30 @@ it('reuses library loads until settings change or Refresh', async () => {
   assert.equal(scans, 4);
 });
 
-it('keeps native selections and artwork by AppID when games share a name', async () => {
+it('keeps native artwork by AppID when games share a name', async () => {
   const { state, refresh } = renderer({
     steamRead: async () => [], steamGames: async () => [{ appid: 1, name: 'Renamed game' }, { appid: 2, name: 'Game' }],
   });
   state.cfg = { games_roots: [], sgdb_map: {}, sgdb_cache: {} };
-  state.rows = [{ source: 'steam', steamAppid: 1, display: 'Game', checked: true, sgdbId: 7, pendingArt: true, art: { grid: 'chosen' } },
-    { source: 'steam', steamAppid: 2, display: 'Game', checked: false, art: {} }];
+  state.rows = [{ source: 'steam', steamAppid: 1, display: 'Game', sgdbId: 7, pendingArt: true, art: { grid: 'chosen' } },
+    { source: 'steam', steamAppid: 2, display: 'Game', art: {} }];
   await refresh();
-  assert.equal(state.rows[0].checked, true);
   assert.equal(state.rows[0].sgdbId, 7);
   assert.equal(state.rows[0].art.grid, 'chosen');
   assert.equal(state.rows[0].pendingArt, true);
-  assert.equal(state.rows[1].checked, false);
   assert.equal(Object.keys(state.rows[1].art).length, 0);
+});
+
+it('keeps paired icon drafts unchanged when saving fails', async () => {
+  const { context, state } = renderer({ cfgSet: async () => { throw new Error('disk full'); } });
+  state.cfg = { desktop_overrides: {} };
+  const first = { id: 'one', display: 'Game', iconChoice: { file: 'old.ico' }, signature: 'one' };
+  const second = { ...first, id: 'two', signature: 'two' };
+  state.desktop.rows = [first, second]; state.desktop.groups = [[first, second]];
+  context.first = first;
+  await assert.rejects(vm.runInContext("saveDesktopDraft(first, { ...first, iconChoice: { file: 'new.ico' } })", context), /disk full/);
+  assert.equal(first.iconChoice.file, 'old.ico');
+  assert.equal(second.iconChoice.file, 'old.ico');
+  assert.equal(first.draft, undefined);
+  assert.equal(second.draft, undefined);
 });

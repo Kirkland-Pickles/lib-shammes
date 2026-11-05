@@ -13,17 +13,12 @@ const DEFAULTS = {
   steam_path: '',
   steam_user_id: '',
   api_key: '',
+  api_key_check: null,
   scan_depth: 1,
   include_animated: false,
   include_nsfw: false,
   include_humor: false,
   artwork_filters: {},
-  want_wide: true,
-  want_grid: true,
-  want_hero: true,
-  want_logo: true,
-  want_icon: true,
-  only_missing: true,
   sgdb_map: {},
   sgdb_cache: {},
   exe_map: {},
@@ -35,7 +30,7 @@ const DEFAULTS = {
   desktop_destination: 'desktop',
   steam_executables: [],
   startup_library: 'steam',
-  onboarded: false,
+  library_intro_seen: false,
 };
 
 function dataDir(name, fallback) {

@@ -39,6 +39,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
       icons = async (_id, options) => { artworkQueries.push(options); return this.gridsVertical(); };
       downloadBytes = async (_url, maxBytes) => {
         assert.equal(maxBytes, 32 * 1024 * 1024);
+        if (_url.includes('steamstatic.com')) throw new Error('Download failed (404): ' + _url);
         calls.push('download'); return Buffer.from('new artwork');
       };
     } },
@@ -48,7 +49,7 @@ function main(t, metadata = {}, desktopOverrides = {}, steamOverrides = {}, save
     process: { argv: [], platform: process.platform }, Buffer,
   }, { filename });
   return { root, calls, artworkQueries, cfg, grid: steam.gridDir(root, '1'), changes: () => changes,
-    download: (row = native(), options = {}) => handlers.get('art:download')(null, { rows: [row], kinds: ['grid'], onlyMissing: false, ...options }),
+    download: (row = native({ grid: { url: 'https://test.invalid/grid.jpg' } }), options = {}) => handlers.get('art:download')(null, { rows: [row], kinds: ['grid'], onlyMissing: false, ...options }),
     invoke: (name, req) => handlers.get(name)(null, req) };
 }
 
@@ -94,12 +95,8 @@ it('uses the game name for cached Desktop matches', async t => {
   assert.equal(result.rows[0].display, 'Game');
 });
 
-it('selects tagged artwork without changing ordinary top-ranked selection', () => {
-  const { chooseArtwork, officialArtworkUrls } = require('../src/main/sgdb');
-  const plain = { id: 1 }, humor = { id: 2, humor: true }, otherHumor = { id: 3, humor: true };
-  assert.equal(chooseArtwork([plain, humor], {}), plain);
-  assert.equal(chooseArtwork([plain, humor, otherHumor], { humor: true }, () => 0.99), otherHumor);
-  assert.equal(chooseArtwork([], { nsfw: true }), null);
+it('uses official Steam artwork URLs', () => {
+  const { officialArtworkUrls } = require('../src/main/sgdb');
   const urls = officialArtworkUrls(123, 'grid', { library_capsule_full: { image: { english: 'https://cdn.cloudflare.steamstatic.com/capsule.jpg' } } });
   assert.ok(urls.includes('https://cdn.cloudflare.steamstatic.com/capsule.jpg'));
   assert.ok(!officialArtworkUrls(123, 'grid', { library_capsule: 'https://evilsteamstatic.com/image.jpg' }).includes('https://evilsteamstatic.com/image.jpg'));
@@ -157,7 +154,7 @@ it('keeps logo settings and backs up position changes', async t => {
 
 it('still saves artwork when stock lookup fails', async t => {
   const env = main(t, new Error('offline metadata'));
-  const result = await env.download(native(), { onlyMissing: true });
+  const result = await env.download();
   assert.equal(result.saved, 1);
   assert.deepEqual(Array.from(result.rows[0].appliedKinds), ['grid']);
 });
@@ -218,32 +215,6 @@ it('closes Steam to save artwork, then reopens it once', async t => {
   const result = await env.download();
   assert.equal(result.saved, 1);
   assert.deepEqual(events, ['closed', 'opened']);
-});
-
-it('blocks manual Steam controls while an artwork write owns the Steam lock', async t => {
-  let announceRunningCheck;
-  let releaseRunningCheck;
-  const runningCheckStarted = new Promise(resolve => { announceRunningCheck = resolve; });
-  const runningCheckGate = new Promise(resolve => { releaseRunningCheck = resolve; });
-  let restarts = 0;
-  let launches = 0;
-  let kills = 0;
-  const env = main(t, {}, {}, {
-    isSteamRunning: async () => { announceRunningCheck(); await runningCheckGate; return false; },
-    hasSteamExe: () => true,
-    restartSteam: async () => { restarts++; },
-    launchSteam: async () => { launches++; },
-    killSteam: async () => { kills++; },
-  });
-  env.cfg.api_key = 'fixture';
-  const writing = env.download(native({ grid: { url: 'https://test.invalid/art.png' } }));
-  await runningCheckStarted;
-  for (const control of ['steam:kill', 'steam:launch', 'steam:restart']) {
-    await assert.rejects(env.invoke(control), /Steam changes are already being applied/);
-  }
-  releaseRunningCheck();
-  await writing;
-  assert.deepEqual([kills, launches, restarts], [0, 0, 0]);
 });
 
 it('does not write when Steam refuses to close', async t => {
@@ -350,28 +321,6 @@ it('keeps manually added exes and skips missing ones', async (t) => {
   assert.equal(env.cfg.desktop_executables.length, 0);
 });
 
-it('replaces all Desktop icon choices when skipping is off without writing shortcuts', async (t) => {
-  let downloaded = 0;
-  const env = main(t, {}, { cacheIcon: async () => { downloaded++; return 'cached.ico'; } });
-  const rows = [{ id: 'new', sgdbId: 7 }, { id: 'existing', sgdbId: 7, icon: 'custom.ico' },
-    { id: 'manual', sgdbId: 7, iconChoice: { file: 'chosen.ico' } },
-    { id: 'exe', sgdbId: 7, iconChoice: { exeIcon: true } },
-    { id: 'current', sgdbId: 7, iconChoice: { keepIcon: true } }, { id: 'unmatched' }];
-  let results = await env.invoke('desktop:download', rows);
-  assert.equal(results.filter((row) => row.choice).length, 1);
-  assert.equal(results[0].id, 'new');
-  assert.equal(results[0].choice.file, 'cached.ico');
-  assert.equal(results[0].choice.automatic, true);
-  assert.ok(results.find((row) => row.id === 'manual').skipped);
-  assert.ok(results.find((row) => row.id === 'existing').skipped);
-  env.cfg.only_missing = false;
-  results = await env.invoke('desktop:download', rows);
-  assert.deepEqual(Array.from(results.filter((row) => row.choice), (row) => row.id), ['new', 'existing', 'manual', 'exe', 'current']);
-  assert.ok(results.filter((row) => row.choice).every((row) => row.choice.automatic && row.choice.id === 9));
-  assert.equal(downloaded, 6);
-  assert.deepEqual(env.calls, []);
-});
-
 it('updates managed Steam shortcuts without duplicates', async (t) => {
   const entries = [steam.buildEntry({ appName: 'Old name', exePath: 'C:/Games/game.exe', tags: [steam.MANAGED_TAG] })];
   let writes = 0;
@@ -385,12 +334,12 @@ it('updates managed Steam shortcuts without duplicates', async (t) => {
   assert.equal(writes, 1);
 });
 
-it('adds a shortcut with only the chosen artwork when automatic finding is off', async (t) => {
+it('adds a shortcut with only the chosen artwork', async (t) => {
   let entries = [];
   const env = main(t, {}, {}, { loadEntries: () => entries, saveEntries: (_sp, _uid, list) => { entries = list; return null; } });
   const row = { source: 'folder', folder: 'C:/Games/Game', display: 'Game', exe: 'C:/Games/game.exe',
     art: { grid: { url: 'https://test.invalid/chosen.jpg' } } };
-  const result = await env.invoke('steam:add', { rows: [row], kinds: ['grid', 'hero'], autoArt: false });
+  const result = await env.invoke('steam:add', { rows: [row], kinds: ['grid', 'hero'] });
   assert.equal(result.added, 1);
   assert.equal(result.artworkSaved, 1);
   assert.equal(result.artworkFailed, 0);
@@ -527,26 +476,6 @@ it('passes artwork pagination and filters to SGDB', async () => {
   await client.icons(7, { page: 2, limit: 30, types: 'static' });
 });
 
-it('prepares artwork choices without downloading or writing Steam files', async t => {
-  const env = main(t, {}, {}, { isSteamRunning: () => assert.fail('preparation must not stop Steam') });
-  env.cfg.only_missing = false;
-  const result = await env.invoke('art:prepare', { rows: [native()], kinds: ['grid'] });
-  assert.equal(result.prepared, 1);
-  assert.equal(result.rows[0].art.grid.id, 9);
-  assert.deepEqual(env.calls, []);
-  assert.deepEqual(env.changes(), store.blankChanges());
-  assert.equal(fs.existsSync(env.grid), false);
-});
-
-it('preserves stock and chosen artwork while preparing with skipping enabled', async t => {
-  const env = main(t, { library_capsule: 'stock.jpg' });
-  const choice = { file: 'picked.png' };
-  const result = await env.invoke('art:prepare', { rows: [native(), native({ grid: choice }, 456)], kinds: ['grid'] });
-  assert.equal(result.prepared, 0);
-  assert.equal(result.rows[1].art.grid, choice);
-  assert.deepEqual(env.calls, ['metadata']);
-});
-
 it('passes selected tags and animation filters to SGDB', async t => {
   const env = main(t);
   await env.invoke('art:list', { sgdbId: 7, kind: 'icon', filters: {
@@ -568,58 +497,6 @@ it('keeps cleared size filters instead of resetting them', async t => {
   assert.equal(env.artworkQueries.at(-1).dimensions, '');
   const params = new URLSearchParams(new SGDBClient('fixture').buildParams(env.artworkQueries.at(-1)));
   assert.equal(params.has('dimensions'), false);
-});
-
-it('uses saved picker filters for preparation and automatic downloads, keeping Desktop icons static', async t => {
-  const env = main(t, { icon: 'a'.repeat(40) }, { cacheIcon: async () => 'cached.ico' });
-  env.cfg.only_missing = false;
-  env.cfg.artwork_filters.icon = { static: false, animated: true, untagged: false,
-    humor: true, nsfw: false, epilepsy: false, styles: ['custom'], mimes: ['image/png'] };
-  await env.invoke('art:list', { sgdbId: 7, kind: 'icon' });
-  const expected = env.artworkQueries.at(-1);
-  assert.equal(expected.oneoftag, 'humor');
-  assert.equal(expected.types, 'animated');
-  await env.invoke('art:prepare', { rows: [native()], kinds: ['icon'] });
-  assert.deepEqual(env.artworkQueries.at(-1), expected);
-  assert.equal((await env.download(native(), { kinds: ['icon'] })).saved, 1);
-  assert.deepEqual(env.artworkQueries.at(-1), expected);
-  await env.invoke('desktop:download', [{ id: 'desktop', sgdbId: 7 }]);
-  assert.deepEqual({ ...env.artworkQueries.at(-1) }, { ...expected, types: 'static' });
-});
-
-it('skips stock and custom artwork when onlyMissing is on', async (t) => {
-  for (const stock of [{ library_capsule: 'capsule.jpg' }, { library_capsule_full: { image2x: { english: 'capsule.jpg' } } }]) {
-    const env = main(t, stock);
-    const result = await env.download(native(), { onlyMissing: true });
-    assert.equal(result.saved, 0);
-    assert.equal(result.failed, 0);
-    assert.ok(!env.calls.includes('download'));
-  }
-  const env = main(t, new Error('metadata unavailable'));
-  fs.mkdirSync(env.grid, { recursive: true });
-  const custom = path.join(env.grid, '123p.png');
-  fs.writeFileSync(custom, 'custom');
-  const result = await env.download(native(), { onlyMissing: true });
-  assert.equal(result.saved, 0);
-  assert.equal(fs.readFileSync(custom, 'utf8'), 'custom');
-  assert.ok(!env.calls.includes('metadata'));
-});
-
-it('allows automatic replacement when onlyMissing is off and manual replacement when it is on', async (t) => {
-  for (const [manual, metadata] of [
-    [false, { library_capsule: 'stock.jpg' }], [true, { library_capsule: 'stock.jpg' }],
-    [false, new Error('metadata unavailable')], [true, new Error('metadata unavailable')],
-  ]) {
-    const env = main(t, metadata);
-    const row = native(manual ? { grid: { url: 'https://test.invalid/chosen.jpg' } } : {});
-    const result = await env.download(row, { onlyMissing: manual });
-    assert.equal(result.saved, 1);
-    assert.equal(result.failed, 0);
-    assert.equal(fs.readFileSync(path.join(env.grid, '123p.jpg'), 'utf8'), 'new artwork');
-    assert.equal(result.rows[0].art.grid.appliedFile, path.join(env.grid, '123p.jpg'));
-    assert.ok(!env.calls.includes('read shortcuts'));
-    assert.ok(!env.calls.includes('write shortcuts'));
-  }
 });
 
 it('Purge restores original artwork after repeated replacements', async (t) => {
@@ -651,20 +528,11 @@ it('leaves later user artwork changes alone during Purge', async (t) => {
   assert.equal(fs.readFileSync(dest, 'utf8'), 'user replacement');
 });
 
-it('does not download an unticked type from an earlier automatic selection', async (t) => {
-  for (const row of [native(), { ...native(), source: 'folder', folder: 'fixture', exe: 'C:/Games/game.exe' }]) {
-    const env = main(t);
-    const first = await env.download(row);
-    assert.equal(first.rows[0].art.grid.automatic, true);
-    const grid = first.rows[0].art.grid.appliedFile;
-    const before = store.statSig(grid);
-    env.calls.length = 0;
-    const result = await env.download(first.rows[0], { kinds: ['logo'] });
-    assert.equal(result.saved, 1);
-    assert.equal(result.failed, 0);
-    assert.equal(env.calls.filter((call) => call === 'download').length, 1);
-    assert.deepEqual(store.statSig(grid), before);
-  }
+it('does not download earlier automatic choices', async t => {
+  const env = main(t);
+  const result = await env.download(native({ grid: { url: 'https://test.invalid/grid.jpg', automatic: true } }));
+  assert.equal(result.saved, 0);
+  assert.ok(!env.calls.includes('download'));
 });
 
 it('saves native Steam icons and lets Purge restore them', async (t) => {
@@ -685,3 +553,22 @@ it('saves native Steam icons and lets Purge restore them', async (t) => {
   assert.equal(fs.readdirSync(env.grid).length, 0);
 });
 
+
+it('returns no stock preview when every URL is missing', async t => {
+  const env = main(t);
+  const result = await env.invoke('art:official', { row: native({}, 228980), kind: 'grid' });
+  assert.equal(result, null);
+});
+
+it('keeps failed keys and resets checks when the key changes', async t => {
+  const env = main(t);
+  await env.invoke('cfg:set', { api_key: 'saved-key' });
+  const result = await env.invoke('key:validate', 'saved-key');
+  assert.equal(result.ok, false);
+  assert.equal(env.cfg.api_key, 'saved-key');
+  assert.equal(env.cfg.api_key_check.ok, false);
+  await env.invoke('cfg:set', { api_key: 'replacement' });
+  await env.invoke('key:validate', 'saved-key');
+  assert.equal(env.cfg.api_key, 'replacement');
+  assert.equal(env.cfg.api_key_check, null);
+});

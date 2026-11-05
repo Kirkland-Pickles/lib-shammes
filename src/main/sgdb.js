@@ -40,15 +40,6 @@ function parseImage(d) {
   };
 }
 
-function chooseArtwork(items, filters = {}, random = Math.random) {
-  if (!items.length) return null;
-  const tagged = filters.untagged === false || filters.nsfw || filters.humor;
-  if (!tagged) return items[0];
-  const preferred = items.filter(image => filters.nsfw && image.nsfw || filters.humor && image.humor);
-  const pool = (preferred.length ? preferred : items).slice(0, 10);
-  return pool[Math.floor(random() * pool.length)];
-}
-
 function officialArtworkUrls(appid, kind, metadata = {}) {
   const key = { wide: 'header_image', grid: 'library_capsule', hero: 'library_hero', logo: 'library_logo', icon: 'icon' }[kind];
   const full = metadata[`${key}_full`];
@@ -195,4 +186,4 @@ class SGDBClient {
   }
 }
 
-module.exports = { SGDBClient, chooseArtwork, officialArtworkUrls };
+module.exports = { SGDBClient, officialArtworkUrls };
