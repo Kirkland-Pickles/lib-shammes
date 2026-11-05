@@ -250,6 +250,18 @@ app.whenReady().then(async () => {
   await click('#art-filters summary');
   await click('#art-title');
   assert.equal(await run("document.querySelector('#art-filters').open"), false);
+  await run(`{
+    const field = document.querySelector('#art-id');
+    field.value = '88';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  }`);
+  await wait(() => artRequests.some(req => req.sgdbId === 88));
+  await run(`{
+    const field = document.querySelector('#art-id');
+    field.value = '17';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  }`);
   await click('#art-save');
   await wait(() => cfg.desktop_overrides['link:1']?.sgdbId === 17);
   await wait("document.querySelector('#art-overlay').hidden");
