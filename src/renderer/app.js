@@ -22,38 +22,34 @@ const S = {
   steamUsers: [],
   filter: '',
   sourceFilter: 'all',
-  sortGames: 'az',
   hideOwned: false,
   ownedAppids: new Set(), // Steam appids installed for the user (hide-owned filter)
-  detailKey: null,          // rowKey() of selected row
-  searchCache: [],          // sgdb search results for detail pane
-  matchSearchToken: 0,
   previewCache: {},         // sgdbId -> saved cover source
   modal: null,              // artwork picker state
   exePicker: null,
-  onboardingStep: 0,
-  isDevelopment: false,
   cardArtCache: new Map(),
   coverObserver: null,
-  desktop: { rows: [], detail: null, busy: false, coverObserver: null },
+  desktop: { rows: [], busy: false, coverObserver: null },
 };
 
-const cur = () => (S.detailKey ? rowByKey(S.detailKey) : null);
+const steamEditorRow = () => S.modal?.row.source !== 'desktop' ? S.modal?.row : null;
 
 // ------------------------------------------------------------------ log/ui
 function log(line, library = 'library') {
-  const key = library === 'desktop' ? 'desktop' : library === 'settings' || library === 'onboarding' ? 'settings' : 'library';
-  (S.logs ||= { library: [], desktop: [], settings: [] })[key].push(String(line));
-  if (Nav.current() !== key) return;
+  const key = library === 'settings' ? libraryView() : library === 'desktop' ? 'desktop' : 'library';
+  const entry = `[${new Date().toLocaleTimeString('en-GB', { hour12: false })}] ${String(line)}`;
+  (S.logs ||= { library: [], desktop: [] })[key].push(entry);
+  if (libraryView() !== key) return;
   const box = $('#log');
   const div = document.createElement('div');
-  div.textContent = line;
+  div.textContent = entry;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
+  return div;
 }
 function renderLog() {
   const box = $('#log');
-  box.replaceChildren(...(S.logs?.[Nav.current()] || []).map(line => {
+  box.replaceChildren(...(S.logs?.[libraryView()] || []).map(line => {
     const div = document.createElement('div');
     div.textContent = line;
     return div;
@@ -124,8 +120,11 @@ function flyToastToLog(t) {
   t.classList.remove('show');
 }
 
-function toast(msg) {
+function toast(msg, logEntry) {
   const t = $('#toast');
+  const dialog = $$('dialog[open]').at(-1);
+  const host = dialog || document.body;
+  if (t.parentElement !== host) host.appendChild(t);
   clearToastFlight(t);
   t.textContent = msg;
   t.style.visibility = '';
@@ -133,19 +132,21 @@ function toast(msg) {
   t._h = setTimeout(() => t.classList.remove('show'), 3200);
   t.classList.add('show');
   const dock = $('#bottomdock');
-  if (!dock || dock.classList.contains('collapsed')) {
-    t._fly = setTimeout(() => flyToastToLog(t), TOAST_FLIGHT_DELAY);
+  if (!dialog && dock?.classList.contains('collapsed') && logEntry?.textContent.endsWith(`] ${msg}`)) {
+    t._fly = setTimeout(() => {
+      if (logEntry.isConnected) flyToastToLog(t);
+    }, TOAST_FLIGHT_DELAY);
   }
 }
 function handleAction(name, fn) {
   return () => {
-    const library = Nav.current();
+    const library = libraryView();
     return fn().catch((e) => {
       const message = e?.message || String(e);
       setBar(0, 0);
-      log(`${name} failed: ${message}`, library);
+      const feedback = `${name} failed: ${message}`;
       status(`${name} failed.`);
-      toast(`${name} failed: ${message}`);
+      toast(feedback, log(feedback, library));
     });
   };
 }
@@ -194,166 +195,78 @@ async function savePatch(patch) {
     S.previewCache = {};
   }
   applyTheme();
-  renderChecklist().catch(() => {});
 }
 function applyTheme() {
   const mode = ['dark', 'light'].includes(S.cfg.theme) ? S.cfg.theme : 'system';
   const theme = mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode;
   document.documentElement.dataset.theme = theme;
-  $('#theme').value = mode;
-}
-
-// --------------------------------------------- onboarding checklist
-let checklistDismissed = false; // session only; back next boot if still incomplete
-
-async function renderChecklist() {
-  const boxes = [...document.querySelectorAll('.checklist')];
-  if (!boxes.length) return;
-  if (checklistDismissed) { boxes.forEach((b) => { b.hidden = true; }); return; }
-  const steamOk = S.cfg.steam_path
-    ? await window.api.steamVerify(S.cfg.steam_path).catch(() => false)
-    : false;
-  const st = {
-    steam: !!steamOk,
-    key: !!(S.cfg.api_key || '').trim(),
-    folders: (S.cfg.games_roots || []).length > 0,
-  };
-  let allDone = true;
-  for (const box of boxes) {
-    box.querySelectorAll('.cl-item').forEach((btn) => {
-      const done = !!st[btn.dataset.cl];
-      btn.classList.toggle('done', done);
-      btn.querySelector('.cl-state').textContent = done ? '✓' : '';
-      if (!done) allDone = false;
-    });
-    box.hidden = allDone;
-  }
+  const button = $('#theme-cycle');
+  $('use', button)?.setAttribute('href', '#i-theme-' + theme);
+  button.title = `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`;
+  button.setAttribute('aria-label', button.title);
 }
 
 // ------------------------------------------------------------------ router
 // Back/Forward history for mouse navigation.
-const TITLES = { library: 'Steam library', desktop: 'Desktop library', settings: 'Settings', onboarding: 'Set up Lib Shammes' };
-const Nav = {
-  stack: ['library'],
-  idx: 0,
-  current() { return this.stack[this.idx]; },
-};
-let routeMotion = 0;
-let librarySave = Promise.resolve();
-function paintRoute() {
-  const page = Nav.current();
-  const target = $(`#page-${page}`);
-  const current = $('.page.on');
-  const animate = current && current !== target && !matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const outgoing = animate ? { opacity: getComputedStyle(current).opacity, transform: getComputedStyle(current).transform } : null;
-  const incoming = animate && getComputedStyle(target).display !== 'none'
-    ? { opacity: getComputedStyle(target).opacity, transform: getComputedStyle(target).transform } : null;
-  const motion = ++routeMotion;
-  $$('.page').forEach((p) => {
-    p.getAnimations().forEach((animation) => animation.cancel());
-    p.classList.remove('on', 'route-exit');
-    p.removeAttribute('aria-hidden');
-    p.inert = true;
-  });
-  if (animate) {
-    current.classList.add('route-exit');
-    current.setAttribute('aria-hidden', 'true');
-  }
-  target.classList.add('on');
-  target.inert = false;
+function libraryView() {
+  return S.cfg?.startup_library === 'desktop' ? 'desktop' : 'library';
+}
+async function showLibrary() {
+  const desktop = libraryView() === 'desktop';
+  const tools = $('#page-nav');
+  const bar = $(desktop ? '#page-desktop .browse-tools' : '#page-library .browse-tools');
+  $('#steam-shortcut-actions').hidden = desktop;
+  bar.append(tools);
+  const outside = $('#library-tools');
+  bar.parentElement.append(outside);
+  outside.hidden = false;
+  tools.hidden = false;
+  $('#desktop-destination').value = desktop ? S.cfg.desktop_destination || 'desktop' : 'steam';
+  renderLibrarySetup();
+  $('#page-library').classList.toggle('on', !desktop);
+  $('#page-desktop').classList.toggle('on', desktop);
   renderLog();
-  $$('.nav').forEach((b) => b.classList.toggle('on', b.dataset.page === page));
-  $('.navigation-row').hidden = page === 'onboarding';
-  $('.steam-controls').hidden = !['library', 'settings'].includes(page);
-  if (page === 'settings') { renderSettingsCards(); renderChecklist(); }
-  if (page === 'onboarding') {
-    renderOnboarding();
-  }
-  if (page === 'library') {
-    renderChecklist();
-    if (current !== target) renderRows();
-    if (current !== target) handleAction('Load library', () => loadLibrary())();
-  }
-  if (page === 'desktop' && current !== target) {
+  if (desktop) {
     renderDesktop();
-    handleAction('Desktop scan', () => refreshDesktop(false))();
-  }
-  if (S.cfg?.onboarded && ['library', 'desktop'].includes(page)) {
-    const library = page === 'library' ? 'steam' : page;
-    librarySave = librarySave.catch(() => {}).then(() => S.cfg.startup_library !== library && savePatch({ startup_library: library }));
-    librarySave.catch((e) => log(`Startup library: ${e.message}`));
-  }
-  document.title = `Lib Shammes - ${TITLES[page]}`;
-  if (animate) {
-    const order = Object.keys(TITLES);
-    const direction = order.indexOf(page) >= order.indexOf(current.id.slice(5)) ? 1 : -1;
-    const exit = current.animate(
-      [outgoing, { opacity: 0, transform: `translateX(${-direction * 12}px)` }],
-      { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' },
-    );
-    const enter = target.animate(
-      [incoming || { opacity: 0, transform: `translateX(${direction * 12}px)` }, { opacity: 1, transform: 'translateX(0)' }],
-      { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'both' },
-    );
-    Promise.allSettled([exit.finished, enter.finished]).then(() => {
-      if (motion !== routeMotion) return;
-      current.classList.remove('route-exit');
-      current.removeAttribute('aria-hidden');
-      exit.cancel();
-      enter.cancel();
-    });
+    await refreshDesktop(false);
+  } else {
+    renderRows();
+    await loadLibrary();
   }
 }
-function navGo(page, { replace = false } = {}) {
-  if (replace) {
-    Nav.stack[Nav.idx] = page;
-  } else if (Nav.current() !== page) {
-    Nav.stack = Nav.stack.slice(0, Nav.idx + 1);
-    Nav.stack.push(page);
-    Nav.idx += 1;
-  }
-  paintRoute();
-}
-function navReset(page) {
-  Nav.stack = [page];
-  Nav.idx = 0;
-  paintRoute();
-}
-function navBack() {
-  if (!pickerOpen() && Nav.idx > 0) { Nav.idx -= 1; paintRoute(); }
-}
-function navFwd() {
-  if (!pickerOpen() && Nav.idx < Nav.stack.length - 1) { Nav.idx += 1; paintRoute(); }
-}
-function pickerOpen() { return !!(S.modal || S.exePicker); }
-// Mouse back/forward click can arrive twice - once from the DOM, once from Electron.
-// Second one inside the window is the echo, the following code drops it.
-let lastMouseNav = 0;
-let lastIpcNav = 0;
-const NAV_ECHO_MS = 500;
 
 // ---------------------------------------------------------- shared cards
-let lastDetectedSteamPath = '';
-function renderOnboarding() {
-  const steps = [
-    ['Connect Steam', 'Choose the Steam installation and account you want to use.', steamCard],
-    ['Find artwork', 'Add an SGDB API key. You can do this later in Settings.', keyCard],
-    ['Add your game folders', 'Choose the folders you want Lib Shammes to scan. You can add more later.', foldersCard],
-  ];
-  const [title, description, card] = steps[S.onboardingStep];
-  $('#onboarding-title').textContent = title;
-  $('#onboarding-description').textContent = description;
-  $('#onboarding-cards').replaceChildren(card());
-  $('.onboarding-steps').querySelectorAll('button').forEach((button, i) => {
-    button.disabled = i > S.onboardingStep;
-    if (i === S.onboardingStep) button.setAttribute('aria-current', 'step');
-    else button.removeAttribute('aria-current');
-  });
-  $('#onboarding-back').disabled = S.onboardingStep === 0;
-  $('#onboarding-skip').hidden = S.onboardingStep !== 0;
-  $('#onboarding-close').hidden = !S.isDevelopment || !S.cfg.onboarded;
-  $('#onboarding-continue').textContent = S.onboardingStep === 2 ? 'Open library' : 'Next';
+async function detectSteam() {
+  const result = await window.api.steamDetect(S.cfg.steam_path || null);
+  await syncCfg();
+  S.steamUsers = result.users || [];
+  S.steamFound = !!result.path;
+  if (result.path && folderKey(result.path) !== lastDetectedSteamPath) log(`Steam found at ${result.path}`);
+  lastDetectedSteamPath = folderKey(result.path);
 }
+function renderLibrarySetup() {
+  const panel = $('#library-setup');
+  const steamView = libraryView() === 'library';
+  const needsSteam = steamView && (!S.steamFound || !S.cfg.steam_user_id);
+  panel.hidden = !!S.cfg.api_key && !needsSteam;
+  panel.innerHTML = '';
+  if (panel.hidden) return;
+  panel.innerHTML = `<div><h2 id="setup-title">Set up your library</h2><p>${needsSteam
+    ? S.steamFound ? 'Sign in to Steam once, then refresh to load your library.' : 'Steam was not found. Connect it to show your Steam games.'
+    : 'Add a SteamGridDB key to browse artwork. You can also use images from your computer.'}</p></div>
+    <div class="setup-actions">${needsSteam && !S.steamFound ? '<button class="btn sm" id="connect-steam">Connect Steam</button>' : ''}
+    ${needsSteam && S.steamFound ? '<button class="btn sm" data-setup="refresh">Check again</button>' : ''}
+    ${!S.cfg.api_key ? '<button class="btn sm" data-setup="key">Add artwork key</button>' : ''}
+    ${steamView ? '' : '<button class="btn sm" data-setup="folder">Add game folder</button>'}</div>`;
+  const connect = $('#connect-steam', panel);
+  if (connect) connect.onclick = openSteamSetup;
+  const key = $('[data-setup="key"]', panel);
+  if (key) key.onclick = () => { $('#preferences').open = true; $('[data-r="key"]').focus(); };
+  const refresh = $('[data-setup="refresh"]', panel);
+  if (refresh) refresh.onclick = handleAction('Check Steam', async () => { await detectSteam(); await showLibrary(); });
+  $('[data-setup="folder"]', panel)?.addEventListener('click', openFolders);
+}
+let lastDetectedSteamPath = '';
 function steamCard() {
   const d = document.createElement('div');
   d.className = 'card settings-block';
@@ -363,7 +276,7 @@ function steamCard() {
     <div class="row"><input type="text" data-r="path" style="flex:1" placeholder="detecting…">
     <button class="btn sm" data-r="browse">Browse…</button></div>
     <div class="row"><span class="muted">User:</span>
-    <select data-r="user" style="flex:1"></select></div>
+    <select size="3" data-r="user" style="flex:1"></select></div>
     <div class="status-line" data-r="status">Detecting…</div>
     <div class="note">Steam closes while changes are applied and reopens afterward if it was running.</div>`;
   const q = (s) => d.querySelector(`[data-r="${s}"]`);
@@ -393,7 +306,7 @@ function steamCard() {
   detectInto();
   q('path').addEventListener('change', async () => {
     await savePatch({ steam_path: q('path').value.trim() });
-    paint();
+    await detectInto();
   });
   q('user').addEventListener('change', () => savePatch({ steam_user_id: q('user').value }));
   q('browse').addEventListener('click', async () => {
@@ -413,13 +326,10 @@ function steamCard() {
     q('status').textContent = 'Detecting…';
     q('status').className = 'status-line';
     try {
-      const r = await window.api.steamDetect(S.cfg.steam_path || null);
-      await syncCfg();
-      S.steamUsers = r.users || [];
+      await detectSteam();
       q('path').value = steamDisplay(S.cfg.steam_path);
       paintUsers();
-      if (r.path && folderKey(r.path) !== lastDetectedSteamPath) log(`Steam found at ${r.path}`);
-      lastDetectedSteamPath = folderKey(r.path);
+      renderLibrarySetup();
     } catch (e) {
       log(`Steam detect failed: ${e.message || e}`);
     } finally {
@@ -434,131 +344,137 @@ function keyCard() {
   const d = document.createElement('div');
   d.className = 'card settings-block';
   d.innerHTML = `<h3>SteamGridDB API key</h3>
-    <div class="row"><input type="password" data-r="key" style="flex:1" placeholder="paste key…" autocomplete="off">
-    <button class="btn sm" data-r="show">Show</button></div>
-    <div class="row"><button class="btn sm" data-r="validate">Validate</button>
-    <button class="btn sm" data-r="get">Get key…</button></div>
-    <div class="status-line" data-r="status">Optional. Needed for online matches and artwork search.</div>
-    <div class="note">Go to steamgriddb.com, click profile, click preferences, click API. Stored in %APPDATA%\\Lib Shammes.</div>`;
-  const q = (s) => d.querySelector(`[data-r="${s}"]`);
-  q('key').value = S.cfg.api_key || '';
-  q('key').addEventListener('change', () => savePatch({ api_key: q('key').value.trim() }));
+    <div class="key-entry"><div class="key-field"><input type="password" data-r="key" aria-label="SteamGridDB API key" placeholder="paste key…" autocomplete="off">
+    <button class="btn sm key-eye" data-r="show" aria-label="Show API key" aria-pressed="false"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="m4 4 16 16"/></svg></button></div>
+    <button class="btn sm" data-r="get">Get key</button></div>
+    <div class="status-line key-feedback" data-r="status" role="status"></div>`;
+  const q = name => d.querySelector(`[data-r="${name}"]`);
+  const input = q('key');
+  input.value = S.cfg.api_key || '';
+  const paint = result => {
+    q('status').className = 'status-line key-feedback' + (result ? (result.ok ? ' ok' : ' bad') : '');
+    q('status').textContent = result?.ok ? 'Key valid'
+      : result ? 'Could not verify the key. It is saved.' : '';
+  };
+  paint(input.value ? S.cfg.api_key_check : null);
+  let timer;
+  const checking = new Map();
+  const validate = handleAction('Check artwork key', async () => {
+    const key = input.value.trim();
+    if (checking.has(key) && key === S.cfg.api_key) return;
+    if (key === S.cfg.api_key && (!key || S.cfg.api_key_check)) {
+      paint(key ? S.cfg.api_key_check : null);
+      return;
+    }
+    const request = {};
+    checking.set(key, request);
+    try {
+      if (key !== S.cfg.api_key) {
+        await savePatch({ api_key: key });
+        renderLibrarySetup();
+      }
+      if (!key || input.value.trim() !== key) return;
+      q('status').textContent = 'Checking key…';
+      const result = await window.api.keyValidate(key);
+      if (checking.get(key) !== request || input.value.trim() !== key || S.cfg.api_key !== key) return;
+      S.cfg.api_key_check = result;
+      paint(result);
+    } finally { if (checking.get(key) === request) checking.delete(key); }
+  });
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    paint(null);
+    timer = setTimeout(validate, 650);
+  });
+  input.addEventListener('change', () => {
+    clearTimeout(timer);
+    validate();
+  });
+  if (input.value && !S.cfg.api_key_check) timer = setTimeout(validate, 650);
   q('show').addEventListener('click', () => {
-    q('key').type = q('key').type === 'password' ? 'text' : 'password';
+    const visible = q('key').type === 'password';
+    q('key').type = visible ? 'text' : 'password';
+    q('show').setAttribute('aria-label', visible ? 'Hide API key' : 'Show API key');
+    q('show').setAttribute('aria-pressed', String(visible));
   });
   q('get').addEventListener('click', () => window.api.openUrl('https://www.steamgriddb.com/profile/preferences/api'));
-  q('validate').addEventListener('click', async () => {
-    const key = q('key').value.trim();
-    if (!key) { q('status').textContent = 'Paste a key first 😊'; return; }
-    q('status').textContent = 'Checking…';
-    q('status').className = 'status-line';
-    const r = await window.api.keyValidate(key);
-    await syncCfg();
-    if (r.ok) {
-      q('status').textContent = `Key works ✓ (found “${r.name}”).`;
-      q('status').className = 'status-line ok';
-      log('SGDB API key valid.', 'settings');
-    } else {
-      q('status').textContent = `Key rejected: ${r.error}`;
-      q('status').className = 'status-line bad';
-      log(`Key rejected: ${r.error}`, 'settings');
-    }
-  });
   return d;
 }
 
-function foldersCard() {
-  const d = document.createElement('div');
-  d.className = 'card full settings-block settings-folders';
-  d.innerHTML = `<h3>Game Folders</h3>
-    <div class="row"><select data-r="list" size="4" style="flex:1"></select>
-    <span style="display:flex;flex-direction:column;gap:6px">
-    <button class="btn sm" data-r="add">Add…</button>
-    <button class="btn sm" data-r="remove">Remove</button></span></div>
-    <label class="row">Game folder depth <select data-r="depth" aria-label="Game folder depth">${[0, 1, 2, 3, 4, 5, 6].map((n) => `<option>${n}</option>`).join('')}</select></label>
-    <div class="note">Use <strong>0</strong> if you added a single game's folder.<br>
-    Use <strong>1</strong> if the added folder contains your game folders.<br>
-    Use <strong>2</strong> if those game folders are another level down. Increase it for more levels.</div>
-    <div class="note">Inside each game folder, the app searches up to 3 levels down for executables.</div>`;
-  const q = (s) => d.querySelector(`[data-r="${s}"]`);
-  const showDepth = () => {
-    q('depth').disabled = !q('list').value;
-    q('depth').value = String(S.cfg.folder_depths[folderKey(q('list').value)] ?? 1);
+function executableSetting() {
+  return libraryView() === 'desktop' ? 'desktop_executables' : 'steam_executables';
+}
+function renderFoundLaunchers() {
+  const host = $('#found-launchers');
+  const setting = executableSetting();
+  const launchers = S.cfg[setting] || [];
+  host.replaceChildren();
+  host.hidden = !launchers.length;
+  if (!launchers.length) return;
+  const header = document.createElement('div');
+  header.className = 'found-launchers-head';
+  header.innerHTML = `<strong>Found launchers (${launchers.length})</strong><button class="btn sm">Remove all from library</button>`;
+  host.appendChild(header);
+  const remove = async path => {
+    if (host.inert) return;
+    host.inert = true;
+    try {
+      const remaining = path ? (S.cfg[setting] || []).filter(game => folderKey(game.exePath) !== folderKey(path)) : [];
+      await savePatch({ [setting]: remaining });
+      renderFoundLaunchers();
+      await showLibrary();
+    } finally { host.inert = false; }
   };
-  const paint = (selected = q('list').value) => {
-    q('list').innerHTML = (S.cfg.games_roots || []).map((g) => `<option>${esc(g)}</option>`).join('');
-    if (S.cfg.games_roots.includes(selected)) q('list').value = selected;
-    else q('list').selectedIndex = S.cfg.games_roots.length ? 0 : -1;
-    showDepth();
-  };
-  paint();
-  q('list').addEventListener('change', showDepth);
-  q('depth').addEventListener('change', () => savePatch({
-    folder_depths: { ...S.cfg.folder_depths, [folderKey(q('list').value)]: Number(q('depth').value) },
-  }));
-  q('add').addEventListener('click', async () => {
-    const p = await window.api.foldersBrowse();
-    if (p && !S.cfg.games_roots.includes(p)) {
-      await savePatch({
-        games_roots: [...S.cfg.games_roots, p],
-        folder_depths: { ...S.cfg.folder_depths, [folderKey(p)]: 1 },
-      });
-      paint(p);
-      log(`Games folder added: ${p}`, 'settings');
-    }
-  });
-  q('remove').addEventListener('click', async () => {
-    const gone = new Set([...q('list').selectedOptions].map((o) => o.value || o.text));
-    if (!gone.size) return;
-    await savePatch({ games_roots: S.cfg.games_roots.filter((g) => !gone.has(g)) });
-    paint();
-  });
-  return d;
+  $('button', header).onclick = handleAction('Remove found launchers', () => remove());
+  const list = document.createElement('div');
+  list.className = 'found-launchers-list';
+  for (const { exePath, displayName } of launchers) {
+    const row = document.createElement('div');
+    row.className = 'folder-entry';
+    row.innerHTML = `<span title="${esc(exePath)}">${esc(displayName || exePath)}<small>${esc(exePath)}</small></span><button class="btn sm">Remove</button>`;
+    $('button', row).onclick = handleAction('Remove launcher', () => remove(exePath));
+    list.appendChild(row);
+  }
+  host.appendChild(list);
+}
+
+function renderSources() {
+  renderFoundLaunchers();
+  const host = $('#source-folders');
+  host.replaceChildren();
+  for (const folder of S.cfg.games_roots || []) {
+    const row = document.createElement('div');
+    row.className = 'folder-entry';
+    row.innerHTML = `<span>${esc(folder)}</span><button class="btn sm">Remove</button>`;
+    $('button', row).onclick = handleAction('Remove folder', async () => {
+      const depths = { ...S.cfg.folder_depths };
+      delete depths[folderKey(folder)];
+      await savePatch({ games_roots: S.cfg.games_roots.filter(path => path !== folder), folder_depths: depths });
+      renderSources();
+      await showLibrary();
+    });
+    host.appendChild(row);
+  }
+}
+function openFolders() {
+  renderSources();
+  $('#page-add').showModal();
+}
+function openSteamSetup() {
+  $('#steam-connection').replaceChildren(steamCard());
+  $('#steam-setup').showModal();
 }
 
 // --------------------------------------------------------------- settings
-function renderSettingsCards() {
+function renderSettingsCards(key = keyCard()) {
   const host = $('#settings-cards');
+  const theme = $('#theme-cycle');
   host.innerHTML = '';
-  host.appendChild(steamCard());
-  host.appendChild(keyCard());
-  host.appendChild(foldersCard());
-  const prefs = document.createElement('div');
-  prefs.className = 'card settings-block';
-  prefs.innerHTML = `<h3>Artwork defaults</h3>
-    <div class="row" data-r="kinds"></div>
-    <div class="row" data-r="flags"></div>
-    <label class="check" style="margin-top:8px"><input type="checkbox" data-r="missing">
-    Skip already populated artwork</label>
-    <div class="note">Per-game and per-type picks. Choosing artwork manually overrides these settings.</div>`;
-  const q = (s) => prefs.querySelector(`[data-r="${s}"]`);
-  const kinds = [['wide', 'Wide'], ['grid', 'Grid'], ['hero', 'Hero'], ['logo', 'Logo'], ['icon', 'Icon']];
-  q('kinds').innerHTML = kinds.map(([k, label]) =>
-    `<label class="check"><input type="checkbox" data-k="${k}"${S.cfg[`want_${k}`] ? ' checked' : ''}> ${label}</label>`).join('');
-  q('kinds').addEventListener('change', (e) => {
-    const k = e.target.dataset.k;
-    if (k) savePatch({ [`want_${k}`]: e.target.checked });
-  });
-  const flags = [['include_animated', 'Animated'], ['include_nsfw', 'Adult Content'], ['include_humor', 'Humor']];
-  q('flags').innerHTML = flags.map(([k, label]) =>
-    `<label class="check"><input type="checkbox" data-k="${k}"${S.cfg[k] ? ' checked' : ''}> ${label}</label>`).join('');
-  q('flags').addEventListener('change', async (e) => {
-    const k = e.target.dataset.k;
-    if (!k) return;
-    // NSFW asks every single time it gets enabled.
-    if (k === 'include_nsfw' && e.target.checked) {
-      const yes = await confirmDlg('Enable Adult Content?',
-        'Artwork searches and automatic artwork selection can include adult content when this is enabled.\n\nResults can change how you look at the games characters forever.',
-        { danger: true, small: true, confirmText: "I don't care" });
-      if (!yes) { e.target.checked = false; return; }
-      savePatch({ include_nsfw: true });
-      return;
-    }
-    savePatch({ [k]: e.target.checked });
-  });
-  q('missing').checked = !!S.cfg.only_missing;
-  q('missing').addEventListener('change', (e) => savePatch({ only_missing: e.target.checked }));
-  host.appendChild(prefs);
+  const header = document.createElement('div');
+  header.className = 'preferences-heading';
+  header.append($('h3', key), theme);
+  key.prepend(header);
+  host.appendChild(key);
   const danger = document.createElement('div');
   danger.className = 'card settings-block';
   danger.innerHTML = `<h3>Danger zone</h3>
@@ -608,7 +524,7 @@ async function doPurge() {
     + `\n\nShortcuts are backed up before changes. Your games and Steam itself are untouched. Steam will close and reopen if it is running.`;
   if (!await confirmDlg('Purge everything', msg)) return;
   const res = await window.api.steamPurge({ dryRun: false });
-  (res.lines || []).forEach(log);
+  (res.lines || []).forEach(line => log(line));
   await refreshSteamState();
   await syncSteamLibrary();
   status('Purge complete.');
@@ -630,7 +546,7 @@ function visibleSteamRows() {
     return true;
   }).sort((a, b) => {
     const nameOrder = a.display.localeCompare(b.display, undefined, { sensitivity: 'base', numeric: true });
-    if (nameOrder) return S.sortGames === 'za' ? -nameOrder : nameOrder;
+    if (nameOrder) return nameOrder;
     return String(a.exe || a.folder).localeCompare(String(b.exe || b.folder), undefined, { sensitivity: 'base' });
   });
 }
@@ -643,7 +559,7 @@ function initials(name) {
 function cardSource(row) {
   if (row.source === 'steam') return 'Steam';
   if (row.source === 'shortcut') return 'Shortcut';
-  return row.fromExecutableSearch ? 'Scanned game' : 'Game folder';
+  return row.fromExecutableSearch ? 'Found launcher' : 'Game folder';
 }
 
 function cardSubtitle(row) {
@@ -746,51 +662,17 @@ function loadCardCover(row, tr) {
   }).catch(() => { S.cardArtCache.delete(token); });
 }
 
-function updateLibrarySelection() {
-  const body = $('#games-body');
-  const selected = checkedRows();
-  $('#page-library').classList.toggle('bulk-selection', !!S.bulk);
-  $('#select-multiple').setAttribute('aria-pressed', String(!!S.bulk));
-  for (const tr of body.querySelectorAll('.game-card-row')) {
-    const row = rowByKey(tr.dataset.key);
-    if (!row) continue;
-    tr.classList.toggle('sel', S.detailKey === rowKey(row));
-    tr.classList.toggle('is-checked', !!S.bulk && !!row.checked);
-    const checkbox = $('.row-check', tr);
-    if (checkbox) checkbox.checked = !!row.checked;
-  }
-  const visible = S.visibleRows || [];
-  const checkedVisible = visible.filter((row) => row.checked).length;
-  $('#sel-all').checked = visible.length > 0 && checkedVisible === visible.length;
-  $('#sel-all').indeterminate = checkedVisible > 0 && checkedVisible < visible.length;
-  $('#sel-all').disabled = !visible.length;
-  $('#selection-count').textContent = `${selected.length} selected`;
+function updateLibraryActions() {
   const pending = S.rows.filter((row) => row.pendingArt || row.pendingDetails).length;
   $('#library-pending').hidden = pending === 0;
   $('#library-pending').textContent = pending ? `${pending} ready to apply` : '';
-  const applyRows = steamApplyRows();
-  const canApply = applyRows.some((row) => canWriteShortcut(row)
-    || (row.source === 'steam' && Object.values(row.art || {}).some(art => !art.automatic && !art.current)));
   const button = $('#btn-add');
-  const busy = S.applyingSteam || S.preparingArt || S.loadingLibrary;
-  button.disabled = busy || !canApply;
+  const busy = S.applyingSteam || S.loadingLibrary;
+  button.disabled = busy || !reviewCandidates('library').length;
   $('#btn-clear').disabled = busy;
-  button.textContent = !S.bulk || !selected.length ? 'Apply all to Steam'
-    : applyRows.length === 1 && canWriteShortcut(applyRows[0]) && !applyRows[0].inSteam
-      ? 'Add to Steam' : applyRows.length === 1 && applyRows[0].source === 'steam'
-        ? 'Apply artwork' : applyRows.some((row) => row.pendingArt || row.pendingDetails) ? 'Apply changes' : 'Apply to Steam';
-  const detailRow = cur();
-  const detailCanApply = !!detailRow && (canWriteShortcut(detailRow)
-    || (detailRow.source === 'steam' && (detailRow.pendingArt || Object.keys(detailRow.art || {}).length > 0)));
-  $('#d-primary-action').disabled = busy || !detailCanApply;
-  $('#detail').inert = !!busy;
-  $('#btn-refresh').disabled = !!busy;
-  $('#d-primary-action').textContent = !detailRow ? 'Apply to Steam'
-    : canWriteShortcut(detailRow) && !detailRow.inSteam ? 'Add to Steam'
-      : detailRow.source === 'steam' ? 'Apply artwork'
-        : detailRow.pendingArt || detailRow.pendingDetails ? 'Apply changes' : 'Apply to Steam';
-  $('#btn-remove').disabled = busy || !selected.some((row) => row.inSteam && (row.source === 'shortcut' || row.managed));
-  $('#btn-download').disabled = busy || !S.cfg.api_key || !steamArtworkRows().length;
+  const count = reviewCandidates('library').length;
+  button.textContent = count ? `Review ${count} change${count === 1 ? '' : 's'}` : 'Review changes';
+  $('#btn-refresh').disabled = busy;
 }
 
 function renderRows() {
@@ -798,7 +680,6 @@ function renderRows() {
   body.innerHTML = '';
   S.coverObserver?.disconnect();
   const visible = visibleSteamRows();
-  S.visibleRows = visible;
   const observerRoot = $('#page-library');
   S.coverObserver = typeof IntersectionObserver === 'function'
     ? new IntersectionObserver((entries) => {
@@ -821,27 +702,27 @@ function renderRows() {
     const [state, stateClass] = cardStatus(row);
     const detail = cardSubtitle(row);
     const tr = document.createElement('tr');
-    tr.className = `game-card-row${S.detailKey === key ? ' sel' : ''}${S.bulk && row.checked ? ' is-checked' : ''}`;
+    tr.className = 'game-card-row';
     tr.dataset.key = key;
-    tr.innerHTML = `<td><div class="game-tile"><button class="game-open" type="button" aria-label="Open details for ${esc(row.display)}">
+    tr.innerHTML = `<td><div class="game-tile"><button class="game-open" type="button" aria-label="Choose artwork for ${esc(row.display)}">
       <div class="cover-wrap">
         <div class="cover-fallback"><img src="../assets/app-icon.svg" alt=""><span>${esc(initials(row.display))}</span></div>
         <img class="game-cover" data-cover-token="${esc(coverToken(row))}" alt="Cover art for ${esc(row.display)}" decoding="async" hidden>
-      </div>
+      </div></button>
       <div class="game-card-copy">
-        <span class="game-name" title="${esc(row.display)}">${esc(row.display)}</span>
+        <button class="game-name" type="button" aria-label="Details for ${esc(row.display)}" title="Game details">${esc(row.display)}</button>
         <span class="game-meta"><span class="source-label" title="${esc(cardSource(row))}">${esc(cardSource(row))}</span>${state ? `<span class="game-state ${stateClass}">${esc(state)}</span>` : ''}</span>
         <span class="game-subtitle" title="${esc(detail)}">${wrapText(detail)}</span>
       </div>
-    </button><label class="cover-check" data-act="toggle"><input class="row-check" type="checkbox" aria-label="Select ${esc(row.display)}"${row.checked ? ' checked' : ''}></label></div></td>`;
+    </div></td>`;
     tr._gameRow = row;
     body.appendChild(tr);
     if (S.coverObserver) S.coverObserver.observe(tr);
     else loadCardCover(row, tr);
   }
   $('#library-count').textContent = `${S.rows.length} game${S.rows.length === 1 ? '' : 's'}`;
-  $('#library-grid-count').textContent = visible.length === S.rows.length ? '' : `${visible.length} shown`;
-  updateLibrarySelection();
+  $('#library-grid-count').textContent = visible.length === S.rows.length ? '' : `${visible.length} game${visible.length === 1 ? '' : 's'} shown`;
+  updateLibraryActions();
   renderBanner();
 }
 
@@ -853,94 +734,19 @@ function rowByKey(key) {
   return S.rows.find((r) => rowKey(r) === key);
 }
 
-// Empty library points back at Settings: an add-folder button when there are
-// no folders yet, otherwise a link to Settings.
 function renderBanner() {
   const banner = $('#lib-banner');
   if (!banner) return;
-  if (S.loadingLibrary) { banner.hidden = true; return; }
-  if (S.rows.length > 0) { banner.hidden = true; return; }
-  banner.hidden = false;
-  banner.innerHTML = '';
-  const hasFolders = (S.cfg.games_roots || []).length > 0;
-  const text = document.createElement('span');
-  text.textContent = hasFolders ? 'No games yet.' : 'No games yet - add a folder to begin.';
-  banner.appendChild(text);
-  const spacer = document.createElement('span');
-  spacer.className = 'spacer';
-  banner.appendChild(spacer);
-  const mk = (label, primary, fn) => {
-    const b = document.createElement('button');
-    b.className = `btn sm${primary ? ' primary' : ''}`;
-    b.textContent = label;
-    b.addEventListener('click', fn);
-    banner.appendChild(b);
-    return b;
-  };
-  if (!hasFolders) {
-    mk('Add games folder', true, () => navGo('settings'));
-  } else {
-    mk('Complete setup', false, () => navGo('settings'));
-  }
+  banner.hidden = !!(S.loadingLibrary || S.rows.length) || !$('#library-setup')?.hidden;
+  banner.textContent = banner.hidden ? '' : 'No games found. Add a game folder or refresh after installing a game.';
 }
 
-function selectRow(key) {
-  S.detailKey = key;
-  updateLibrarySelection();
-  renderDetail();
-  const detail = $('#detail-content');
-  detail.getAnimations().forEach((animation) => animation.cancel());
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    detail.animate(
-      [
-        { opacity: 0, transform: 'translateY(18px)' },
-        { opacity: 1, transform: 'translateY(0)' },
-      ],
-      { duration: 320, easing: 'cubic-bezier(.16,1,.3,1)' },
-    );
-  }
-}
-
-function resetMatchResults(label = 'Search for a game first') {
-  S.searchCache = [];
-  $('#s-status').classList.remove('ok');
-  const results = $('#s-results');
-  results.innerHTML = '';
-  const option = document.createElement('option');
-  option.value = '';
-  option.textContent = label;
-  results.appendChild(option);
-  results.disabled = true;
-  $('#s-set').disabled = true;
-}
-
-function isCurrentMatchRequest(token, key) {
-  const row = cur();
-  return token === S.matchSearchToken && !!row && rowKey(row) === key;
-}
-
-function renderDetail() {
-  const row = cur();
-  const empty = $('#detail-empty');
-  const content = $('#detail-content');
-  if (!row) {
-    empty.hidden = false;
-    content.hidden = true;
-    $('#detail-state').textContent = '';
-    $('#detail-state').classList.remove('pending');
-    return;
-  }
-  empty.hidden = true;
-  content.hidden = false;
-  $('#d-title').textContent = row.display;
-  const identity = [row.fromExecutableSearch ? 'Executable' : SOURCE_LABEL[row.source] || row.source];
-  if (row.steamAppid) identity.push(`Steam ${row.steamAppid}`);
-  if (row.source !== 'steam') identity.push(row.idMethod === 'folder' ? 'Not matched' : `${Math.round(row.confidence * 100)}% match`);
-  $('#d-identity').textContent = identity.join(' · ');
-  const state = row.pendingArt || row.pendingDetails ? 'Ready to apply in Steam'
-    : row.artApplied ? 'Applied this session' : row.inSteam ? 'In Steam' : 'Not in Steam yet';
-  $('#detail-state').textContent = state;
-  $('#detail-state').classList.toggle('pending', !!(row.pendingArt || row.pendingDetails));
+function renderSteamGameSettings(row) {
+  const editable = row.source !== 'steam';
+  $('#steam-game-settings .launcher-editor').hidden = !editable;
+  $('#d-primary-action').hidden = !canWriteShortcut(row);
+  $('#d-primary-action').textContent = row.inSteam ? 'Apply shortcut to Steam' : 'Add to Steam';
+  $('#btn-remove').hidden = !canRemoveSteamShortcut(row);
   $('#d-name').value = row.display;
   const pick = $('#d-exe-pick');
   pick.innerHTML = '';
@@ -988,37 +794,8 @@ function renderDetail() {
   const launch = S.cfg.steam_launch?.[folderKey(row.folder)];
   $('#d-startdir').value = launch?.startDir ?? String(row.startDir || '').replace(/^"|"$/g, '');
   $('#d-args').value = launch?.launchOptions ?? row.launchOptions ?? '';
-  $('#s-search').value = row.query || row.display;
-  S.matchSearchToken++;
-  resetMatchResults();
-  const matchStatus = $('#s-status');
-  matchStatus.textContent = row.sgdbId ? `${row.sgdbName || '(cached)'} · ${row.sgdbId}` : 'Not matched';
-  matchStatus.classList.toggle('ok', !!row.sgdbId);
-  previewFor(row);
 }
 
-async function previewFor(row) {
-  const img = $('#d-preview');
-  const picked = row.art.grid;
-  let alternate;
-  img.hidden = true;
-  img.onload = () => { if (cur() === row && row.art.grid === picked) img.hidden = false; };
-  img.onerror = () => {
-    if (cur() !== row || row.art.grid !== picked) return;
-    if (alternate && img.getAttribute('src') !== alternate) { img.src = alternate; alternate = null; return; }
-    img.hidden = true;
-    log(`Game cover failed to load: ${picked?.file || (img.src.startsWith('data:') ? 'local image data' : img.src)}`);
-    status('Game cover could not load. Check the log.');
-  };
-  try {
-    const source = await cardCoverSource(row);
-    if (cur() !== row || row.art.grid !== picked || !source) return;
-    alternate = source.fallback;
-    img.src = source.src || source;
-  } catch { /* silent: list must stay usable offline */ }
-}
-
-// ------------------------------------------------------------ library ops
 function steamDraftScope() {
   return S.cfg.steam_path && S.cfg.steam_user_id
     ? JSON.stringify([folderKey(S.cfg.steam_path), String(S.cfg.steam_user_id)]) : null;
@@ -1089,7 +866,7 @@ function toRow(g, useLegacy = false) {
     query: title, steamAppid: g.steamAppid ?? null, idMethod: g.idMethod || 'folder',
     fromExecutableSearch: !!g.fromExecutableSearch,
     confidence: g.confidence || 0, source: 'folder',
-    checked: !!g.exePath, sgdbId: savedSgdb, sgdbName: savedSgdb ? '(cached)' : '',
+    sgdbId: savedSgdb, sgdbName: savedSgdb ? '(cached)' : '',
     inSteam: false, managed: false, shortcutIdx: null, appid: null, art: {},
     defaults: { folder: g.folder, folderName, display: g.displayName, query: g.displayName,
       exe: g.exePath, startDir: g.startDir, reason: g.reason || '' },
@@ -1142,7 +919,7 @@ async function syncSteamLibrary(entries, installed) {
       candidates: exe ? [{ path: exe, size: 0, depth: 0, score: 0, reason: 'existing shortcut' }] : [],
       score: 0, reason: 'already in Steam as a non-Steam shortcut', query,
       steamAppid, idMethod: 'shortcut', confidence: 0.5, source: 'shortcut',
-      checked: old ? old.checked : false, sgdbId,
+      sgdbId,
       sgdbName: old?.sgdbName || (sgdbId ? '(cached)' : ''), inSteam: true, managed: !!e.managed,
       shortcutIdx: e.index, appid: e.appid, art: old ? old.art || {} : {},
       pendingArt: !!old?.pendingArt, pendingDetails: !!old?.pendingDetails, artApplied: !!old?.artApplied,
@@ -1157,7 +934,6 @@ async function syncSteamLibrary(entries, installed) {
       exe: null, startDir: g.installdir || '', launchOptions: '', candidates: [],
       score: 0, reason: 'installed Steam store game (managed by Steam)', query: g.name,
       steamAppid: g.appid, idMethod: 'steam', confidence: 1, source: 'steam',
-      checked: old ? old.checked : false,
       sgdbId: old ? old.sgdbId : (S.cfg.sgdb_map?.[`steam:${g.appid}`] || S.cfg.sgdb_cache?.[`steam:${g.appid}`] || null),
       sgdbName: old ? old.sgdbName : '', inSteam: true, managed: false,
       shortcutIdx: null, appid: null, art: old ? old.art || {} : {},
@@ -1177,7 +953,7 @@ async function syncSteamLibrary(entries, installed) {
   }
   S.rows = S.rows.filter((row) => {
     if (row.source !== 'folder') return true;
-    const owner = nativeRows.find(native => insideGameFolder(row.folder, native.startDir))
+    const owner = (!row.fromExecutableSearch && nativeRows.find(native => insideGameFolder(row.folder, native.startDir)))
       || row.exe && shortcutByExe.get(folderKey(row.exe));
     if (!owner) return true;
     // Prefer pending edits over an applied preview; existing Steam edits win ties.
@@ -1189,12 +965,9 @@ async function syncSteamLibrary(entries, installed) {
       owner.sgdbId = row.sgdbId;
       owner.sgdbName = row.sgdbName;
     }
-    if (owner.source === 'shortcut') owner.checked ||= row.checked;
-    if (S.detailKey === rowKey(row)) S.detailKey = rowKey(owner);
     return false;
   });
   renderRows();
-  if (S.detailKey && !cur()) { S.detailKey = null; renderDetail(); }
 }
 
 function scannedRows(games) {
@@ -1209,7 +982,6 @@ function scannedRows(games) {
     const old = prev.get(g.folder);
     const row = toRow(g, folderCounts.get(baseName(g.folder).toLowerCase()) === 1);
     if (old && (old.artDraftScope === undefined || old.artDraftScope === steamDraftScope())) {
-      row.checked = old.checked;
       row.sgdbId = old.sgdbId;
       row.sgdbName = old.sgdbName;
       row.art = old.art || {};
@@ -1227,13 +999,14 @@ function scannedRows(games) {
   return rows;
 }
 
-function doFindExecutables(context = null) {
-  if (context instanceof Event) context = null;
+function doFindExecutables() {
   const roots = (S.cfg.games_roots || []).filter(Boolean);
-  if (!roots.length) { toast('Add a games folder first in Settings.'); return; }
-  if (S.exePicker) return;
+  if (!roots.length) { toast('Add a game folder before searching for launchers.'); return; }
+  if (S.exePicker?.open) return;
+  S.exePicker?.remove();
   const dialog = document.createElement('dialog');
   dialog.id = 'exe-picker';
+  dialog.setAttribute('closedby', 'any');
   dialog.setAttribute('aria-labelledby', 'exe-heading');
   dialog.innerHTML = `<h2 id="exe-heading">Find executables</h2>
     <p class="muted">Search added folders up to 10 levels down, including utilities and uninstallers. Select the executables you want to work with in Lib Shammes.</p>
@@ -1242,7 +1015,7 @@ function doFindExecutables(context = null) {
     <div class="modal-foot"><button class="btn sm" id="exe-select-all" hidden>Select all</button>
       <button class="btn sm" id="exe-select-none" hidden>Select none</button><span class="spacer"></span>
       <button class="btn sm" id="exe-cancel">Cancel</button>
-      <button class="btn sm primary" id="exe-search">Search</button>
+      <button class="btn sm primary" id="exe-search" hidden>Retry</button>
       <button class="btn sm primary" id="exe-add" hidden disabled>Show selected in Lib Shammes</button></div>`;
   document.body.appendChild(dialog);
   S.exePicker = dialog;
@@ -1252,8 +1025,7 @@ function doFindExecutables(context = null) {
     dialog.remove();
   }, { once: true });
   q('#exe-cancel').onclick = () => dialog.close();
-  dialog.showModal();
-  q('#exe-search').onclick = handleAction('Executable search', async () => {
+  const scan = handleAction('Executable search', async () => {
     const search = q('#exe-search');
     const summary = q('#exe-summary');
     const results = q('#exe-results');
@@ -1264,7 +1036,7 @@ function doFindExecutables(context = null) {
     summary.hidden = false;
     summary.textContent = 'Searching…';
     try {
-      const claimed = (context ? context.rows : S.rows).filter((r) => r.exe).map((r) => r.exe);
+      const claimed = (libraryView() === 'desktop' ? S.desktop.rows : S.rows).filter((r) => r.exe).map((r) => r.exe);
       const { games, truncated } = await window.api.findExecutables({ roots, claimed });
       if (!dialog.open) return;
       summary.textContent = `${games.length} executable(s) found. Already listed executables are excluded.`
@@ -1305,31 +1077,24 @@ function doFindExecutables(context = null) {
       };
       add.hidden = false;
       add.onclick = handleAction('Add executables', async () => {
-        if (context) { dialog.close(); await context.add([...selected]); return; }
-        await savePatch({ steam_executables: [...(S.cfg.steam_executables || []), ...selected] });
-        const known = new Set(S.rows.filter((r) => r.exe).map((r) => r.exe.toLowerCase()));
-        let added = 0;
-        for (const game of selected) {
-          if (known.has(game.exePath.toLowerCase())) continue;
-          const row = toRow(game);
-          row.checked = false;
-          S.rows.push(row);
-          known.add(game.exePath.toLowerCase());
-          added++;
-        }
+        const setting = executableSetting();
+        await savePatch({ [setting]: [...(S.cfg[setting] || []), ...selected] });
         dialog.close();
-        renderRows();
-        log(`Showing ${added} executable(s) in Lib Shammes.`);
-        status(`Found ${added} executable(s).`);
-        await refreshSteamState();
+        await showLibrary();
+        log(`Added ${selected.size} launcher(s).`, libraryView());
       });
     } catch (e) {
+      if (!dialog.open) return;
       summary.textContent = 'Search failed. You can try again.';
+      search.hidden = false;
       throw e;
     } finally {
       search.disabled = false;
     }
   });
+  q('#exe-search').onclick = scan;
+  dialog.showModal();
+  scan();
 }
 
 async function refreshSteamState(entries) {
@@ -1337,7 +1102,6 @@ async function refreshSteamState(entries) {
     entries ||= await window.api.steamRead();
   } catch (e) {
     renderRows();
-    if (S.detailKey) renderDetail();
     return; // Steam not configured yet - fine on first run
   }
   const byExe = new Map(entries.map((e) => [String(e.exe).replace(/^"|"$/g, '').toLowerCase(), e]));
@@ -1360,16 +1124,15 @@ async function refreshSteamState(entries) {
     }
   }
   renderRows();
-  if (S.detailKey) renderDetail();
 }
 
 let libraryLoad = null;
 let loadedLibraryKey = null;
 function libraryKey() {
-  return JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.steam_path, S.cfg.steam_user_id]);
+  return JSON.stringify([S.cfg.games_roots, S.cfg.folder_depths, S.cfg.steam_path, S.cfg.steam_user_id, S.cfg.steam_executables]);
 }
 function loadLibrary(force = false) {
-  if (S.applyingSteam || S.preparingArt) return Promise.resolve();
+  if (S.applyingSteam) return Promise.resolve();
   const key = libraryKey();
   if (libraryLoad) return libraryLoad.then(() => libraryKey() !== loadedLibraryKey ? loadLibrary() : undefined);
   if (!force && key === loadedLibraryKey) return Promise.resolve();
@@ -1377,7 +1140,7 @@ function loadLibrary(force = false) {
   return libraryLoad;
 }
 async function doRefresh() {
-  if (S.applyingSteam || S.preparingArt) return Promise.resolve();
+  if (S.applyingSteam) return Promise.resolve();
   await steamPresentOrToast();
   return loadLibrary(true);
 }
@@ -1407,7 +1170,7 @@ async function refreshLibrary() {
 }
 
 async function doClear() {
-  if (S.applyingSteam || S.preparingArt || S.loadingLibrary) return;
+  if (S.applyingSteam || S.loadingLibrary) return;
   if (!await confirmDlg('Clear unapplied changes?',
     "Clear changes that haven't been applied to Steam?\n\nNames and launchers already in Steam will be kept. Artwork already written to Steam won't be deleted. Your selection will stay the same.",
     { confirmText: 'Clear' })) return;
@@ -1451,7 +1214,6 @@ async function doClear() {
   }
   await savePatch(patch);
   await saveSteamDrafts([], S.rows.flatMap(steamDraftKeys));
-  let detail = cur();
   for (const [row, reset] of resets) Object.assign(row, reset);
   const folderExes = new Set(S.rows.filter((row) => row.source === 'folder' && row.exe).map((row) => folderKey(row.exe)));
   const unique = new Map();
@@ -1459,49 +1221,12 @@ async function doClear() {
     const key = row.exe && folderExes.has(folderKey(row.exe)) ? `exe:${folderKey(row.exe)}` : rowKey(row);
     const existing = unique.get(key);
     if (!existing) { unique.set(key, row); return true; }
-    existing.checked ||= row.checked;
-    if (detail === row) detail = existing;
     return false;
   });
-  S.detailKey = detail ? rowKey(detail) : null;
   await refreshSteamState(entries);
   status('Unapplied changes cleared.');
 }
 
-function needKey() {
-  if (!S.cfg.api_key) {
-    toast('Add your SteamGridDB API key first in Settings.');
-    return true;
-  }
-  return false;
-}
-
-async function doAutoMatch(selected = checkedRows()) {
-  const rows = selected.filter((r) => !r.sgdbId);
-  if (!rows.length && selected.length) return;
-  if (!rows.length) { toast('Nothing to match - scan a folder first.'); return; }
-  if (needKey()) return;
-  status(`Auto-matching ${rows.length} games…`);
-  log(`Auto-matching ${rows.length} games…`);
-  const payload = rows.map((r) => ({
-    folder: r.folder, folderName: r.folderName, display: r.display,
-    query: r.query, steamAppid: r.steamAppid, sgdbId: r.sgdbId, source: r.source,
-  }));
-  const { rows: back, lines, ok } = await window.api.matchAuto({ rows: payload });
-  const byFolder = new Map(back.map((r) => [r.folder, r]));
-  for (const r of S.rows) {
-    const u = byFolder.get(r.folder);
-    if (u) { r.sgdbId = u.sgdbId; r.sgdbName = u.sgdbName; }
-  }
-  await syncCfg();
-  lines.forEach(log);
-  log(`Auto-match done: ${ok}/${rows.length} matched.`);
-  status(`Matched ${ok}/${rows.length}.`);
-  renderRows();
-  if (S.detailKey) renderDetail();
-}
-
-// ------------------------------------------------------- artwork download
 function rowPayload(r) {
   return {
     folder: r.folder, display: r.display, exe: r.exe, startDir: r.startDir,
@@ -1515,8 +1240,6 @@ async function writeArtwork(rows, kinds) {
   const result = await window.api.artDownload({
     rows: rows.map(rowPayload),
     kinds,
-    onlyMissing: !!S.cfg.only_missing,
-    filters: { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor },
   });
   const byFolder = new Map(result.rows.map((r) => [r.folder, r]));
   for (const r of S.rows) {
@@ -1529,84 +1252,40 @@ async function writeArtwork(rows, kinds) {
     }
   }
   S.cardArtCache.clear();
-  result.lines.forEach(log);
+  result.lines.forEach(line => log(line));
   await saveSteamDrafts(S.rows.filter(r => byFolder.has(r.folder)));
   renderRows();
-  if (S.detailKey) renderDetail();
   return result;
 }
 
 function reportArtwork({ saved, failed, warning }, success) {
   const message = failed ? `${saved} artwork saved, ${failed} failed. Check the log.`
     : saved ? success : 'No artwork changed. Check the log for skipped images.';
-  log(message);
+  const entry = log(message);
   status(message);
-  toast(warning ? `${message} ${warning}` : message);
+  toast(warning ? `${message} ${warning}` : message, entry);
 }
 
-async function doDownloadArt() {
-  if (S.preparingArt || S.applyingSteam || S.loadingLibrary || needKey()) return;
-  const rows = steamArtworkRows();
-  if (!rows.length) return;
-  const kinds = wantedKinds();
-  if (!kinds.length) { toast('Choose at least one artwork type in Settings.'); return; }
-  S.preparingArt = true;
-  renderRows();
-  try {
-    if (rows.some(row => !row.sgdbId)) await doAutoMatch(rows);
-    status('Finding artwork…');
-    const previous = new Map(rows.map(row => [row, { ...row.art }]));
-    const result = await window.api.artPrepare({ rows: rows.filter(row => row.sgdbId).map(rowPayload), kinds });
-    for (const updated of result.rows) {
-      const row = rows.find(row => row.folder === updated.folder);
-      if (row && S.rows.includes(row)) for (const [kind, choice] of Object.entries(updated.art)) {
-        if (row.art[kind] === previous.get(row)[kind] && JSON.stringify(choice) !== JSON.stringify(row.art[kind])) {
-          row.art[kind] = choice;
-          row.pendingArt = true;
-        }
-      }
-    }
-    await saveSteamDrafts(rows);
-    result.lines.forEach(log);
-    const message = `${result.prepared} artwork choices ready. Review them, then apply to Steam.`
-      + (result.failed ? ` ${result.failed} failed. Check the log.` : '');
-    status(message); toast(message);
-  } finally { S.preparingArt = false; renderRows(); if (S.detailKey) renderDetail(); }
-}
-
-function wantedKinds() {
-  return ['wide', 'grid', 'hero', 'logo', 'icon'].filter((k) => S.cfg[`want_${k}`]);
-}
-
-// ---------------------------------------------------------- steam add/rm
 function canWriteShortcut(row) {
   return !!row.exe && (row.source === 'folder' || (row.source === 'shortcut' && row.managed));
 }
-function steamApplyRows() {
-  const selected = S.bulk ? S.rows.filter(row => row.checked) : [];
-  return selected.length ? selected : visibleSteamRows().filter(row => canWriteShortcut(row) || row.source === 'steam' && row.pendingArt);
-}
-function steamArtworkRows() {
-  const selected = S.bulk ? S.rows.filter(row => row.checked) : [];
-  return (selected.length ? selected : visibleSteamRows()).filter(row => canWriteShortcut(row) || row.source === 'steam');
-}
-async function doAddToSteam(targetRows = null) {
-  if (S.applyingSteam || S.preparingArt || S.loadingLibrary) return;
+async function doAddToSteam(targetRows, options = {}) {
+  if (S.applyingSteam || S.loadingLibrary) return;
   S.applyingSteam = true;
-  updateLibrarySelection();
+  updateLibraryActions();
   try {
     if (!await steamPresentOrToast()) return;
-    await applyToSteam(targetRows);
-  } finally { S.applyingSteam = false; updateLibrarySelection(); }
+    await applyToSteam(targetRows, options);
+  } finally { S.applyingSteam = false; updateLibraryActions(); }
 }
-async function applyToSteam(targetRows) {
-  const selected = targetRows || steamApplyRows();
-  const editing = cur();
-  if (selected.includes(editing) && canWriteShortcut(editing)
+async function applyToSteam(targetRows, options = {}) {
+  const selected = targetRows;
+  const editing = steamEditorRow();
+  if (!options.reviewed && selected.includes(editing) && canWriteShortcut(editing)
     && ($('#d-name').value.trim() !== editing.display || $('#d-exe-pick').value.trim() !== editing.exe
       || $('#d-startdir').value.trim() !== (S.cfg.steam_launch?.[folderKey(editing.folder)]?.startDir ?? String(editing.startDir || '').replace(/^"|"$/g, ''))
       || $('#d-args').value !== (S.cfg.steam_launch?.[folderKey(editing.folder)]?.launchOptions ?? editing.launchOptions ?? ''))) {
-    if (!await applyDetails()) return;
+    if (!await saveSteamLauncher()) return;
   }
   const native = selected.filter((r) => r.source === 'steam');
   const nativeArt = native.map((r) => ({ ...r, art: Object.fromEntries(
@@ -1618,7 +1297,7 @@ async function applyToSteam(targetRows) {
   if (!eligible.length) {
     if (native.length) {
       if (!nativeArt.length) { toast('Choose artwork first.'); return; }
-      if (!await confirmDlg('Apply artwork to Steam', `Apply chosen artwork to ${nativeArt.length} Steam game${nativeArt.length === 1 ? '' : 's'}? Steam will close and reopen if it is running.`)) return;
+      if (!options.reviewed && !await confirmDlg('Apply artwork to Steam', `Apply chosen artwork to ${nativeArt.length} Steam game${nativeArt.length === 1 ? '' : 's'}? Steam will close and reopen if it is running.`)) return;
       status(`Applying artwork to ${nativeArt.length} Steam games…`);
       reportArtwork(await writeArtwork(nativeArt, []), 'Artwork applied to Steam.');
       return;
@@ -1629,41 +1308,18 @@ async function applyToSteam(targetRows) {
   let summary = updates ? `Add ${eligible.length - updates} game(s) and update ${updates} existing Steam shortcut(s)?`
     : `Add ${eligible.length} game(s) to Steam as non-Steam shortcuts?`;
   if (nativeArt.length) summary += '\n\nChosen artwork will also be applied to the selected native Steam games.';
-  if (!await confirmDlg('Add to Steam', `${summary}\n\nSteam will close and reopen if it is running.`)) return;
-  let autoArt = false;
-  let missingArt = false;
-  if (S.cfg.api_key) {
-    for (const row of eligible) {
-      for (const kind of wantedKinds()) {
-        if (row.art?.[kind] && !row.art[kind].automatic) continue;
-        if (!await window.api.artCurrent({ row: rowPayload(row), kind, existsOnly: true })) {
-          missingArt = true;
-          break;
-        }
-      }
-      if (missingArt) break;
-    }
-  }
-  if (missingArt) {
-    autoArt = await confirmDlg('Artwork',
-      'Also find artwork automatically for types you did not choose?',
-      { confirmText: 'Find more artwork', cancelText: 'Add', cancelPrimary: true });
-  }
-  if (autoArt) await doAutoMatch(eligible);
-  const kinds = [...new Set([...wantedKinds(), ...eligible.flatMap((r) =>
-    Object.keys(r.art).filter((kind) => !r.art[kind].automatic && !r.art[kind].current)
-  )])];
+  if (!options.reviewed && !await confirmDlg('Add to Steam', `${summary}\n\nSteam will close and reopen if it is running.`)) return;
   status(`Adding ${eligible.length} games to Steam…`);
   log(`Adding ${eligible.length} games…`);
+  let writeCompleted = false;
   try {
     const draftKeys = eligible.map(steamDraftKey);
     const { rows: back, nativeRows = [], lines, added, updated, artworkSaved, artworkFailed = 0, warning } = await window.api.steamAdd({
       rows: eligible.map(rowPayload),
       nativeRows: nativeArt.map(rowPayload),
-      autoArt,
-      kinds,
-      filters: { animated: S.cfg.include_animated, nsfw: S.cfg.include_nsfw, humor: S.cfg.include_humor },
+      kinds: [...new Set(eligible.flatMap(row => Object.keys(row.art || {})))],
     });
+    writeCompleted = true;
     const byFolder = new Map(back.map((r) => [r.folder, r]));
     for (const r of S.rows) {
       const u = byFolder.get(r.folder);
@@ -1672,9 +1328,7 @@ async function applyToSteam(targetRows) {
         r.appid = u.appid;
         r.managed = u.managed;
         if (r.source === 'shortcut') {
-          const focused = S.detailKey === rowKey(r);
           r.folder = `shortcut://${u.appid}`;
-          if (focused) S.detailKey = rowKey(r);
         }
         r.inSteam = true;
         r.pendingArt = !!u.failedKinds?.length;
@@ -1685,34 +1339,36 @@ async function applyToSteam(targetRows) {
     }
     await syncCfg();
     S.cardArtCache.clear();
-    lines.forEach(log);
+    lines.forEach(line => log(line));
     for (const row of nativeRows) {
       const original = S.rows.find(r => r.folder === row.folder);
       if (original) { original.art = row.art; original.pendingArt = !!row.failedKinds?.length; original.artApplied ||= !!row.appliedKinds?.length; }
     }
     await saveSteamDrafts([...eligible, ...native], draftKeys);
     renderRows();
-    if (S.detailKey) renderDetail();
     const failed = artworkFailed;
     const changed = added + updated + artworkSaved;
     const message = changed || failed ? `${added} added, ${updated} updated, ${artworkSaved} artwork saved.`
       + (failed ? ` ${failed} failed. Check the log.` : '')
       : 'No changes were made. Check the log.';
-    log(message);
+    const entry = log(message);
     status(message);
-    toast(warning ? `${message} ${warning}` : message);
+    toast(warning ? `${message} ${warning}` : message, entry);
   } catch (e) {
-    log(`FAILED: ${e.message || e}`);
-    toast(`Write failed: ${e.message || e}`);
+    const message = writeCompleted ? 'Steam write completed, but the library could not update' : 'Write failed';
+    const feedback = `${message}: ${e.message || e}`;
+    toast(feedback, log(feedback));
   }
 }
 
+function canRemoveSteamShortcut(row) {
+  return !!row?.inSteam && (row.source === 'shortcut' || row.managed);
+}
+
 async function doRemoveFromSteam() {
-  const rows = checkedRows().filter((r) => r.inSteam
-    && (r.source === 'shortcut' || r.managed));
-  const skipped = checkedRows().filter((r) => r.source === 'steam');
-  if (!rows.length) { toast('None of the checked games are in Steam.'); return; }
-  if (skipped.length) log(`Skipping ${skipped.length} Steam store game(s) - those are not shortcuts.`);
+  const row = steamEditorRow();
+  const rows = canRemoveSteamShortcut(row) ? [row] : [];
+  if (!rows.length || S.applyingSteam || S.loadingLibrary) return;
   const names = rows.slice(0, 12).map((r) => `• ${r.display}`).join('\n')
     + (rows.length > 12 ? `\n… and ${rows.length - 12} more` : '');
   if (!await confirmDlg('Remove from Steam',
@@ -1726,69 +1382,23 @@ async function doRemoveFromSteam() {
     r.shortcutIdx = null;
     r.appid = null;
   }
+  await closeArtModal(false);
   await refreshSteamState();
   await syncSteamLibrary(); // drop shortcut rows whose entries just vanished
   log(`Removed ${removed} shortcuts. Backup: ${backup || 'none'}.`);
   status(`Removed ${removed}.`);
-  if (warning) { log(warning); toast(warning); }
+  if (warning) toast(warning, log(warning));
 }
 
 async function steamPresentOrToast() {
   if (!S.cfg.steam_path) return true;
   const ok = await window.api.steamVerify(S.cfg.steam_path).catch(() => false);
-  if (!ok) toast('Steam was not found at the saved path - check Settings.');
+  if (!ok) {
+    S.steamFound = false;
+    if ($('#library-setup')?.nodeType) renderLibrarySetup();
+    toast('Steam was not found at the saved path. Use Connect Steam to update it.');
+  }
   return ok;
-}
-
-async function steamPathOrToast() {
-  if (!S.cfg.steam_path) { toast('Set Steam path first in Settings.'); return null; }
-  const ok = await window.api.steamVerify(S.cfg.steam_path).catch(() => false);
-  if (!ok) { toast('Steam path is not valid - check Settings.'); return null; }
-  return S.cfg.steam_path;
-}
-
-async function doKillSteam() {
-  if (!await steamPathOrToast()) return;
-  if (!await confirmDlg('Kill Steam',
-    'Force-close Steam now? Running games will be closed.')) return;
-  status('Killing Steam…');
-  try {
-    const { lines } = await window.api.steamKill();
-    lines.forEach(log);
-    status(lines[lines.length - 1] || 'Done.');
-  } catch (e) {
-    toast(e.message || String(e));
-  }
-}
-
-async function doRestartSteam() {
-  if (!await steamPathOrToast()) return;
-  const running = await window.api.steamRunning().catch(() => false);
-  if (!await confirmDlg('Restart Steam', running
-    ? 'Close Steam and launch it again? Running games will be closed.'
-    : 'Launch Steam now?')) return;
-  status('Restarting Steam…');
-  try {
-    const { restarted, lines } = await window.api.steamRestart();
-    lines.forEach(log);
-    if (!restarted) { status(lines.at(-1) || 'Steam did not restart.'); return; }
-    // Check that steam.exe is running before reporting success.
-    let seen = false;
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        if (await window.api.steamRunning()) { seen = true; break; }
-      } catch { /* keep polling */ }
-    }
-    if (seen) {
-      status('Steam restarted.');
-    } else {
-      status('Steam did not come back - launch it manually.');
-      log('Restart issued but Steam was not seen running after 15s.');
-    }
-  } catch (e) {
-    toast(e.message || String(e));
-  }
 }
 
 async function doPruneMissing() {  let stale;
@@ -1814,7 +1424,7 @@ async function doPruneMissing() {  let stale;
   await syncSteamLibrary();
   log(`Pruned ${removed} stale shortcuts. Backup: ${backup || 'none'}.`);
   status(`Pruned ${removed}.`);
-  if (warning) { log(warning); toast(warning); }
+  if (warning) toast(warning, log(warning));
 }
 
 let desktopSave = Promise.resolve();
@@ -1858,18 +1468,16 @@ function desktopApplyRows(cards) {
     return desktopMembers(row).map(member => ({ ...member, ...shared }));
   });
 }
-function saveDesktopDraft(row) {
-  const edits = Object.fromEntries(desktopEditFields.map(key => [key, row[key]]));
-  const drafts = {};
-  for (const member of desktopMembers(row)) {
-    Object.assign(member, edits, { saved: false });
-    member.art = { ...(row.art || {}) };
-    member.draft = { ...edits, signature: member.signature };
-    drafts[member.id] = member.draft;
-  }
-  desktopSave = desktopSave.catch(() => {}).then(() => savePatch({ desktop_overrides: {
-    ...S.cfg.desktop_overrides, ...drafts,
-  } }));
+function saveDesktopDraft(row, update = row) {
+  const members = desktopMembers(row);
+  const edits = Object.fromEntries(desktopEditFields.map(key => [key, update[key]]));
+  const drafts = Object.fromEntries(members.map(member => [member.id, { ...edits, signature: member.signature }]));
+  desktopSave = desktopSave.catch(() => {}).then(async () => {
+    await savePatch({ desktop_overrides: { ...S.cfg.desktop_overrides, ...drafts } });
+    for (const member of members) {
+      Object.assign(member, edits, { saved: false, art: { ...(update.art || {}) }, draft: drafts[member.id] });
+    }
+  });
   return desktopSave;
 }
 
@@ -1896,7 +1504,7 @@ async function refreshDesktop(force = true) {
       const pending = draft && Object.hasOwn(draft, 'args');
       const sameGame = folderKey(draft?.exe || previous?.exe) === folderKey(row.exe);
       const match = stale && sameGame ? { sgdbId: draft.sgdbId, sgdbName: draft.sgdbName } : {};
-      return { ...row, ...match, ...(stale ? {} : draft), source: 'desktop', checked: previous?.checked || false,
+      return { ...row, ...match, ...(stale ? {} : draft), source: 'desktop',
         draft: stale || !pending ? null : draft, art: draft?.iconChoice && !stale ? { icon: draft.iconChoice } : {},
         saved: !stale && previous?.saved, error: '' };
     });
@@ -1911,7 +1519,6 @@ async function refreshDesktop(force = true) {
       }
     }
     result.warnings.forEach(line => log(line, 'desktop'));
-    if (!d.rows.some((row) => row.id === d.detail)) d.detail = null;
     d.loadedKey = key;
     status(d.rows.length ? 'Desktop library refreshed.' : 'Add game folders in Settings, then refresh.');
   } finally { d.busy = false; renderDesktop(); }
@@ -1919,17 +1526,9 @@ async function refreshDesktop(force = true) {
 
 function desktopVisible() {
   const query = $('#desktop-filter').value.toLocaleLowerCase();
-  const direction = $('#desktop-sort').value === 'za' ? -1 : 1;
   return desktopCards().filter((row) => (!$('#desktop-hide').checked || desktopMembers(row).some(member => !member.shortcut))
     && `${row.display} ${row.exe} ${row.shortcut || ''} ${row.args}`.toLocaleLowerCase().includes(query))
-    .sort((a, b) => direction * a.display.localeCompare(b.display, undefined, { sensitivity: 'base', numeric: true }));
-}
-
-function desktopSelected() {
-  const d = S.desktop;
-  const visible = desktopVisible();
-  const selected = d.bulk ? d.rows.filter(row => row.checked) : [];
-  return selected.length ? selected : visible.filter(row => row.exe);
+    .sort((a, b) => a.display.localeCompare(b.display, undefined, { sensitivity: 'base', numeric: true }));
 }
 
 async function desktopCardCoverSource(row) {
@@ -1943,89 +1542,64 @@ async function desktopCardCoverSource(row) {
   return desktopIconPreview(row).catch(() => null);
 }
 
-function renderDesktop(detail = true, rebuildGrid = true) {
+function renderDesktop() {
   const d = S.desktop;
   const visible = desktopVisible();
-  const selected = desktopSelected();
-  $('#page-desktop').classList.toggle('bulk-selection', !!d.bulk);
-  $('#desktop-multiple').setAttribute('aria-pressed', String(!!d.bulk));
-  $('#desktop-multiple').disabled = d.busy;
-  $('#desktop-destination').value = S.cfg.desktop_destination || 'desktop';
-  $('#desktop-destination').disabled = d.busy;
-  const selectedCount = d.bulk ? d.rows.filter(row => row.checked).length : 0;
-  const scope = selectedCount ? '' : 'all ';
-  $('#desktop-add').textContent = S.cfg.desktop_destination === 'start-menu' ? `Apply ${scope}to Start menu`
-    : S.cfg.desktop_destination === 'both' ? `Apply ${scope}shortcuts` : `Apply ${scope}to Desktop`;
+  const reviewCount = reviewCandidates('desktop').length;
+  $('#desktop-add').textContent = reviewCount ? `Review ${reviewCount} change${reviewCount === 1 ? '' : 's'}` : 'Review changes';
   const cards = desktopCards();
   $('#desktop-count').textContent = `${cards.length} game${cards.length === 1 ? '' : 's'}`;
   const pending = cards.filter(row => desktopMembers(row).some(member => member.draft)).length;
   $('#desktop-pending').hidden = pending === 0;
   $('#desktop-pending').textContent = pending ? `${pending} ready to apply` : '';
-  $('#desktop-grid-count').textContent = visible.length === cards.length ? '' : `${visible.length} shown`;
-  $('#desktop-selection-count').textContent = `${selectedCount} selected`;
-  if (rebuildGrid) {
-    const body = $('#desktop-games tbody');
-    body.innerHTML = '';
-    d.coverObserver?.disconnect();
-    const root = $('#page-desktop');
-    d.coverObserver = typeof IntersectionObserver === 'function'
-      ? new IntersectionObserver((entries) => {
-        for (const entry of entries) if (entry.isIntersecting) {
-          d.coverObserver.unobserve(entry.target);
-          loadCardCover(entry.target._desktopRow, entry.target);
-        }
-      }, { root, rootMargin: '420px 0px' }) : null;
-    if (!visible.length) {
-      const tr = document.createElement('tr');
-      tr.className = 'empty-row';
-      tr.innerHTML = `<td><div class="list-empty">${d.busy ? 'Loading Desktop games…' : S.desktop.rows.length ? 'No games match these filters.' : 'Add a game folder in Settings, then refresh.'}</div></td>`;
-      body.appendChild(tr);
-    }
-    for (const row of visible) {
-      const members = desktopMembers(row);
-      const state = members.some(member => member.error) ? ['Issue', 'issue'] : members.some(member => member.saving) ? ['Saving…', 'pending']
-        : members.some(member => member.draft) ? ['Ready', 'pending'] : members.every(member => member.saved) ? ['Applied', '']
-          : [desktopLocationState(members), ''];
-      const destination = members.length > 1 ? 'Desktop + Start menu' : row.destination === 'start-menu' ? 'Start menu'
-        : row.destination === 'both' ? 'Desktop + Start menu' : 'Desktop';
-      const token = desktopCoverToken(row);
-      const tr = document.createElement('tr');
-      tr.className = `game-card-row${row.id === d.detail ? ' sel' : ''}${d.bulk && row.checked ? ' is-checked' : ''}`;
-      tr.dataset.key = row.id;
-      const subtitle = [baseName(row.exe) || 'No launcher', row.args || ''].filter(Boolean).join(' · ');
-      tr.innerHTML = `<td><div class="game-tile"><button class="game-open" type="button" aria-label="Open details for ${esc(row.display)}">
-        <div class="cover-wrap">
-          <div class="cover-fallback"><img src="../assets/app-icon.svg" alt=""><span>${esc(initials(row.display))}</span></div>
-          <img class="game-cover desktop-cover" data-cover-token="${esc(token)}" alt="Shortcut icon for ${esc(row.display)}" decoding="async" hidden>
-        </div>
-        <div class="game-card-copy"><span class="game-name" title="${esc(row.display)}">${esc(row.display)}</span>
-          <span class="game-meta"><span class="source-label">${esc(destination)}</span><span class="game-state ${state[1]}">${esc(state[0])}</span></span>
-          <span class="game-subtitle" title="${esc(`${row.exe || ''}${row.args ? ` · ${row.args}` : ''}`)}">${wrapText(subtitle)}</span></div>
-      </button><label class="cover-check" data-act="toggle"><input type="checkbox" class="row-check" aria-label="Select ${esc(row.display)}"${row.checked ? ' checked' : ''}></label></div></td>`;
-      tr._desktopRow = row;
-      body.appendChild(tr);
-      if (d.coverObserver) d.coverObserver.observe(tr);
-      else loadCardCover(row, tr);
-    }
+  $('#desktop-grid-count').textContent = visible.length === cards.length ? '' : `${visible.length} game${visible.length === 1 ? '' : 's'} shown`;
+  const body = $('#desktop-games tbody');
+  body.innerHTML = '';
+  d.coverObserver?.disconnect();
+  const root = $('#page-desktop');
+  d.coverObserver = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver((entries) => {
+      for (const entry of entries) if (entry.isIntersecting) {
+        d.coverObserver.unobserve(entry.target);
+        loadCardCover(entry.target._desktopRow, entry.target);
+      }
+    }, { root, rootMargin: '420px 0px' }) : null;
+  if (!visible.length) {
+    const tr = document.createElement('tr');
+    tr.className = 'empty-row';
+    tr.innerHTML = `<td><div class="list-empty">${d.busy ? 'Loading Desktop games…' : S.desktop.rows.length ? 'No games match these filters.' : 'Add a game folder to get started.'}</div></td>`;
+    body.appendChild(tr);
   }
-  for (const tr of $('#desktop-games tbody').querySelectorAll('.game-card-row')) {
-    const row = d.rows.find((item) => item.id === tr.dataset.key);
-    if (!row) continue;
-    tr.classList.toggle('sel', row.id === d.detail);
-    tr.classList.toggle('is-checked', !!d.bulk && !!row.checked);
-    const checkbox = $('.row-check', tr);
-    if (checkbox) checkbox.checked = !!row.checked;
+  for (const row of visible) {
+    const members = desktopMembers(row);
+    const state = members.some(member => member.error) ? ['Issue', 'issue'] : members.some(member => member.saving) ? ['Saving…', 'pending']
+      : members.some(member => member.draft) ? ['Ready', 'pending'] : members.every(member => member.saved) ? ['Applied', '']
+        : [desktopLocationState(members), ''];
+    const destination = members.length > 1 ? 'Desktop + Start menu' : row.destination === 'start-menu' ? 'Start menu'
+      : row.destination === 'both' ? 'Desktop + Start menu' : 'Desktop';
+    const token = desktopCoverToken(row);
+    const tr = document.createElement('tr');
+    tr.dataset.key = row.id;
+    tr.className = 'game-card-row';
+    const subtitle = [baseName(row.exe) || 'No launcher', row.args || ''].filter(Boolean).join(' · ');
+    tr.innerHTML = `<td><div class="game-tile"><button class="game-open" type="button" aria-label="Choose icon for ${esc(row.display)}">
+      <div class="cover-wrap">
+        <div class="cover-fallback"><img src="../assets/app-icon.svg" alt=""><span>${esc(initials(row.display))}</span></div>
+        <img class="game-cover desktop-cover" data-cover-token="${esc(token)}" alt="Shortcut icon for ${esc(row.display)}" decoding="async" hidden>
+        </div></button>
+        <div class="game-card-copy"><button class="game-name" type="button" aria-label="Settings for ${esc(row.display)}">${esc(row.display)}</button>
+        <span class="game-meta"><span class="source-label">${esc(destination)}</span><span class="game-state ${state[1]}">${esc(state[0])}</span></span>
+        <span class="game-subtitle" title="${esc(`${row.exe || ''}${row.args ? ` · ${row.args}` : ''}`)}">${wrapText(subtitle)}</span></div>
+      </div></td>`;
+    tr._desktopRow = row;
+    body.appendChild(tr);
+    if (d.coverObserver) d.coverObserver.observe(tr);
+    else loadCardCover(row, tr);
   }
-  for (const id of ['desktop-add', 'desktop-refresh', 'desktop-find', 'desktop-download']) $('#' + id).disabled = d.busy;
-  $('#desktop-add').disabled ||= !selected.length;
-  $('#desktop-download').disabled ||= !S.cfg.api_key || !selected.length;
-  $('#desktop-all').checked = !!visible.length && visible.every((row) => row.checked);
-  $('#desktop-all').indeterminate = visible.some((row) => row.checked) && !$('#desktop-all').checked;
-  $('#desktop-all').disabled = !visible.length || d.busy;
+  for (const id of ['desktop-add', 'desktop-refresh']) $('#' + id).disabled = d.busy;
+  $('#desktop-add').disabled ||= !reviewCandidates('desktop').length;
   $('#desktop-games').inert = d.busy && !d.applying;
-  for (const id of ['desktop-all', 'desktop-hide']) $('#' + id).disabled = d.busy && !d.applying;
-  if (detail) renderDesktopDetail();
-  $('#desktop-detail').inert = d.busy && (!d.applying || !!d.rows.find((row) => row.id === d.detail)?.saving);
+  for (const id of ['desktop-hide']) $('#' + id).disabled = d.busy && !d.applying;
 }
 
 function desktopCoverToken(row) {
@@ -2041,79 +1615,40 @@ function localArtPreview(file) {
   return /\.(exe|dll)$/i.test(file) ? window.api.desktopIcon(file, 0) : window.api.artPreviewFile(file);
 }
 
-function renderDesktopDetail() {
-  const d = S.desktop;
-  const row = d.rows.find((item) => item.id === d.detail);
-  const host = $('#desktop-detail');
-  if (!row) { host.innerHTML = '<div class="detail-empty"><h2>Select a game</h2><p>Review its shortcut name, launcher and icon.</p></div>'; return; }
+function renderDesktopGameSettings(row) {
+  const host = $('#desktop-game-settings');
   const members = desktopMembers(row);
-  const pending = members.some(member => member.draft);
-  const error = members.map(member => member.error).filter(Boolean).join('\n');
-  const exes = [...new Set([row.exe, ...(row.candidates || []).map((item) => item.path)])];
-  host.innerHTML = `<div class="det-head"><button class="cover-button" data-desktop="icon" title="Choose icon"><img class="desktop-icon" alt="Shortcut icon"><span class="cover-edit">Change icon</span></button>
-      <div class="det-titles"><div class="page-kicker">${esc(members.length > 1 ? 'DESKTOP & START MENU' : row.destination === 'start-menu' ? 'START MENU' : 'DESKTOP SHORTCUT')}</div><h2>${esc(row.display)}</h2>
-      <div class="detail-state${pending ? ' pending' : ''}" role="status">${error ? esc(error) : pending ? 'Ready to apply' : members.every(member => member.saved) ? 'Applied this session' : desktopLocationState(members) === 'Existing' ? 'Existing shortcut' : desktopLocationState(members) === 'Not added' ? 'Not added yet' : desktopLocationState(members)}</div>
-      <button class="btn primary" id="desktop-detail-apply" type="button" ${d.busy ? 'disabled' : ''}>${S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu' : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop'}</button></div></div>
-    <label class="fld"><span>Shortcut name</span><input type="text" data-field="display" value="${esc(row.display)}"></label>
-    <label class="field-label" for="desktop-exe">Launcher</label><div class="control-combo"><select id="desktop-exe" data-field="exe" title="${esc(row.exe)}">${exes.map((exe) => `<option value="${esc(exe)}" ${exe === row.exe ? 'selected' : ''}>${esc(baseName(exe))}</option>`).join('')}</select>
+  const exes = [...new Set([row.exe, ...(row.candidates || []).map(item => item.path)])];
+  host.innerHTML = `<div class="manage-actions"><button class="btn sm" id="desktop-game-apply" type="button">${S.cfg.desktop_destination === 'start-menu' ? 'Apply to Start menu' : S.cfg.desktop_destination === 'both' ? 'Apply shortcuts' : 'Apply to Desktop'}</button></div>
+    <details class="launcher-editor"><summary>Name and launcher</summary><label class="fld"><span>Shortcut name</span><input type="text" data-field="display" value="${esc(row.display)}"></label>
+    <label class="field-label" for="desktop-exe">Launcher</label><div class="control-combo"><select id="desktop-exe" size="2" data-field="exe" title="${esc(row.exe)}">${exes.map(exe => `<option value="${esc(exe)}" ${exe === row.exe ? 'selected' : ''}>${esc(baseName(exe))}</option>`).join('')}</select>
     <button class="btn sm" data-desktop="browse" type="button">Browse</button></div>
     <label class="fld"><span>Launch arguments</span><input type="text" data-field="args" value="${esc(row.args)}"></label>
     <label class="check desktop-admin"><input type="checkbox" data-field="admin" ${row.admin ? 'checked' : ''}> Run as administrator</label>
-    <div class="status-line">${members.map(member => esc(member.error || member.shortcut || '')).filter(Boolean).join('<br>')}</div>
-    <section class="detail-section"><div class="section-head match-head"><h3>Game match</h3>
-    <span class="match-status${row.sgdbId ? ' ok' : ''}" role="status">${row.sgdbId ? `${esc(row.sgdbName || '(cached)')} · ${row.sgdbId}` : 'Not matched'}</span></div>
-    ${S.cfg.api_key ? '' : '<p class="muted small">Matching requires SGDB API key.</p>'}
-    <div class="control-combo"><input type="text" data-desktop="query" value="${esc(row.display)}" placeholder="Search SteamGridDB" aria-label="Search SteamGridDB" autocomplete="off"><button class="btn sm" data-desktop="search" ${S.cfg.api_key ? '' : 'disabled'}>Search</button></div>
-    <div class="control-combo match-results"><select data-desktop="matches" aria-label="SteamGridDB search results"><option value="">Search for a game first</option></select><button class="btn sm" data-desktop="use" disabled>Use match</button></div>
-    <button class="text-btn auto-match" data-desktop="auto" ${S.cfg.api_key ? '' : 'disabled'}>Match automatically</button></section>`;
-  const image = $('.desktop-icon', host);
-  image.onerror = () => log(`Icon preview could not load: ${row.display}`, 'desktop');
-  const choice = row.iconChoice;
-  const preview = choice?.file ? localArtPreview(choice.file)
-    : choice?.url ? Promise.resolve(choice.thumb || choice.url)
-      : choice?.exeIcon ? window.api.desktopIcon(row.exe) : desktopIconPreview(row);
-  preview.then((src) => { if (image.isConnected) image.src = src; }).catch((e) => { log(`Icon preview: ${e.message}`, 'desktop'); });
-  $('#desktop-detail-apply', host).onclick = handleAction('Add to Desktop', () => applyDesktopShortcuts([row]));
+    <div class="status-line">${members.map(member => esc(member.error || member.shortcut || '')).filter(Boolean).join('<br>')}</div></details>`;
+  $('#desktop-game-apply', host).onclick = handleAction('Add to Desktop', async () => {
+    const modal = S.modal;
+    await closeArtModal(artworkSelectionChanged(modal));
+    if (!S.modal) await applyDesktopShortcuts([row]);
+  });
   for (const input of $$('[data-field]', host)) input.onchange = handleAction('Save Desktop changes', async () => {
+    if (input.dataset.field === 'display' && S.modal?.row === row) S.modal.renamedShortcut = true;
     row[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
-    if (input.dataset.field === 'display') $('h2', host).textContent = row.display;
     await saveDesktopDraft(row);
-    renderDesktop(input.dataset.field === 'exe');
+    renderDesktop();
+    if (S.modal?.row === row) $('#art-title').textContent = row.display;
   });
-  $('[data-desktop="icon"]', host).onclick = () => openArtModal(row, 'icon');
   $('[data-desktop="browse"]', host).onclick = handleAction('Choose launcher', async () => {
+    const modal = S.modal;
     const exe = await window.api.filesPickExe(parentDir(row.exe));
-    if (exe) { row.exe = exe; await saveDesktopDraft(row); renderDesktop(); }
-  });
-  let searchToken = 0;
-  $('[data-desktop="search"]', host).onclick = handleAction('Game search', async () => {
-    const token = ++searchToken;
-    $('[data-desktop="use"]', host).disabled = true;
-    let matches;
-    try { matches = await window.api.sgdbSearch($('[data-desktop="query"]', host).value); }
-    catch (e) { if (token === searchToken && host.contains(image)) throw e; return; }
-    if (token !== searchToken || !host.contains(image)) return;
-    const select = $('[data-desktop="matches"]', host);
-    select.innerHTML = matches.map((match) => `<option value="${match.id}">${esc(match.name)}</option>`).join('');
-    const use = $('[data-desktop="use"]', host);
-    use.disabled = !matches.length;
-    use.onclick = handleAction('Use match', async () => {
-      const match = matches.find((item) => item.id === Number(select.value));
-      if (!match) return;
-      row.display = match.name; row.sgdbId = match.id; row.sgdbName = match.name;
-      await saveDesktopDraft(row); renderDesktop();
-    });
-  });
-  $('[data-desktop="query"]', host).onkeydown = (e) => { if (e.key === 'Enter' && !e.isComposing) $('[data-desktop="search"]', host).click(); };
-  $('[data-desktop="auto"]', host).onclick = handleAction('Match Desktop game', async () => {
-    const result = await window.api.matchAuto({ rows: [{ ...row }], force: true, persist: false });
-    if (!host.contains(image)) return;
-    const match = result.rows[0];
-    if (match?.sgdbId) {
-      row.sgdbId = match.sgdbId; row.display = row.sgdbName = match.sgdbName;
-      await saveDesktopDraft(row); renderDesktop();
+    if (!exe || S.modal !== modal) return;
+    row.exe = exe;
+    await saveDesktopDraft(row);
+    renderDesktop();
+    if (S.modal === modal) {
+      renderDesktopGameSettings(row);
+      $('.launcher-editor', host).open = true;
     }
-    result.lines.forEach(line => log(line, 'desktop'));
   });
 }
 
@@ -2135,94 +1670,40 @@ async function renderDesktopIconChoices() {
 }
 
 function wireDesktop() {
-  $('#desktop-destination').onchange = handleAction('Change shortcut destination', async () => {
-    await savePatch({ desktop_destination: $('#desktop-destination').value });
-    await refreshDesktop();
-  });
   $('#desktop-refresh').onclick = handleAction('Refresh Desktop', refreshDesktop);
-  $('#desktop-find').onclick = () => doFindExecutables({ rows: S.desktop.rows, add: async (games) => {
-    await savePatch({ desktop_executables: [...(S.cfg.desktop_executables || []), ...games] });
-    await refreshDesktop();
-  } });
-  $('#desktop-filter').addEventListener('input', () => renderDesktop(false));
-  $('#desktop-hide').addEventListener('change', () => renderDesktop(false));
-  $('#desktop-sort').addEventListener('change', () => renderDesktop(false));
-  $('#desktop-all').onchange = (e) => { desktopVisible().forEach((row) => { row.checked = e.target.checked; }); renderDesktop(false, false); };
-  $('#desktop-multiple').onclick = () => {
-    const d = S.desktop;
-    d.bulk = !d.bulk;
-    if (d.bulk) d.rows.forEach(row => { row.checked = row.id === d.detail; });
-    renderDesktop(false, false);
-  };
+  $('#desktop-filter').addEventListener('input', () => renderDesktop());
+  $('#desktop-hide').addEventListener('change', () => renderDesktop());
   $('#desktop-games tbody').onclick = (e) => {
     const card = e.target.closest('.game-card-row');
     const row = S.desktop.rows.find((item) => item.id === card?.dataset.key);
     if (!row) return;
-    if (e.target.closest('[data-act="toggle"]')) {
-      if (!e.target.matches('.row-check')) return;
-      row.checked = e.target.checked;
-      renderDesktop(false, false);
-    }
-    else { S.desktop.detail = row.id; renderDesktop(true, false); }
+
+    openArtModal(row, e.target.closest('.game-open') ? 'icon' : 'manage');
   };
-  $('#desktop-games tbody').ondblclick = (e) => {
-    if (S.desktop.busy || !e.target.closest('.cover-wrap')) return;
-    const row = S.desktop.rows.find(item => item.id === e.target.closest('.game-card-row')?.dataset.key);
-    if (row) openArtModal(row, 'icon');
-  };
-  $('#desktop-download').onclick = handleAction('Find Desktop icons', async () => {
-    const d = S.desktop;
-    if (d.busy) return;
-    d.busy = true; renderDesktop(false);
-    try {
-      const selected = desktopSelected();
-      const missing = selected.filter(row => !row.sgdbId);
-      if (missing.length) {
-        const matched = await window.api.matchAuto({ rows: missing.map(row => ({ ...row })), persist: false });
-        for (let i = 0; i < missing.length; i++) if (matched.rows[i]?.sgdbId) {
-          missing[i].sgdbId = matched.rows[i].sgdbId;
-          missing[i].display = missing[i].sgdbName = matched.rows[i].sgdbName;
-          await saveDesktopDraft(missing[i]);
-        }
-        matched.lines.forEach(line => log(line, 'desktop'));
-      }
-      const results = await window.api.desktopDownload(selected);
-      for (const result of results) {
-        const row = d.rows.find((item) => item.id === result.id);
-        if (result.skipped) { log(`${row.display}: ${result.skipped}`, 'desktop'); continue; }
-        if (result.error) { log(`${row.display}: ${result.error}`, 'desktop'); continue; }
-        row.iconChoice = result.choice; row.art = { icon: result.choice };
-        await saveDesktopDraft(row);
-        log(`${row.display}: SGDB icon #${result.choice.id} downloaded.`, 'desktop');
-      }
-      status(`${results.filter((result) => result.choice).length} icon(s) downloaded, ${results.filter((result) => result.skipped).length} skipped, ${results.filter((result) => result.error).length} failed.`);
-    } finally { d.busy = false; renderDesktop(); }
-  });
-  $('#desktop-add').onclick = handleAction('Add to Desktop', () => applyDesktopShortcuts());
+  $('#desktop-add').onclick = () => openReview('desktop');
 }
 
-async function applyDesktopShortcuts(rowsOverride = null) {
+async function applyDesktopShortcuts(rowsOverride, options = {}) {
   const d = S.desktop;
   if (d.busy) return;
-  d.busy = true; renderDesktop(false);
+  d.busy = true; renderDesktop();
   try {
     await desktopSave;
-    const rows = desktopApplyRows(rowsOverride || desktopSelected());
+    const rows = desktopApplyRows(rowsOverride);
     if (!rows.length) return;
     const updates = rows.filter((row) => row.shortcut).length;
-    const title = rowsOverride ? $('#desktop-detail-apply')?.textContent || $('#desktop-add').textContent : $('#desktop-add').textContent;
+    const title = rowsOverride ? $('#desktop-game-apply')?.textContent || $('#desktop-add').textContent : $('#desktop-add').textContent;
     const creates = rows.length - updates;
-    if (!await confirmDlg(title, `Create ${creates} shortcut${creates === 1 ? '' : 's'} and update ${updates} existing shortcut${updates === 1 ? '' : 's'}?`)) return;
+    if (!options.reviewed && !await confirmDlg(title, `Create ${creates} shortcut${creates === 1 ? '' : 's'} and update ${updates} existing shortcut${updates === 1 ? '' : 's'}?`)) return;
     d.applying = true;
     rows.forEach((row) => { d.rows.find(member => member.id === row.id).saving = true; });
-    renderDesktop(false);
+    renderDesktop();
     const results = await window.api.desktopApply(rows);
     await syncCfg();
     for (const result of results) {
       const row = d.rows.find((item) => item.id === result.id);
       if (result.ok || result.refreshed) {
-        if (d.detail === row.id) d.detail = result.row?.id || null;
-        if (result.row) Object.assign(row, result.row, { draft: null, art: {}, error: '', saved: result.ok, checked: row.checked });
+        if (result.row) Object.assign(row, result.row, { draft: null, art: {}, error: '', saved: result.ok });
         else d.rows = d.rows.filter(item => item !== row);
       } else row.error = result.error;
       log(`${row.display}: ${result.ok ? 'Shortcut saved.' : result.error}`, 'desktop');
@@ -2240,8 +1721,8 @@ async function applyDesktopShortcuts(rowsOverride = null) {
 }
 
 // ------------------------------------------------------- artwork modal
-const ART_TABS = [['wide', 'Wide Capsule'], ['grid', 'Vertical Grid'], ['hero', 'Hero'], ['logo', 'Logo'], ['icon', 'Icon']];
-const modalTabs = () => S.modal?.row.source === 'desktop' ? [['icon', 'Icon']] : [...ART_TABS, ['manage', 'Manage']];
+const ART_TABS = [['grid', 'Cover'], ['wide', 'Wide cover'], ['hero', 'Background'], ['logo', 'Logo'], ['icon', 'Icon']];
+const modalTabs = () => S.modal?.row.source === 'desktop' ? [['icon', 'Icon'], ['manage', 'Manage']] : [...ART_TABS, ['manage', 'Manage']];
 let artModalMotion = 0;
 
 function animateArtModal(open) {
@@ -2283,12 +1764,12 @@ const ART_DIMENSIONS = {
 };
 const dimensionLabel = (kind, value) => kind === 'icon' ? `${value}x${value}` : value;
 
-function savedPickerFilters(kind) {
+function savedPickerFilters(kind, defaultsOnly = false) {
   return { static: true, animated: !!S.cfg.include_animated, untagged: true,
     nsfw: !!S.cfg.include_nsfw, humor: !!S.cfg.include_humor, epilepsy: true,
     ...(ART_DIMENSIONS[kind] ? { dimensions: ART_DIMENSIONS[kind].filter(value =>
       !['grid', 'wide'].includes(kind) || !['512x512', '1024x1024'].includes(value)) } : {}),
-    ...S.cfg.artwork_filters?.[kind] };
+    ...(defaultsOnly ? {} : S.cfg.artwork_filters?.[kind]) };
 }
 
 function pickerFilters(kind) {
@@ -2343,10 +1824,7 @@ function renderArtFilters() {
         ${m.row.source === 'desktop' && ['static', 'animated'].includes(value) ? 'disabled' : ''}>${label}</label>`;
     }).join('');
     if (field !== 'dimensions') return `<fieldset><legend>${title}</legend>${choices}</fieldset>`;
-    const summary = values.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || 'Any size';
-    return `<fieldset class="filter-dimensions"><legend>${title}</legend><details class="dimension-select">
-      <summary title="${esc(summary)}"><span>${esc(summary)}</span></summary><div class="dimension-options">${choices}</div>
-      </details></fieldset>`;
+    return `<fieldset class="filter-dimensions"><legend>Dimensions</legend><div class="dimension-options">${choices}</div></fieldset>`;
   }).join('');
   host.onchange = event => handleAction('Artwork filters', async () => {
     const inputs = [...event.target.closest('fieldset').querySelectorAll('input')];
@@ -2354,18 +1832,13 @@ function renderArtFilters() {
       inputs.find(input => input !== event.target).checked = true;
     }
     const next = collectSavedPickerFilters(kind, host.querySelectorAll('input'));
-    const summary = host.querySelector('.dimension-select summary');
-    if (summary) {
-      const text = next.dimensions.map(value => dimensionLabel(kind, value)).join(', ') || 'Any size';
-      summary.title = text;
-      summary.querySelector('span').textContent = text;
-    }
     await savePatch({ artwork_filters: { ...S.cfg.artwork_filters, [kind]: next } });
     if (S.modal !== m || m.tab !== kind) return;
     await loadArtTabs();
   })();
   $('#art-filter-reset').onclick = handleAction('Reset filters', async () => {
-    const filters = { ...S.cfg.artwork_filters, [kind]: { nsfw: pickerFilters(kind).nsfw } };
+    const filters = { ...S.cfg.artwork_filters };
+    delete filters[kind];
     await savePatch({ artwork_filters: filters });
     if (S.modal !== m || m.tab !== kind) return;
     renderArtFilters();
@@ -2374,6 +1847,7 @@ function renderArtFilters() {
 }
 
 async function openArtModal(row, focusKind) {
+  if (S.modal || S.applyingSteam || S.desktop.busy) return;
   S.modal = {
     row, tab: focusKind || 'grid',
     returnFocus: document.activeElement,
@@ -2384,7 +1858,16 @@ async function openArtModal(row, focusKind) {
     sel: { ...(row.art || {}) },
     games: [],
   };
-  $('#art-title').textContent = `Artwork - ${row.display}`;
+  $('#art-filters').open = false;
+  $('#art-title').textContent = row.display;
+  $('.thumbScroll').scrollTop = 0;
+  const desktop = row.source === 'desktop';
+  $('#steam-game-settings').hidden = desktop;
+  $('#desktop-game-settings').hidden = !desktop;
+  $('#game-settings-title').textContent = row.source === 'steam' ? 'Game actions' : 'Shortcut settings';
+  $('#game-settings').classList.toggle('native-game', row.source === 'steam');
+  if (desktop) renderDesktopGameSettings(row);
+  else renderSteamGameSettings(row);
   const keyless = !S.cfg.api_key;
   const writesSteam = row.source !== 'desktop' && (row.source === 'steam' || row.inSteam);
   $('#art-apply').hidden = !writesSteam;
@@ -2399,6 +1882,8 @@ async function openArtModal(row, focusKind) {
   $('#art-clear').hidden = row.source === 'desktop';
   $('#art-q').value = row.query || row.display;
   $('#art-id').value = row.sgdbId || '';
+  $('#art-matches').hidden = true;
+  $('#art-matches').open = false;
   $('#art-games').innerHTML = '';
   for (const id of ['art-q', 'art-search', 'art-games', 'art-id', 'art-load']) $('#' + id).disabled = keyless;
   $('#art-url-entry').hidden = true;
@@ -2415,16 +1900,19 @@ async function openArtModal(row, focusKind) {
       renderLogoPosition();
     }).catch(e => log(`Logo position: ${e.message}`));
   }
-  const focusTarget = $('#art-q').disabled ? $('#art-file') : $('#art-q');
+  const focusTarget = S.modal.tab === 'manage' ? $('#game-settings-title') : keyless ? $('#art-file') : $('#art-q');
   focusTarget.focus({ preventScroll: true });
-  if (keyless || !row.sgdbId) renderArtGrid();
-  if (keyless) artStatus('');
-  else if (row.sgdbId) loadArtTabs();
-  else if (row.source === 'steam') {
-    const m = S.modal;
+  if (keyless || row.sgdbId) await loadArtTabs();
+  else await Promise.all([loadArtTabs(), findInitialArtworkMatch(S.modal)]);
+}
+
+async function findInitialArtworkMatch(m) {
+  const row = m.row;
+  if (row.source === 'steam') {
+    const search = m.search;
     artStatus('Matching Steam AppID…');
     const game = await window.api.sgdbBySteam(row.steamAppid).catch(() => null);
-    if (S.modal !== m) return;
+    if (S.modal !== m || m.search !== search) return;
     if (game) {
       m.sgdbId = game.id;
       m.games = [game];
@@ -2432,6 +1920,11 @@ async function openArtModal(row, focusKind) {
       await loadArtTabs();
     } else await artSearch();
   } else await artSearch();
+}
+
+function artworkSelectionChanged(modal) {
+  return modal.sgdbId !== (modal.row.sgdbId || null)
+    || JSON.stringify(modal.sel) !== JSON.stringify(modal.row.art || {});
 }
 
 async function closeArtModal(save) {
@@ -2449,19 +1942,25 @@ async function closeArtModal(save) {
       return;
     } finally { m.applying = false; $('#art-modal').inert = false; }
   }
+  if (save && m.row.source === 'desktop') {
+    m.applying = true;
+    $('#art-modal').inert = true;
+    const match = m.games.find(game => game.id === m.sgdbId);
+    const updated = { ...m.row, iconChoice: m.sel.icon || null, art: { ...m.sel }, sgdbId: m.sgdbId,
+      ...(match && m.sgdbId !== m.row.sgdbId
+        ? { display: m.renamedShortcut ? m.row.display : match.name, sgdbName: match.name } : {}) };
+    try { await saveDesktopDraft(m.row, updated); Object.assign(m.row, Object.fromEntries([...desktopEditFields, 'art'].map(key => [key, updated[key]])));  }
+    catch (error) { artStatus(`Choices could not be saved: ${error.message || error}`); return; }
+    finally { m.applying = false; $('#art-modal').inert = false; }
+  }
   m.moreObserver?.disconnect();
   if (m.previewLoader) m.previewLoader.src = '';
   $('#art-url-entry').hidden = true;
   S.modal = null;
+  $('#game-settings').hidden = true;
   animateArtModal(false);
   if (save) {
     if (m.row.source === 'desktop') {
-      m.row.iconChoice = m.sel.icon || null;
-      m.row.art = { ...m.sel };
-      const match = m.games.find((game) => game.id === m.sgdbId);
-      if (match && m.sgdbId !== m.row.sgdbId) { m.row.display = m.row.sgdbName = match.name; }
-      m.row.sgdbId = m.sgdbId;
-      handleAction('Save Desktop changes', () => saveDesktopDraft(m.row))();
       renderDesktop();
       restoreArtFocus(m);
       return;
@@ -2477,7 +1976,6 @@ async function closeArtModal(save) {
     if (artworkChanged) m.row.pendingArt = true;
     S.cardArtCache.delete(coverToken(m.row));
     renderRows();
-    renderDetail();
     log(`'${m.row.display}': artwork selection updated.`);
   }
   restoreArtFocus(m);
@@ -2520,7 +2018,6 @@ async function applyArtModal() {
       sgdbName: m.games?.find(game => game.id === m.sgdbId)?.name || m.row.sgdbName }]);
     S.cardArtCache.clear();
     S.previewCache = {};
-    renderRows(); renderDetail();
     if (result.rows[0]?.logoPositionApplied) { m.initialLogoPosition = m.logoPosition; delete m.logoPosition; }
     if (result.failed) {
       for (const kind of result.rows[0]?.appliedKinds || []) {
@@ -2548,14 +2045,15 @@ function renderLogoPosition() {
   $('#art-logo-position').hidden = !m || m.row.source === 'desktop' || m.tab !== 'logo';
   const position = m?.logoPosition !== undefined ? m.logoPosition : m?.initialLogoPosition;
   $('#art-logo-anchor').value = position?.pinnedPosition || 'BottomLeft';
+  $$('[data-logo-anchor]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.logoAnchor === $('#art-logo-anchor').value)));
   $('#art-logo-width').value = position?.nWidthPct || 50;
   $('#art-logo-height').value = position?.nHeightPct || 50;
 }
 
 function restoreArtFocus(m) {
   const target = m.returnFocus?.isConnected ? m.returnFocus
-    : m.row.source === 'desktop' ? $('#desktop-detail [data-desktop="icon"]')
-      : $('#d-preview-open');
+    : $$(m.row.source === 'desktop' ? '#desktop-games .game-card-row' : '#games .game-card-row')
+      .find(card => card.dataset.key === (m.row.source === 'desktop' ? m.row.id : rowKey(m.row)))?.querySelector('.game-open');
   if (target?.isConnected) target.focus({ preventScroll: true });
 }
 
@@ -2565,6 +2063,7 @@ function renderArtTabs() {
   const m = S.modal;
   const host = $('#art-tabs');
   renderLogoPosition();
+  $('#game-settings').hidden = m.tab !== 'manage';
   host.innerHTML = '';
   for (const [kind, label] of modalTabs()) {
     const b = document.createElement('button');
@@ -2572,7 +2071,13 @@ function renderArtTabs() {
     b.textContent = label;
     const picked = m.sel[kind];
     if (picked) b.textContent += ' ★';
-    b.addEventListener('click', () => { $('#art-url-entry').hidden = true; m.tab = kind; renderArtTabs(); renderArtFilters(); loadArtTabs(); });
+    b.addEventListener('click', () => {
+      $('#art-url-entry').hidden = true;
+      m.tab = kind;
+      renderArtTabs();
+      renderArtFilters();
+      loadArtTabs();
+    });
     host.appendChild(b);
   }
   $$('#art-grid .thumb').forEach((cell) => {
@@ -2591,6 +2096,7 @@ function closeArtPreview() {
   }
   $('#art-preview').hidden = true;
   $('#art-grid').hidden = false;
+  $('#game-settings').hidden = S.modal?.tab !== 'manage';
   $('#art-preview-image').removeAttribute('src');
   if (wasOpen) $('.thumbScroll').scrollTop = S.modal?.galleryScroll || 0;
 }
@@ -2605,6 +2111,7 @@ async function openArtPreview(item) {
   m.galleryScroll = $('.thumbScroll').scrollTop;
   $('#art-preview').hidden = false;
   $('#art-grid').hidden = true;
+  $('#game-settings').hidden = true;
   $('.thumbScroll').scrollTop = 0;
   $('#art-preview-image').src = src;
   if (item.thumb && item.url && item.thumb !== item.url) {
@@ -2695,21 +2202,26 @@ async function renderArtManage() {
   closeArtPreview();
   const grid = $('#art-grid');
   grid.replaceChildren();
-  artStatus('Review artwork by type. Restore removes custom artwork when you apply.');
-  await Promise.all(ART_TABS.map(async ([kind, label]) => {
+  grid.dataset.kind = 'manage';
+  artStatus('');
+  await Promise.all(modalTabs().filter(([kind]) => kind !== 'manage').map(async ([kind, label]) => {
     const cell = document.createElement('div');
     cell.className = 'manage-artwork';
-    cell.innerHTML = `<strong>${label}</strong><img alt="${esc(label)}" hidden><span class="muted small">Loading…</span>
-      <div class="row"><button class="btn sm" data-manage="change">Change</button><button class="btn sm" data-manage="restore">${m.row.source === 'steam' || m.row.inSteam ? 'Restore default' : 'Clear selection'}</button></div>`;
+    cell.innerHTML = `<strong>${label}</strong><div class="manage-preview"><img alt="${esc(label)}" hidden></div><span class="muted small">Loading…</span>
+      <div class="row"><button class="btn sm" data-manage="change">Change</button><button class="text-btn" data-manage="restore">${m.row.source === 'steam' || m.row.inSteam ? 'Restore default' : 'Clear selection'}</button></div>`;
     grid.appendChild(cell);
     $('[data-manage="change"]', cell).onclick = () => { m.tab = kind; renderArtTabs(); renderArtFilters(); loadArtTabs(); };
+    $('[data-manage="restore"]', cell).hidden = m.row.source === 'desktop';
     $('[data-manage="restore"]', cell).onclick = () => {
       restoreArtKind(kind);
       $('span', cell).textContent = m.sel[kind]?.reset ? 'Default artwork will be restored.' : 'Selection cleared.';
       renderArtTabs();
     };
     const choice = m.sel[kind];
-    const current = choice?.reset ? await stockArtwork(m, kind)
+    const current = m.row.source === 'desktop' ? { url: choice?.file
+      ? await localArtPreview(choice.file).catch(() => null)
+      : choice?.thumb || choice?.url || await desktopIconPreview(m.row).catch(() => null) }
+      : choice?.reset ? await stockArtwork(m, kind)
       : choice?.file || choice?.url ? choice : await window.api.artCurrent({ row: rowPayload(m.row), kind }).catch(() => null);
     if (S.modal !== m || m.tab !== 'manage' || !cell.isConnected) return;
     $('span', cell).textContent = choice?.reset ? 'Default artwork will be restored.'
@@ -2762,6 +2274,7 @@ function renderArtGrid(loading = false, start = 0) {
   else $('#art-more')?.remove();
   if (!m) return;
   const kind = m.tab;
+  grid.dataset.kind = kind;
   for (const id of start ? [] : ['art-stock', 'art-choice']) {
     const slot = document.createElement('div');
     slot.id = id;
@@ -2782,7 +2295,23 @@ function renderArtGrid(loading = false, start = 0) {
   const page = m.cache[artworkCacheKey(m)];
   const items = page?.items || [];
   if (!items.length) {
-    grid.insertAdjacentHTML('beforeend', '<div class="muted">No SGDB images of this type.</div>');
+    const empty = document.createElement('div');
+    empty.className = 'art-load-error muted';
+    empty.textContent = 'No SGDB images of this type.';
+    const defaults = savedPickerFilters(kind, true);
+    if (m.row.source === 'desktop') Object.assign(defaults, { static: true, animated: false });
+    const changed = $$('#art-filter-fields input').some(input => {
+      const value = defaults[input.dataset.filter];
+      return input.checked !== (Array.isArray(value) ? value.includes(input.value) : value ?? true);
+    });
+    if (changed) {
+      const reset = document.createElement('button');
+      reset.className = 'btn sm';
+      reset.textContent = 'Reset filters';
+      reset.onclick = () => $('#art-filter-reset').click();
+      empty.appendChild(reset);
+    }
+    grid.appendChild(empty);
     return;
   }
   for (const im of items.slice(start)) grid.appendChild(artThumb(im));
@@ -2813,9 +2342,7 @@ function artThumb(im, label = '', selection = im) {
   const selectionLabel = label || (im.id ? `${kind} image ${im.id} by ${im.author || 'unknown author'}` : `${kind} image ${baseName(im.file) || im.url || ''}`);
   cell.innerHTML = `<button class="thumb-select" type="button" aria-label="Select ${esc(selectionLabel)}" aria-pressed="${String(isPicked(kind, selection))}">
       <span class="thumb-image"><img loading="lazy" decoding="async" width="${Number(im.width) || 600}" height="${Number(im.height) || 900}" src="${esc(im.thumb || im.url)}" alt=""></span>
-      <span class="meta">${label || (im.id ? `#${im.id} · ${esc(im.style)} · ${im.width}x${im.height}<br>
-      ${im.upvotes} votes · score ${im.score} · ${esc(im.author)}` : esc(im.file ? baseName(im.file) : im.url))}<span class="art-selected"> · Selected</span></span></button>
-      <button class="art-preview-button" type="button" title="Preview artwork" aria-label="Preview ${esc(selectionLabel)}"><svg class="icon" aria-hidden="true"><use href="#i-preview"/></svg></button>`;
+      ${label ? `<span class="meta">${esc(label)}</span>` : ''}</button>`;
   $('.thumb-select', cell).addEventListener('click', () => pickArt(kind, selection));
   const image = $('img', cell);
   image.addEventListener('error', () => {
@@ -2827,10 +2354,7 @@ function artThumb(im, label = '', selection = im) {
     if (['art-choice', 'art-stock'].includes(cell.parentElement?.id)) cell.parentElement.hidden = true;
     if (S.modal === modal && modal.tab === kind) artStatus('An image could not load and was hidden. Details are in the log.');
   });
-  $('.art-preview-button', cell).addEventListener('click', (e) => {
-    e.stopPropagation();
-    handleAction('Artwork preview', () => openArtPreview(im))();
-  });
+  $('.thumb-select', cell).addEventListener('dblclick', handleAction('Artwork preview', () => openArtPreview(im)));
   return cell;
 }
 
@@ -2849,7 +2373,7 @@ function restoreArtKind(kind) {
   renderArtTabs();
 }
 
-async function artSearch() {
+async function artSearch(showMatches = false) {
   const m = S.modal;
   const q = $('#art-q').value.trim();
   if (!q) return;
@@ -2860,12 +2384,16 @@ async function artSearch() {
     if (S.modal !== m || m.search !== search) return;
     m.games = games;
     const sel = $('#art-games');
+    const matches = $('#art-matches');
+    matches.hidden = !showMatches || games.length < 2;
+    matches.open = !matches.hidden;
     sel.innerHTML = '';
     if (!games.length) { artStatus('No SGDB matches. Try another query or paste an ID.'); return; }
     for (const g of games) {
       const o = document.createElement('option');
       o.value = String(g.id);
       o.textContent = `${g.name}  [${g.id}]`;
+      o.title = o.textContent;
       sel.appendChild(o);
     }
     const g = games.find((game) => game.id === m.sgdbId) || games[0];
@@ -2883,6 +2411,7 @@ async function artLoadId() {
   const m = S.modal;
   const gid = Number(($('#art-id').value || '').trim());
   if (!Number.isFinite(gid) || gid <= 0) { artStatus('SGDB game ID must be a number.'); return; }
+  $('#art-matches').open = false;
   m.search = (m.search || 0) + 1;
   m.sgdbId = gid;
   await loadArtTabs();
@@ -2890,36 +2419,17 @@ async function artLoadId() {
 
 // ------------------------------------------------------------------ boot
 function wireToolbar() {
-  wireDesktop();
-  $('#onboarding-skip').addEventListener('click', () => { S.onboardingStep = 1; S.skippedSteam = true; renderOnboarding(); });
-  $('#onboarding-continue').addEventListener('click', handleAction('Setup', async () => {
-    const button = $('#onboarding-continue');
-    if (button.disabled) return;
-    button.disabled = true;
-    try {
-      if (S.onboardingStep === 0 && (!await window.api.steamVerify(S.cfg.steam_path)
-        || !S.steamUsers.some((user) => user.id === S.cfg.steam_user_id))) {
-        toast('Choose a valid Steam installation and account first.');
-        return;
-      }
-      if (S.onboardingStep === 0) S.skippedSteam = false;
-      if (S.onboardingStep < 2) { S.onboardingStep++; renderOnboarding(); return; }
-      const completed = S.cfg.onboarded;
-      const steamReady = !S.skippedSteam && S.cfg.steam_user_id && await window.api.steamVerify(S.cfg.steam_path);
-      if (!completed) await savePatch({ onboarded: true, startup_library: steamReady ? 'steam' : 'desktop' });
-      navReset(steamReady ? 'library' : 'desktop');
-    } finally { button.disabled = false; }
-  }));
-  $('#onboarding-back').addEventListener('click', () => { S.onboardingStep--; renderOnboarding(); });
-  $('.onboarding-steps').addEventListener('click', (e) => {
-    const button = e.target.closest('[data-step]');
-    if (!button || button.disabled) return;
-    S.onboardingStep = Number(button.dataset.step);
-    renderOnboarding();
+  renderSettingsCards();
+  document.addEventListener('click', event => {
+    for (const menu of $$('#preferences[open], #art-filters[open], #art-matches[open]')) {
+      if (!menu.contains(event.target) && !(menu.id === 'preferences' && event.target.closest('[data-setup=key], #art-key-settings'))) menu.open = false;
+    }
   });
-  $('#onboarding-close').addEventListener('click', () => navReset('library'));
-  $('#preview-onboarding').addEventListener('click', () => { S.onboardingStep = 0; navGo('onboarding'); });
-  $('#theme').addEventListener('change', handleAction('Theme change', () => savePatch({ theme: $('#theme').value })));
+  wireWorkspace();
+  wireDesktop();
+  $('#theme-cycle').onclick = handleAction('Theme change', async () => {
+    await savePatch({ theme: document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark' });
+  });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   const dock = $('#bottomdock');
   const dockToggle = $('#dock-toggle');
@@ -2929,20 +2439,15 @@ function wireToolbar() {
     dockToggle.textContent = collapsed ? 'Show log' : 'Hide log';
   });
   $('#btn-refresh').addEventListener('click', handleAction('Refresh', doRefresh));
-  $('#btn-find-executables').addEventListener('click', doFindExecutables);
-  $('#btn-download').addEventListener('click', handleAction('Find artwork', doDownloadArt));
-  $('#btn-add').addEventListener('click', handleAction('Add to Steam', doAddToSteam));
-  $('#d-primary-action').addEventListener('click', handleAction('Add to Steam', () => doAddToSteam([cur()].filter(Boolean))));
+  $('#btn-add').addEventListener('click', () => openReview('library'));
+  $('#d-primary-action').addEventListener('click', handleAction('Add to Steam', async () => {
+    const row = steamEditorRow();
+    if (!row) return;
+    await doAddToSteam([row]);
+    if (steamEditorRow() === row) renderSteamGameSettings(row);
+  }));
   $('#btn-remove').addEventListener('click', handleAction('Shortcut removal', doRemoveFromSteam));
   $('#btn-prune').addEventListener('click', handleAction('Prune', doPruneMissing));
-  $('#side-kill').addEventListener('click', doKillSteam);
-  $('#side-restart').addEventListener('click', doRestartSteam);
-  $('#sel-all').addEventListener('change', (e) => { (S.visibleRows || []).forEach((r) => { r.checked = e.target.checked; }); updateLibrarySelection(); });
-  $('#select-multiple').addEventListener('click', () => {
-    S.bulk = !S.bulk;
-    if (S.bulk) S.rows.forEach(row => { row.checked = row === cur(); });
-    updateLibrarySelection();
-  });
   $('#btn-clear').addEventListener('click', handleAction('Clear', doClear));
   $('#hide-owned').addEventListener('change', (e) => {
     S.hideOwned = e.target.checked;
@@ -2950,40 +2455,21 @@ function wireToolbar() {
   });
   $('#filter').addEventListener('input', (e) => { S.filter = e.target.value; renderRows(); });
   $('#source-filter').addEventListener('change', (e) => { S.sourceFilter = e.target.value; renderRows(); });
-  $('#sort-games').addEventListener('change', (e) => { S.sortGames = e.target.value; renderRows(); });
   // lib-banner buttons are rebuilt by renderBanner() with their own handlers.
-  document.querySelectorAll('.checklist').forEach((box) => {
-    box.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-cl]');
-      if (!btn) return;
-      if (btn.dataset.cl === 'x') {
-        checklistDismissed = true;
-        document.querySelectorAll('.checklist').forEach((b) => { b.hidden = true; });
-        return;
-      }
-      navGo('settings');
-    });
-  });
   $('#games-body').addEventListener('click', (e) => {
     const tr = e.target.closest('tr');
     if (!tr) return;
-    if (e.target.closest('[data-act="toggle"]')) {
-      if (!e.target.matches('.row-check')) return;
-      const r = rowByKey(tr.dataset.key);
-      if (r) { r.checked = e.target.checked; updateLibrarySelection(); }
-      return;
-    }
-    selectRow(tr.dataset.key);
+
+    const row = rowByKey(tr.dataset.key);
+    if (row) openArtModal(row, e.target.closest('.game-open') ? 'grid' : 'manage');
+    else selectRow(tr.dataset.key);
   });
-  $('#games-body').addEventListener('dblclick', (e) => {
-    if (S.applyingSteam || S.preparingArt || S.loadingLibrary || !e.target.closest('.cover-wrap')) return;
-    const row = rowByKey(e.target.closest('.game-card-row')?.dataset.key);
-    if (row) openArtModal(row, 'grid');
-  });
-  $('#d-apply').addEventListener('click', applyDetails);
+  $('#d-apply').addEventListener('click', handleAction('Save launcher details', async () => {
+    if (await saveSteamLauncher() && steamEditorRow()) renderSteamGameSettings(steamEditorRow());
+  }));
   $('#d-exe-pick').addEventListener('change', (e) => { e.target.title = e.target.value; });
   $('#d-browse').addEventListener('click', async () => {
-    const r = cur();
+    const r = steamEditorRow();
     const p = await window.api.filesPickExe(r ? (r.fromExecutableSearch ? r.startDir : r.folder) : null);
     if (p) {
       const pick = $('#d-exe-pick');
@@ -2998,34 +2484,19 @@ function wireToolbar() {
     }
   });
   $('#d-open').addEventListener('click', () => {
-    const r = cur();
+    const r = steamEditorRow();
     if (!r) return;
     const folder = r.source === 'steam' ? r.startDir
       : r.source === 'shortcut' || r.fromExecutableSearch ? (r.startDir || parentDir(r.exe)) : r.folder;
     if (folder) window.api.shellOpen(folder);
   });
-  $('#d-preview-open').addEventListener('click', () => {
-    const r = cur();
-    if (r) openArtModal(r, 'grid');
-  });
-  $('#s-go').addEventListener('click', sgdbSearch);
-  $('#s-set').addEventListener('click', sgdbUseSelected);
-  $('#s-auto').addEventListener('click', sgdbAutoOne);
-  $('#s-results').addEventListener('change', () => {
-    const picked = S.searchCache.find((g) => String(g.id) === $('#s-results').value);
-    if (picked) {
-      $('#s-status').textContent = `${picked.name} · ready to use`;
-    }
-  });
   // modal
-  $('#art-search').addEventListener('click', artSearch);
-  for (const [input, button] of [['s-search', 's-go'], ['art-q', 'art-search']]) {
-    $(`#${input}`).addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
-      e.preventDefault();
-      $(`#${button}`).click();
-    });
-  }
+  $('#art-search').addEventListener('click', () => artSearch(true));
+  $('#art-q').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing || e.repeat) return;
+    e.preventDefault();
+    $('#art-search').click();
+  });
   $('#art-load').addEventListener('click', artLoadId);
   $('#art-preview-back').addEventListener('click', closeArtPreview);
   $('#art-preview-image').addEventListener('error', () => {
@@ -3037,7 +2508,8 @@ function wireToolbar() {
     artStatus('Could not preview this image.');
     closeArtPreview();
   });
-  $('#art-games').addEventListener('change', async (e) => {
+  const artGames = $('#art-games');
+  artGames.addEventListener('change', async (e) => {
     const m = S.modal;
     const g = (m.games || []).find((x) => String(x.id) === e.target.value);
     if (g) {
@@ -3045,6 +2517,17 @@ function wireToolbar() {
       m.sgdbId = g.id;
       $('#art-id').value = String(g.id);
       await loadArtTabs();
+    }
+  });
+  const dismissMatches = () => {
+    $('#art-matches').open = false;
+    $('#art-matches summary').focus();
+  };
+  artGames.addEventListener('click', dismissMatches);
+  artGames.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      dismissMatches();
     }
   });
   $('#art-url').addEventListener('click', () => {
@@ -3085,10 +2568,18 @@ function wireToolbar() {
   $('#art-save').addEventListener('click', () => closeArtModal(true));
   $('#art-key-settings').addEventListener('click', () => {
     closeArtModal(false);
-    navGo('settings');
+    $('#preferences').open = true;
     $('[data-r="key"]')?.focus();
   });
   $('#art-apply').addEventListener('click', handleAction('Apply artwork', applyArtModal));
+  $$('[data-logo-anchor]').forEach(button => {
+    button.onclick = () => {
+      const input = $('#art-logo-anchor');
+      input.value = button.dataset.logoAnchor;
+      input.dispatchEvent(new Event('change'));
+      renderLogoPosition();
+    };
+  });
   for (const id of ['art-logo-anchor', 'art-logo-width', 'art-logo-height']) $('#' + id).addEventListener('change', () => {
     S.modal.logoPosition = { pinnedPosition: $('#art-logo-anchor').value,
       nWidthPct: Number($('#art-logo-width').value), nHeightPct: Number($('#art-logo-height').value) };
@@ -3107,27 +2598,22 @@ function wireToolbar() {
       else if (!e.shiftKey && at === focusable.length - 1) { e.preventDefault(); focusable[0]?.focus(); }
     }
     if (e.key === 'Escape' && S.modal) {
-      if (!$('#art-url-entry').hidden) $('#art-url-entry').hidden = true;
+      if ($('#art-matches').open) {
+        dismissMatches();
+      } else if ($('#art-filters').open) $('#art-filters').open = false;
+      else if (!$('#art-url-entry').hidden) $('#art-url-entry').hidden = true;
       else closeArtModal(false);
     }
-    // History shortcuts. Ignored while the modal owns input.
-    if (!pickerOpen() && e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); navBack(); }
-    if (!pickerOpen() && e.altKey && e.key === 'ArrowRight') { e.preventDefault(); navFwd(); }
+    if (e.altKey && e.key === 'ArrowLeft') moveReview('back');
+    if (e.altKey && e.key === 'ArrowRight') moveReview('fwd');
   });
-  // Mouse back/forward at DOM level (buttons 3/4 here = 4th/5th on the mouse).
-  // Always fires, unlike the OS path. Deduped against it above.
-  document.addEventListener('mouseup', (e) => {
-    if (pickerOpen() || (e.button !== 3 && e.button !== 4)) return;
-    if (Date.now() - lastIpcNav < NAV_ECHO_MS) return;
-    lastMouseNav = Date.now();
-    e.preventDefault();
-    if (e.button === 3) navBack(); else navFwd();
+  document.addEventListener('mouseup', event => {
+    if (event.button === 3 || event.button === 4) moveReview(event.button === 3 ? 'back' : 'fwd');
   });
-  $$('.nav').forEach((b) => b.addEventListener('click', () => navGo(b.dataset.page)));
 }
 
-async function applyDetails() {
-  const r = cur();
+async function saveSteamLauncher() {
+  const r = steamEditorRow();
   if (!r) return false;
   if (r.source === 'steam') { toast('Steam store games cannot be edited here - Steam manages them.'); return false; }
   const oldLaunch = S.cfg.steam_launch?.[folderKey(r.folder)];
@@ -3154,7 +2640,6 @@ async function applyDetails() {
     delete S.cfg.exe_map[oldKey];
     r.folder = exe;
     r.folderName = baseName(parentDir(exe));
-    S.detailKey = rowKey(r);
   }
   if (name) {
     r.display = name;
@@ -3181,121 +2666,23 @@ async function applyDetails() {
   return true;
 }
 
-async function sgdbSearch() {
-  const r = cur();
-  if (!r) return;
-  const key = rowKey(r);
-  const q = $('#s-search').value.trim() || r.display;
-  if (!q) return;
-  if (needKey()) return;
-  const token = ++S.matchSearchToken;
-  const sel = $('#s-results');
-  const use = $('#s-set');
-  resetMatchResults('Searching…');
-  $('#s-status').textContent = `Searching '${q}'…`;
-  try {
-    const games = await window.api.sgdbSearch(q);
-    if (!isCurrentMatchRequest(token, key)) return;
-    S.searchCache = games;
-    sel.innerHTML = '';
-    if (!games.length) {
-      resetMatchResults('No matches');
-      $('#s-status').textContent = 'No matches. Try another search.';
-      return;
-    }
-    for (const g of games) {
-      const o = document.createElement('option');
-      o.value = String(g.id);
-      o.textContent = `${g.name}  [${g.id}]`;
-      sel.appendChild(o);
-    }
-    sel.disabled = false;
-    use.disabled = false;
-    $('#s-status').textContent = `${games.length} matches found`;
-  } catch (e) {
-    if (!isCurrentMatchRequest(token, key)) return;
-    resetMatchResults('Search failed');
-    $('#s-status').textContent = `Search failed: ${e.message || e}`;
-  }
-}
-
-async function sgdbUseSelected() {
-  const r = cur();
-  if (!r) return;
-  const picked = S.searchCache.find((g) => String(g.id) === $('#s-results').value);
-  if (!picked) { toast('Search for a game and choose a match first.'); return; }
-  r.sgdbId = picked.id;
-  r.sgdbName = picked.name;
-  S.cfg.sgdb_map[folderKey(r.folder)] = r.sgdbId;
-  await savePatch({ sgdb_map: S.cfg.sgdb_map });
-  renderRows();
-  renderDetail();
-  log(`'${r.display}' -> SGDB ${r.sgdbId}.`);
-}
-
-async function sgdbAutoOne() {
-  const r = cur();
-  if (!r) return;
-  if (needKey()) return;
-  const key = rowKey(r);
-  const token = ++S.matchSearchToken;
-  resetMatchResults('Matching automatically…');
-  $('#s-status').textContent = `Auto-matching '${r.display}'…`;
-  try {
-    const result = await window.api.matchAuto({ force: true, persist: false, rows: [{
-      folder: r.folder, display: r.display, query: r.query,
-      steamAppid: r.steamAppid, sgdbId: null, source: r.source,
-    }] });
-    if (!isCurrentMatchRequest(token, key)) return;
-    result.lines.forEach(log);
-    const match = result.rows[0];
-    if (match && match.sgdbId) {
-      r.sgdbId = match.sgdbId;
-      r.sgdbName = match.sgdbName;
-      S.cfg.sgdb_map[folderKey(r.folder)] = r.sgdbId;
-      await savePatch({ sgdb_map: S.cfg.sgdb_map });
-      renderRows();
-      if (isCurrentMatchRequest(token, key)) renderDetail();
-    } else {
-      resetMatchResults('No close match found');
-      $('#s-status').textContent = 'No close match found.';
-    }
-  } catch (e) {
-    if (!isCurrentMatchRequest(token, key)) return;
-    resetMatchResults('Auto-match failed');
-    $('#s-status').textContent = `Auto-match failed: ${e.message || e}`;
-  }
-}
-
-function checkedRows() {
-  return S.bulk ? S.rows.filter(r => r.checked) : [cur()].filter(Boolean);
-}
-
 async function boot() {
   S.cfg = await window.api.cfgGet();
-  await steamPresentOrToast();
+  const showIntro = !S.cfg.library_intro_seen && !S.cfg.steam_path && !S.cfg.api_key
+    && !S.cfg.games_roots?.length && libraryView() === 'library';
   applyTheme();
-  console.log('RENDERER booted');
-  log('ready.');
-  try {
-    S.steamUsers = S.cfg.steam_path ? await window.api.steamUsers(S.cfg.steam_path) : [];
-  } catch { S.steamUsers = []; }
+  try { await detectSteam(); }
+  catch (error) { log(`Steam detection failed: ${error.message}`); }
   wireToolbar();
-  S.isDevelopment = await window.api.isDevelopment().catch(() => false);
-  $('#preview-onboarding').hidden = !S.isDevelopment;
-  window.api.onNav((dir) => {
-    if (Date.now() - lastMouseNav < NAV_ECHO_MS) return; // DOM handler got it first
-    lastIpcNav = Date.now();
-    if (dir === 'back') navBack(); else navFwd();
-  });
+  window.api.onNav(moveReview);
   window.api.onProgress((p) => {
     setBar(p.current || 0, p.total || 0);
     if (p.label) status(p.label);
   });
-  if (!S.cfg.onboarded) {
-    navReset('onboarding');
-  } else {
-    navReset(S.cfg.startup_library === 'desktop' ? 'desktop' : 'library');
+  await showLibrary();
+  if (showIntro) {
+    $('#intro-key').append(keyCard());
+    $('#library-intro').showModal();
   }
 }
 
@@ -3304,3 +2691,140 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.innerHTML = `<pre style="padding:20px">Failed to start: ${esc(e.message || e)}</pre>`;
   });
 });
+
+function wireWorkspace() {
+  wireReview();
+  const intro = $('#library-intro');
+  intro.addEventListener('close', handleAction('Save setup preference', async () => {
+    renderSettingsCards($('#intro-key').firstElementChild);
+    await savePatch({ library_intro_seen: true });
+  }));
+  $('#intro-continue').onclick = () => intro.close();
+  $('#intro-add-folders').onclick = () => { intro.close(); openFolders(); };
+  $('#add-folders').onclick = openFolders;
+  $('#close-add').onclick = () => $('#page-add').close();
+  $('#close-steam-setup').onclick = () => { $('#steam-setup').close(); handleAction('Refresh Steam', doRefresh)(); };
+  $('#steam-setup').addEventListener('cancel', () => handleAction('Refresh Steam', doRefresh)());
+  const picker = $('#desktop-destination');
+  picker.onchange = handleAction('Change destination', async () => {
+    const destination = picker.value;
+    picker.disabled = true;
+    S.reviewReturn = null;
+    try {
+      await savePatch(destination === 'steam' ? { startup_library: 'steam' }
+        : { startup_library: 'desktop', desktop_destination: destination });
+      await showLibrary();
+    } finally { picker.disabled = false; }
+  });
+  for (const [id, depth] of [['add-single', 0], ['add-collection', 1]]) {
+    $('#' + id).onclick = handleAction('Add games', async () => {
+      const folder = await window.api.foldersBrowse();
+      if (!folder) return;
+      await savePatch({ games_roots: [...new Set([...(S.cfg.games_roots || []), folder])],
+        folder_depths: { ...S.cfg.folder_depths, [folderKey(folder)]: depth } });
+      renderSources();
+      await showLibrary();
+    });
+  }
+  $('#find-overlooked').onclick = handleAction('Find missing games', async () => {
+    if (!S.cfg.games_roots?.some(Boolean)) {
+      toast('Add a game folder before searching for launchers.');
+      return;
+    }
+    const desktop = libraryView() === 'desktop';
+    $('#page-add').close();
+    if (desktop) await refreshDesktop(false); else await loadLibrary();
+    doFindExecutables();
+  });
+}
+
+// A batch is explicit; an empty selection never means every game.
+function reviewCandidates(destination) {
+  if (destination === 'desktop') {
+    const rows = desktopCards().filter(row => desktopMembers(row).some(member => member.draft));
+    return rows.filter(row => row.exe);
+  }
+  const rows = S.rows.filter(row => row.pendingArt || row.pendingDetails);
+  return rows.filter(row => canWriteShortcut(row) || row.source === 'steam' && row.pendingArt);
+}
+function reviewScope(destination) {
+  return destination === 'desktop' ? String(S.cfg.desktop_destination || 'desktop') : steamDraftScope();
+}
+function openReview(destination) {
+  if (S.applyingSteam || S.loadingLibrary || S.desktop.busy) return;
+  const rows = reviewCandidates(destination);
+  if (!rows.length) { toast('Save artwork or shortcut changes first.'); return; }
+  S.review = { destination, scope: reviewScope(destination), rows: rows.slice(), included: new Set(rows) };
+  const panel = $('#page-review');
+  panel.showModal();
+  renderReview();
+}
+function renderReview() {
+  const review = S.review;
+  if (!review) return;
+  const desktop = review.destination === 'desktop';
+  const destination = desktop ? ({ desktop: 'Desktop', 'start-menu': 'Start menu', both: 'Desktop and Start menu' }[S.cfg.desktop_destination || 'desktop']) : 'Steam';
+  $('#review-summary').textContent = `${review.included.size} of ${review.rows.length} games selected for ${destination}`;
+  $('#review-note').textContent = desktop
+    ? 'Review the games below. Existing shortcuts will be updated; missing shortcuts will be created. Your game files are not changed.'
+    : 'Review the games below. New games become non-Steam shortcuts. Saved artwork and launcher changes are applied together. Steam closes and reopens if it is running.';
+  $('#review-apply').textContent = `Apply to ${destination}`;
+  $('#review-apply').disabled = !review.included.size;
+  $('#review-status').textContent = 'Nothing has been applied yet.';
+  const host = $('#review-list');
+  host.replaceChildren();
+  for (const row of review.rows) {
+    const label = document.createElement('label');
+    label.className = 'review-row';
+    const action = desktop ? (desktopMembers(row).every(member => member.shortcut) ? 'Update shortcut' : 'Create missing shortcuts')
+      : row.source === 'steam' ? 'Update artwork' : row.inSteam ? 'Update Steam shortcut' : 'Add to Steam';
+    const art = Object.keys(row.art || {}).filter(kind => !row.art[kind].current);
+    label.innerHTML = `<input type="checkbox" ${review.included.has(row) ? 'checked' : ''}><img class="review-cover" alt="" hidden><strong>${esc(row.display)}</strong><span>${action}${art.length ? ' · ' + art.map(kind => ({ grid: 'cover', wide: 'wide cover', hero: 'background', logo: 'logo', icon: 'icon' }[kind] || kind)).join(', ') : ''}</span>`;
+    label.querySelector('input').onchange = event => {
+      if (event.target.checked) review.included.add(row); else review.included.delete(row);
+      $('#review-summary').textContent = `${review.included.size} of ${review.rows.length} games selected for ${destination}`;
+      $('#review-apply').disabled = !review.included.size;
+    };
+    host.appendChild(label);
+    const image = label.querySelector('img');
+    (desktop ? desktopCardCoverSource(row) : cardCoverSource(row)).then(src => {
+      if (!src || !image.isConnected) return;
+      image.onerror = () => { image.hidden = true; };
+      image.src = src; image.hidden = false;
+    }).catch(() => {});
+  }
+}
+function closeReview(remember = true) {
+  if (!S.review) return;
+  S.reviewReturn = remember ? S.review.destination : null;
+  S.review = null;
+  $('#page-review').close();
+}
+function moveReview(direction) {
+  if (S.modal || S.exePicker || $('#library-intro').open || $('#page-add').open || $('#steam-setup').open || $('#page-review').inert) return;
+  if (direction === 'back' && S.review) closeReview();
+  if (direction === 'fwd' && S.reviewReturn === libraryView() && !S.review) openReview(S.reviewReturn);
+}
+function wireReview() {
+  $('#review-back').onclick = () => closeReview();
+  $('#page-review').addEventListener('cancel', event => {
+    event.preventDefault();
+    if (!$('#page-review').inert) closeReview();
+  });
+  $('#review-apply').onclick = handleAction('Apply reviewed changes', async () => {
+    const review = S.review;
+    if (!review || !review.included.size || S.applyingSteam || S.desktop.busy) return;
+    const live = review.destination === 'desktop' ? desktopCards() : S.rows;
+    if (review.scope !== reviewScope(review.destination) || [...review.included].some(row => !live.includes(row))) {
+      $('#review-status').textContent = 'The library or destination changed. Go back and review the current games before applying.';
+      $('#review-apply').disabled = true;
+      return;
+    }
+    $('#page-review').inert = $('#page-nav').inert = true;
+    try {
+      if (review.destination === 'desktop') await applyDesktopShortcuts([...review.included], { reviewed: true });
+      else await doAddToSteam([...review.included], { reviewed: true });
+      closeReview(false);
+    } finally { $('#page-review').inert = $('#page-nav').inert = false; }
+  });
+}

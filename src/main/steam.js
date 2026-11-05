@@ -19,10 +19,16 @@ function regQuery(hive, subkey, value) {
   return new Promise((resolve) => {
     execFile('reg', ['query', `${hive}\\${subkey}`, '/v', value], { timeout: 10000 }, (err, stdout) => {
       if (err) return resolve(null);
-      const m = stdout.match(/REG_(?:SZ|EXPAND_SZ)\s+(.+?)\s*$/m);
+      const m = stdout.match(/REG_(?:SZ|EXPAND_SZ|DWORD)\s+(.+?)\s*$/m);
       resolve(m ? m[1].trim() : null);
     });
   });
+}
+
+async function getActiveUserId() {
+  if (process.platform !== 'win32') return null;
+  const id = Number(await regQuery('HKCU', 'Software\\Valve\\Steam\\ActiveProcess', 'ActiveUser'));
+  return id > 0 ? String(id) : null;
 }
 
 /** A directory only counts as a Steam install if it contains steam.exe.
@@ -405,17 +411,6 @@ async function waitSteamGone(timeoutMs = 15000) {
   }
 }
 
-/** Force-close Steam (process tree). Games running through Steam go down too -
- *  callers must confirm first. Returns log lines. */
-async function killSteam() {
-  if (!(await isSteamRunning())) return { killed: false, lines: ['Steam is not running.'] };
-  await execFileAsync('taskkill', ['/F', '/T', '/IM', 'steam.exe']);
-  const gone = await waitSteamGone();
-  return gone
-    ? { killed: true, lines: ['Steam killed.'] }
-    : { killed: false, lines: ['Steam did not exit - kill it manually (Task Manager) and retry.'] };
-}
-
 /** Launch Steam detached. If a client is already running it just opens it. */
 async function launchSteam(steamPath) {
   const exe = path.join(steamPath, 'steam.exe');
@@ -430,29 +425,6 @@ async function closeSteam(steamPath) {
   if (!hasSteamExe(steamPath)) throw new Error('Choose a valid Steam installation before applying changes.');
   await execFileAsync(path.join(steamPath, 'steam.exe'), ['-shutdown'], { timeout: 10000 });
   if (!await waitSteamGone()) throw new Error('Steam did not exit. Close it before applying changes. Nothing was written.');
-}
-
-/** Restart Steam. Stop a running client, wait for exit, then launch. */
-async function restartSteam(steamPath) {
-  const lines = [];
-  if (await isSteamRunning()) {
-    // Graceful first: -shutdown only targets a running client, never starts one.
-    try {
-      await execFileAsync(path.join(steamPath, 'steam.exe'), ['-shutdown'], { timeout: 10000 });
-    } catch { /* fall through to polling/force */ }
-    if (!(await waitSteamGone(8000))) {
-      const k = await killSteam();
-      lines.push(...k.lines);
-      if (!k.killed && (await isSteamRunning())) return { restarted: false, lines };
-    } else {
-      lines.push('Steam exited cleanly.');
-    }
-  } else {
-    lines.push('Steam was not running.');
-  }
-  const l = await launchSteam(steamPath);
-  lines.push(...l.lines);
-  return { restarted: true, lines };
 }
 
 /** First-party Steam games installed across all libraries (appmanifests).
@@ -578,11 +550,11 @@ function findStaleShortcuts(entries) {
 
 module.exports = {
   ART_SUFFIXES, GRID_IMAGE_EXTS, MANAGED_TAG,
-  hasSteamExe, normalizeSteamPath, getUserPersonas,
+  hasSteamExe, normalizeSteamPath, getUserPersonas, getActiveUserId,
   findSteamPath, shortcutsPath, gridDir,
   crc32, shortcutId, appidSigned, quoteExe,
   loadEntries, backupShortcuts, buildEntry, findByExe, isManagedEntry, upsertEntry, saveEntries,
   gridStemFor, gridStemFromEntry, artDest, logoPosition, currentArtwork, clearConflictingExts, isSteamRunning,
-  killSteam, closeSteam, launchSteam, restartSteam, findStaleShortcuts,
+  closeSteam, launchSteam, findStaleShortcuts,
   listInstalledGames, planPurge,
 };
