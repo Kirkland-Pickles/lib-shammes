@@ -327,7 +327,8 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 
 .shortcut-actions button { min-height: 30px; }
 #theme-cycle { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; margin: 0; }
-.key-field { position: relative; margin-bottom: 10px; }
+.key-entry { display: flex; align-items: center; gap: 8px; }
+.key-field { position: relative; flex: 1; min-width: 0; }
 .key-field input { width: 100%; padding-right: 38px; }
 .key-field .key-eye { position: absolute; top: 50%; right: 3px; transform: translateY(-50%); width: 28px; height: 28px; border: 0; background: transparent; }
 .key-field .key-eye[aria-pressed="true"] { color: var(--accent); }
@@ -372,9 +373,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 #bottomdock.collapsed { padding-block: 0; }
 #log { height: 100%; scrollbar-width: none; }
 #log::-webkit-scrollbar { display: none; }
-.key-feedback { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
-.key-feedback .status-line { margin: 0; }
-.key-feedback .text-btn { margin-left: auto; white-space: nowrap; }
+.key-feedback:empty { display: none; }
 
 .library-destination { flex-wrap: wrap; }
 #preferences { margin-left: 0; }
