@@ -3,7 +3,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  isDevelopment: () => ipcRenderer.invoke('app:is-development'),
   desktopScan: () => ipcRenderer.invoke('desktop:scan'),
   desktopApply: (rows) => ipcRenderer.invoke('desktop:apply', rows),
   desktopIcon: (file, index) => ipcRenderer.invoke('desktop:icon', file, index),
@@ -17,10 +16,6 @@ contextBridge.exposeInMainWorld('api', {
   steamVerify: (p) => ipcRenderer.invoke('steam:verify', p),
   steamBrowse: () => ipcRenderer.invoke('steam:browse'),
   steamUsers: (steamPath) => ipcRenderer.invoke('steam:users', steamPath),
-  steamRunning: () => ipcRenderer.invoke('steam:running'),
-  steamKill: () => ipcRenderer.invoke('steam:kill'),
-  steamLaunch: () => ipcRenderer.invoke('steam:launch'),
-  steamRestart: () => ipcRenderer.invoke('steam:restart'),
   steamPrune: () => ipcRenderer.invoke('steam:prune'),
   steamRead: () => ipcRenderer.invoke('steam:read'),
   steamGames: () => ipcRenderer.invoke('steam:games'),
@@ -31,7 +26,6 @@ contextBridge.exposeInMainWorld('api', {
   // folders / files / shell
   foldersBrowse: () => ipcRenderer.invoke('folders:browse'),
   filesPickExe: (dir) => ipcRenderer.invoke('files:pick-exe', dir),
-  filesPickDir: (dir) => ipcRenderer.invoke('files:pick-dir', dir),
   filesPickImage: () => ipcRenderer.invoke('files:pick-image'),
   shellOpen: (p) => ipcRenderer.invoke('shell:open', p),
   openUrl: (url) => ipcRenderer.invoke('util:open-url', url),

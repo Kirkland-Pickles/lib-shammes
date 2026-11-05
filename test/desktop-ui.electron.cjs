@@ -28,7 +28,6 @@ const handlers = {
     if ('api_key' in patch && patch.api_key !== cfg.api_key) cfg.api_key_check = null;
     return (cfg = { ...cfg, ...patch });
   },
-  'app:is-development': () => false,
   'key:validate': key => {
     keyChecks.push(key);
     const result = key === 'fixture' ? { ok: true, name: 'Half-Life 2 [220]' } : { ok: false };
@@ -69,7 +68,6 @@ const handlers = {
   'sgdb:by-steam': () => null,
   'scan:start': () => cfg.steam_executables,
   'resolve:name': () => null,
-  'steam:running': () => false,
   'steam:add': (req) => { steamRequest = req; return { rows: req.rows, lines: ['Saved shortcuts.vdf: 0 added, 1 updated.', 'Artwork results ready.'], added: 0, updated: 1, artworkSaved: 0 }; },
   'desktop:apply': async (selected) => {
     lastDesktopApply = selected;
