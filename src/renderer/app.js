@@ -45,6 +45,7 @@ function log(line, library = 'library') {
   div.textContent = entry;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
+  return div;
 }
 function renderLog() {
   const box = $('#log');
@@ -119,8 +120,11 @@ function flyToastToLog(t) {
   t.classList.remove('show');
 }
 
-function toast(msg) {
+function toast(msg, logEntry) {
   const t = $('#toast');
+  const dialog = $$('dialog[open]').at(-1);
+  const host = dialog || document.body;
+  if (t.parentElement !== host) host.appendChild(t);
   clearToastFlight(t);
   t.textContent = msg;
   t.style.visibility = '';
@@ -128,8 +132,10 @@ function toast(msg) {
   t._h = setTimeout(() => t.classList.remove('show'), 3200);
   t.classList.add('show');
   const dock = $('#bottomdock');
-  if (!dock || dock.classList.contains('collapsed')) {
-    t._fly = setTimeout(() => flyToastToLog(t), TOAST_FLIGHT_DELAY);
+  if (!dialog && dock?.classList.contains('collapsed') && logEntry?.textContent.endsWith(`] ${msg}`)) {
+    t._fly = setTimeout(() => {
+      if (logEntry.isConnected) flyToastToLog(t);
+    }, TOAST_FLIGHT_DELAY);
   }
 }
 function handleAction(name, fn) {
@@ -138,9 +144,9 @@ function handleAction(name, fn) {
     return fn().catch((e) => {
       const message = e?.message || String(e);
       setBar(0, 0);
-      log(`${name} failed: ${message}`, library);
+      const feedback = `${name} failed: ${message}`;
       status(`${name} failed.`);
-      toast(`${name} failed: ${message}`);
+      toast(feedback, log(feedback, library));
     });
   };
 }
@@ -1254,9 +1260,9 @@ async function writeArtwork(rows, kinds) {
 function reportArtwork({ saved, failed, warning }, success) {
   const message = failed ? `${saved} artwork saved, ${failed} failed. Check the log.`
     : saved ? success : 'No artwork changed. Check the log for skipped images.';
-  log(message);
+  const entry = log(message);
   status(message);
-  toast(warning ? `${message} ${warning}` : message);
+  toast(warning ? `${message} ${warning}` : message, entry);
 }
 
 function canWriteShortcut(row) {
@@ -1344,13 +1350,13 @@ async function applyToSteam(targetRows, options = {}) {
     const message = changed || failed ? `${added} added, ${updated} updated, ${artworkSaved} artwork saved.`
       + (failed ? ` ${failed} failed. Check the log.` : '')
       : 'No changes were made. Check the log.';
-    log(message);
+    const entry = log(message);
     status(message);
-    toast(warning ? `${message} ${warning}` : message);
+    toast(warning ? `${message} ${warning}` : message, entry);
   } catch (e) {
     const message = writeCompleted ? 'Steam write completed, but the library could not update' : 'Write failed';
-    log(`${message}: ${e.message || e}`);
-    toast(`${message}: ${e.message || e}`);
+    const feedback = `${message}: ${e.message || e}`;
+    toast(feedback, log(feedback));
   }
 }
 
@@ -1380,7 +1386,7 @@ async function doRemoveFromSteam() {
   await syncSteamLibrary(); // drop shortcut rows whose entries just vanished
   log(`Removed ${removed} shortcuts. Backup: ${backup || 'none'}.`);
   status(`Removed ${removed}.`);
-  if (warning) { log(warning); toast(warning); }
+  if (warning) toast(warning, log(warning));
 }
 
 async function steamPresentOrToast() {
@@ -1417,7 +1423,7 @@ async function doPruneMissing() {  let stale;
   await syncSteamLibrary();
   log(`Pruned ${removed} stale shortcuts. Backup: ${backup || 'none'}.`);
   status(`Pruned ${removed}.`);
-  if (warning) { log(warning); toast(warning); }
+  if (warning) toast(warning, log(warning));
 }
 
 let desktopSave = Promise.resolve();
