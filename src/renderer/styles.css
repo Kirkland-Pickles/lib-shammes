@@ -271,7 +271,7 @@ button.game-open:hover:not(:disabled) { border-color: transparent; background: t
 .browse-tools { flex-wrap: wrap; }
 .launcher-editor > summary { cursor: pointer; color: var(--muted); }
 .launcher-editor[open] > summary { margin-bottom: 12px; }
-.import-choices { display: flex; gap: 10px; }
+.import-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 #review-list { flex: 1; min-height: 0; overflow: auto; }
 .review-row { display: grid; grid-template-columns: 24px minmax(160px, 1fr) minmax(180px, 1fr); gap: 16px; align-items: center; padding: 16px 8px; border-bottom: 1px solid var(--line); }
 .review-row span { color: var(--muted); line-height: 1.5; }
