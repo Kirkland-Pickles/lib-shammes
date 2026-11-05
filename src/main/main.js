@@ -30,7 +30,7 @@ function progress(current, total, label) {
 }
 function windowColors() {
   const light = cfg.theme === 'light' || (cfg.theme !== 'dark' && !nativeTheme.shouldUseDarkColors);
-  return light ? { background: '#eaeaea', text: '#1d2524' } : { background: '#111516', text: '#edf0eb' };
+  return light ? { background: '#eaeaea', text: '#1d2524' } : { background: '#151515', text: '#efefef' };
 }
 function updateWindowTheme() {
   if (!win || win.isDestroyed()) return;
